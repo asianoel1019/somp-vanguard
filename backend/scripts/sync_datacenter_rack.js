@@ -29,7 +29,8 @@ function getExportKeys() {
         try {
             const rows = db.prepare("SELECT key FROM document_store WHERE key LIKE 'data_center/%'").all();
             if (Array.isArray(rows)) {
-                rows.forEach(r => { if (r && r.key) keysSet.add(r.key); });
+                // LIKE treats '_' as a wildcard (it also matches legacy 'data/center/...' alias rows): exact prefix only
+                rows.forEach(r => { if (r && r.key && r.key.startsWith('data_center/')) keysSet.add(r.key); });
             }
         } catch (e) {
             console.warn(`[Export] Notice querying SQLite directly: ${e.message}. Using fallback discovery.`);

@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { requireAuth, checkRole, checkFeature } = require('../middleware/auth');
 const { auditLog, sendTelegramAlert, queueNotification, summarizeLines } = require('../lib/logger');
-const { readDataSync, writeDataSync } = require('../lib/db');
+const { readDataSync } = require('../lib/db');
 const { getAllSubnetData } = require('../services/inventoryStore');
 const {
     getFieldAuthorityRules,
@@ -57,9 +57,9 @@ router.post('/field-authority/reset', checkRole(['SuperAdmin', 'Operator']), (re
 });
 
 const CMDB_META_KEY = 'server_operation/server_cmdb_meta.json';
-const CMDB_HISTORY_KEY = 'server_operation/server_cmdb_history.json';
 const IPAM_KEY = 'network_service/ipam/subnets.json';
 const ipamStore = require('../lib/ipamStore'); // every IPAM write goes through its atomic read-modify-write
+const cmdbMetaStore = require('../lib/cmdbMetaStore'); // every CMDB meta / history write: atomic read-modify-write
 const PROMETHEUS_KEY = 'prometheus_targets.json';
 const { getTargetsSafely, updateTargetsSafely } = require('../lib/prometheusTargetHelper');
 const REDIS_KEY = 'service_platform/redis_connections.json';
@@ -101,19 +101,7 @@ function compareIPs(ipA, ipB) {
 // Helper to record CMDB Audit History
 function recordCmdbHistory(ip, username, action, oldData, newData) {
     try {
-        let history = readDataSync(CMDB_HISTORY_KEY, []);
-        const entry = {
-            id: Date.now().toString() + '-' + Math.random().toString(36).substr(2, 4),
-            ip: String(ip).trim(),
-            username: username || 'SYSTEM',
-            action: action || 'UPDATE',
-            timestamp: new Date().toISOString(),
-            oldData: oldData || {},
-            newData: newData || {}
-        };
-        history.unshift(entry);
-        if (history.length > 500) history = history.slice(0, 500);
-        writeDataSync(CMDB_HISTORY_KEY, history);
+        cmdbMetaStore.appendHistory(cmdbMetaStore.makeHistoryEntry(ip, username, action, oldData, newData), 500);
     } catch (e) {
         console.error('[ServerList CMDB History] Error:', e.message);
     }
@@ -327,14 +315,12 @@ function syncScoutDisksToCmdb() {
         const monitors = scoutDb.all("SELECT id, ip, name, os, lastSeen FROM monitors WHERE ip IS NOT NULL AND ip != '' AND ip != '0.0.0.0'");
         if (!monitors || monitors.length === 0) return { updated: 0 };
 
-        let cmdbMeta = readDataSync(CMDB_META_KEY, {});
-        let updatedCount = 0;
-        const scoutServersToUpsert = [];
+        // Telemetry is read first; only the per-IP disk values are applied to the CURRENT meta (atomic, below)
+        const diskByIp = new Map();
 
         monitors.forEach(m => {
             const ip = String(m.ip).trim();
             if (!ip) return;
-            if (cmdbMeta[ip] && cmdbMeta[ip].deleted === true) return; // deleted in Server List: never resurrect
 
             const row = scoutDb.get("SELECT metrics, timestamp FROM metrics WHERE monitorId = ? ORDER BY id DESC LIMIT 1", [m.id]);
             if (!row || !row.metrics) return;
@@ -372,14 +358,20 @@ function syncScoutDisksToCmdb() {
                 }
             });
 
-            if (totalGB > 0) {
+            if (totalGB > 0) diskByIp.set(ip, { m, totalGB, validDisks });
+        });
+
+        const scoutServersToUpsert = cmdbMetaStore.mutateMeta((cmdbMeta) => {
+            const out = [];
+            for (const [ip, { m, totalGB, validDisks }] of diskByIp) {
+                if (cmdbMeta[ip] && cmdbMeta[ip].deleted === true) continue; // deleted in Server List: never resurrect
                 if (!cmdbMeta[ip]) cmdbMeta[ip] = {};
                 cmdbMeta[ip].diskGB = totalGB;
                 cmdbMeta[ip].diskDetails = validDisks;
                 cmdbMeta[ip].diskUpdatedAt = new Date().toISOString();
                 cmdbMeta[ip].updatedAt = new Date().toISOString();
 
-                scoutServersToUpsert.push({
+                out.push({
                     ip: ip,
                     diskGB: totalGB,
                     diskDetails: validDisks,
@@ -388,13 +380,13 @@ function syncScoutDisksToCmdb() {
                     agentStatus: m.status || 'online',
                     lastSeen: m.lastSeen || new Date().toISOString()
                 });
-                updatedCount++;
             }
-        });
+            return out;
+        }, { reason: 'scout disk sync' });
+        const updatedCount = scoutServersToUpsert.length;
 
         if (scoutServersToUpsert.length > 0) {
             bulkUpsertCmdbServers(scoutServersToUpsert, 'SCOUT_AGENT');
-            writeDataSync(CMDB_META_KEY, cmdbMeta);
             console.log(`[Scout CMDB Disk Sync] Successfully updated disk specs for ${updatedCount} servers.`);
         }
         return { updated: updatedCount };
@@ -441,7 +433,6 @@ router.post('/sync-all', requireAuth, async (req, res) => {
         const inventory = getAllSubnetData() || [];
         const promTargets = getTargetsSafely();
         const ipamSubnets = readDataSync(IPAM_KEY, []);
-        let cmdbMeta = readDataSync(CMDB_META_KEY, {});
         const environments = envRegistry.getEnvironments();
 
         // Read Scout Agent Monitors
@@ -454,7 +445,12 @@ router.post('/sync-all', requireAuth, async (req, res) => {
         }
         const scoutMap = {};
         scoutMonitors.forEach(m => { scoutMap[String(m.ip).trim()] = m; });
+        const user = req.user ? req.user.username : 'System (Global Sync)';
 
+        // The per-IP decisions run against the CURRENT CMDB meta inside ONE atomic read-modify-write (the worker writes
+        // the meta too). fn keeps every output in its return value; side effects (history, cmdb_servers, Prometheus,
+        // IPAM, notifications) run afterwards.
+        const sync = cmdbMetaStore.mutateMeta((cmdbMeta) => {
         let updateCount = 0;
         const invMap = {};
         const linkedToMap = {};
@@ -478,7 +474,8 @@ router.post('/sync-all', requireAuth, async (req, res) => {
         promTargets.forEach(t => {
             let ip = t.ip || t.labels?.addr;
             if (!ip && t.targets && t.targets[0]) ip = t.targets[0].split(':')[0];
-            if (ip) promMap[String(ip).trim()] = t;
+            // a copy: the comparison below marks it, the stored targets are only changed through updateTargetsSafely
+            if (ip) promMap[String(ip).trim()] = { ...t, labels: t.labels ? { ...t.labels } : t.labels };
         });
 
         // Collect IPs from IPAM as well
@@ -509,8 +506,7 @@ router.post('/sync-all', requireAuth, async (req, res) => {
         const promModifiedList = [];
         const promEdits = new Map(); // ip -> values re-applied to a fresh read of the targets at save time
         const ipamEdits = new Map(); // ip -> CMDB values re-applied to a fresh read of IPAM at save time
-        const user = req.user ? req.user.username : 'System (Global Sync)';
-        const history = readDataSync(CMDB_HISTORY_KEY, []);
+        const historyEntries = [];
 
         for (const ip of allIps) {
             if (linkedToMap[ip]) continue; // Skip sync for linked VIPs/secondary IPs
@@ -681,7 +677,7 @@ router.post('/sync-all', requireAuth, async (req, res) => {
                 updateCount++;
                 
                 // Add audit history for bulk update
-                history.unshift({
+                historyEntries.push({
                     id: Date.now().toString() + Math.random().toString(36).substring(2, 5),
                     ip,
                     username: user,
@@ -690,12 +686,13 @@ router.post('/sync-all', requireAuth, async (req, res) => {
                 });
             }
         }
+        return { updateCount, historyEntries, promUpdated, promModifiedList, promEdits, ipamEdits };
+        }, { reason: 'global auto-sync' });
+        const { updateCount, historyEntries, promUpdated, promModifiedList, promEdits, ipamEdits } = sync;
 
         if (updateCount > 0) {
-            writeDataSync(CMDB_META_KEY, cmdbMeta);
-            if (history.length > 2000) history.splice(2000);
-            writeDataSync(CMDB_HISTORY_KEY, history);
-            bulkUpsertCmdbServers(Object.entries(cmdbMeta).map(([ip, meta]) => ({ ip, ...meta })), 'SCANNER');
+            cmdbMetaStore.appendHistory(historyEntries, 2000);
+            bulkUpsertCmdbServers(Object.entries(cmdbMetaStore.readMeta()).map(([ip, meta]) => ({ ip, ...meta })), 'SCANNER');
         }
         
         if (promUpdated) {
@@ -763,8 +760,8 @@ router.post('/sync-all', requireAuth, async (req, res) => {
 router.get('/cmdb-history/:ip', async (req, res) => {
     try {
         const ip = String(req.params.ip).trim();
-        const history = readDataSync(CMDB_HISTORY_KEY, []);
-        const serverHistory = history.filter(h => h.ip === ip);
+        // table cmdb_history, newest first; at most 2000 entries (the size the old capped history document could reach)
+        const serverHistory = cmdbMetaStore.readHistory({ ip, limit: 2000 });
         res.json({ history: serverHistory });
     } catch (e) {
         console.error('[ServerList] Fetch CMDB history error:', e);
@@ -1067,7 +1064,8 @@ router.put('/cmdb-meta/:ip', async (req, res) => {
         const envIn = resolveEnvInput(envId, envName);
         if (envIn.error) return res.status(400).json({ error: envIn.error });
 
-        let cmdbMeta = readDataSync(CMDB_META_KEY, {});
+        // atomic read-modify-write of the CURRENT meta (the worker writes it too)
+        const upd = cmdbMetaStore.mutateMeta((cmdbMeta) => {
         const oldData = cmdbMeta[ip] ? { ...cmdbMeta[ip] } : {};
         if (!cmdbMeta[ip]) cmdbMeta[ip] = {};
         // Manual add/edit is explicit intent to (re)create this server: clear the deleted flag
@@ -1103,8 +1101,10 @@ router.put('/cmdb-meta/:ip', async (req, res) => {
         if (deviceType !== undefined) cmdbMeta[ip].deviceType = deviceType;
 
         cmdbMeta[ip].updatedAt = new Date().toISOString();
-
-        writeDataSync(CMDB_META_KEY, cmdbMeta);
+        return { oldData, restored, entry: { ...cmdbMeta[ip] } };
+        }, { reason: 'manual CMDB edit' });
+        const { oldData, restored } = upd;
+        const cmdbMeta = { [ip]: upd.entry };
 
         // Update materialized cmdb_servers table
         upsertCmdbServer({ ip, ...cmdbMeta[ip] }, 'MANUAL', { allowDeleted: restored });
@@ -1146,10 +1146,12 @@ router.post('/bulk-cmdb-meta', async (req, res) => {
         const envIn = resolveEnvInput(data.envId, data.envName);
         if (envIn.error) return res.status(400).json({ error: envIn.error });
 
-        let cmdbMeta = readDataSync(CMDB_META_KEY, {});
+        // atomic read-modify-write of the CURRENT meta; per-IP side effects run afterwards from fn's result
+        const bulk = cmdbMetaStore.mutateMeta((cmdbMeta) => {
         let updatedCount = 0;
         let skippedDeleted = 0;
         const bulkUpdateList = [];
+        const changes = [];
 
         ips.forEach(rawIp => {
             const ip = String(rawIp).trim();
@@ -1180,12 +1182,18 @@ router.post('/bulk-cmdb-meta', async (req, res) => {
             cmdbMeta[ip].updatedAt = new Date().toISOString();
             updatedCount++;
             bulkUpdateList.push({ ip, ...cmdbMeta[ip] });
+            changes.push({ ip, oldData, entry: { ...cmdbMeta[ip] } });
+        });
+        return { updatedCount, skippedDeleted, bulkUpdateList, changes };
+        }, { reason: 'bulk CMDB edit' });
+        const { updatedCount, skippedDeleted, bulkUpdateList } = bulk;
 
+        bulk.changes.forEach(({ ip, oldData, entry }) => {
             // Perform cross-module sync for each IP in bulk
             syncCrossModules(ip, data.applicationName, data.businessUnit, undefined, envIn.env ? envIn.env.id : undefined);
 
             // Record Audit History
-            recordCmdbHistory(ip, req.user?.username || 'SYSTEM', 'BULK_UPDATE', oldData, cmdbMeta[ip]);
+            recordCmdbHistory(ip, req.user?.username || 'SYSTEM', 'BULK_UPDATE', oldData, entry);
 
             // Audit Log if user manually updated hardware specs
             if (data.cpuCores !== undefined && data.cpuCores !== '' || data.memoryGB !== undefined && data.memoryGB !== '') {
@@ -1198,7 +1206,6 @@ router.post('/bulk-cmdb-meta', async (req, res) => {
             }
         });
 
-        writeDataSync(CMDB_META_KEY, cmdbMeta);
         if (bulkUpdateList.length > 0) {
             bulkUpsertCmdbServers(bulkUpdateList, 'MANUAL');
         }
@@ -1233,17 +1240,19 @@ function describeCleanup(c) {
  */
 async function performServerDelete(ips, cleanup, username, historyAction) {
     const requested = serverDeletion.normalizeIps(ips);
-    const cmdbMeta = readDataSync(CMDB_META_KEY, {});
     const nowIso = new Date().toISOString();
+    // ONE atomic read-modify-write of the CURRENT meta (the worker writes it too). fn only reads other stores
+    // (cmdb_servers, Scout monitors); deletes, history and cleanup run afterwards from its result.
+    const del = cmdbMetaStore.mutateMeta((cmdbMeta) => {
     // An IP that is not in Server List (or already deleted) gets no deleted meta entry and no side effects
     const list = requested.filter(ip => serverDeletion.serverExists(ip, cmdbMeta));
     const skipped = requested.filter(ip => !list.includes(ip));
-    if (list.length === 0) return { count: 0, skipped, cleaned: {}, historyJob: null };
+    if (list.length === 0) return { list, skipped, monitors: [], allIps: [], history: [] };
 
     // Resolve everything that depends on rows we are about to delete BEFORE deleting them
     const monitors = serverDeletion.getMonitorsByIps(list);
-    const monitorIds = monitors.map(m => m.id);
     const allIps = new Set(list);
+    const history = [];
 
     list.forEach(ip => {
         const getLinkedVips = (i) => serverDeletion.getLinkedVips(i, cmdbMeta);
@@ -1268,10 +1277,18 @@ async function performServerDelete(ips, cleanup, username, historyAction) {
         cmdbMeta[ip].deletedReason = 'manual';
         delete cmdbMeta[ip].restoredAt;
         delete cmdbMeta[ip].restoredBy;
+        history.push({ ip, oldData });
+    });
+    return { list, skipped, monitors, allIps: [...allIps], history };
+    }, { reason: 'server delete' });
+    const { list, skipped, monitors } = del;
+    if (list.length === 0) return { count: 0, skipped, cleaned: {}, historyJob: null };
+    const monitorIds = monitors.map(m => m.id);
+    const allIps = new Set(del.allIps);
+    del.history.forEach(({ ip, oldData }) => {
         deleteCmdbServer(ip);
         recordCmdbHistory(ip, username, historyAction, oldData, { deleted: true, cleanup });
     });
-    writeDataSync(CMDB_META_KEY, cmdbMeta);
 
     try {
         const scoutDb = require('../services/scoutDb');
@@ -1362,16 +1379,19 @@ router.post('/:ip/restore', checkRole(['Operator', 'SuperAdmin']), async (req, r
     try {
         const ip = String(req.params.ip).trim();
         const username = req.user?.username || 'SYSTEM';
-        const cmdbMeta = readDataSync(CMDB_META_KEY, {});
-        if (!cmdbMeta[ip] || cmdbMeta[ip].deleted !== true || serverDeletion.isLinkedVipMeta(cmdbMeta[ip])) {
+        // atomic read-modify-write of the CURRENT meta
+        const rest = cmdbMetaStore.mutateMeta((cmdbMeta) => {
+            if (!cmdbMeta[ip] || cmdbMeta[ip].deleted !== true || serverDeletion.isLinkedVipMeta(cmdbMeta[ip])) return null;
+            const oldData = { ...cmdbMeta[ip] };
+            clearDeletedFlag(cmdbMeta[ip], username);
+            cmdbMeta[ip].updatedAt = new Date().toISOString();
+            return { oldData, entry: { ...cmdbMeta[ip] } };
+        }, { reason: 'server restore' });
+        if (!rest) {
             return res.status(404).json({ error: 'No deleted server found for this IP' });
         }
-        const oldData = { ...cmdbMeta[ip] };
-        clearDeletedFlag(cmdbMeta[ip], username);
-        cmdbMeta[ip].updatedAt = new Date().toISOString();
-        writeDataSync(CMDB_META_KEY, cmdbMeta);
-        upsertCmdbServer({ ip, ...cmdbMeta[ip] }, 'MANUAL', { allowDeleted: true });
-        recordCmdbHistory(ip, username, 'RESTORE', oldData, cmdbMeta[ip]);
+        upsertCmdbServer({ ip, ...rest.entry }, 'MANUAL', { allowDeleted: true });
+        recordCmdbHistory(ip, username, 'RESTORE', rest.oldData, rest.entry);
         auditLog(username, 'Server List CMDB', `Restored deleted server IP: ${ip}`);
         res.json({ success: true, ip });
     } catch (e) {
@@ -1468,9 +1488,11 @@ function findUnknownVmEnvs(vms, envs) {
 function upsertClonedVms(vms, operator = 'SYSTEM') {
     if (!Array.isArray(vms) || vms.length === 0) return { count: 0 };
     const environments = envRegistry.getEnvironments();
-    let cmdbMeta = readDataSync(CMDB_META_KEY, {});
+    // atomic read-modify-write of the CURRENT meta; cross-module sync and history run afterwards from fn's result
+    const ups = cmdbMetaStore.mutateMeta((cmdbMeta) => {
     let updatedCount = 0;
     const serverListToUpsert = [];
+    const changes = [];
 
     vms.forEach(vm => {
         const ip = String(vm.IP || vm.ip || '').trim();
@@ -1539,11 +1561,16 @@ function upsertClonedVms(vms, operator = 'SYSTEM') {
         }
 
         updatedCount++;
-        syncCrossModules(ip, appVal, buVal, hostname, rowEnv ? rowEnv.id : undefined);
-        recordCmdbHistory(ip, operator, (wasDeleted && !updatedServer.deleted) ? 'RESTORE' : 'EXCEL_SYNC_UPSERT', oldData, cmdbMeta[ip]);
+        changes.push({ ip, appVal, buVal, hostname, envId: rowEnv ? rowEnv.id : undefined, action: (wasDeleted && !updatedServer.deleted) ? 'RESTORE' : 'EXCEL_SYNC_UPSERT', oldData, entry: { ...cmdbMeta[ip] } });
+    });
+    return { updatedCount, serverListToUpsert, changes };
+    }, { reason: 'VM upsert' });
+    const { updatedCount, serverListToUpsert } = ups;
+    ups.changes.forEach(c => {
+        syncCrossModules(c.ip, c.appVal, c.buVal, c.hostname, c.envId);
+        recordCmdbHistory(c.ip, operator, c.action, c.oldData, c.entry);
     });
 
-    writeDataSync(CMDB_META_KEY, cmdbMeta);
     if (serverListToUpsert.length > 0) {
         bulkUpsertCmdbServers(serverListToUpsert, 'EXCEL_SYNC');
     }

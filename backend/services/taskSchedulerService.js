@@ -8,7 +8,6 @@ const { appendLog } = require('../lib/logger');
 
 const BASE_DATA_DIR = process.env.DB_DATA_DIR || 'C:\\ProgramData\\somp-vanguard';
 const TASKS_FILE = path.join(BASE_DATA_DIR, 'server_operation', 'scheduler_tasks.json');
-const LOGS_FILE = path.join(BASE_DATA_DIR, 'server_operation', 'scheduler_logs.json');
 
 let schedulerInterval = null;
 let lastTickMinute = -1;
@@ -102,22 +101,18 @@ function matchesCron(cronExpression, date) {
     }
 }
 
-const { readDataSync, writeDataSync } = require('../lib/db');
+// Tasks and logs are written by this process AND the other one (cron in the worker, "Run now" in the web):
+// every write is an atomic read-modify-write through lib/schedulerStore.js
+const schedulerStore = require('../lib/schedulerStore');
 
 // Helper to read tasks
 function getTasks() {
-    return readDataSync('server_operation/scheduler_tasks.json', []);
-}
-
-// Helper to save tasks
-function saveTasks(data) {
-    writeDataSync('server_operation/scheduler_tasks.json', data);
+    return schedulerStore.readTasks();
 }
 
 // Helper to append execution logs
 function appendExecutionLog(taskId, taskName, runStatus, stdout, stderr, durationMs) {
     try {
-        let logs = readDataSync('server_operation/scheduler_logs.json', []);
         const newLog = {
             id: Date.now().toString(),
             taskId,
@@ -128,8 +123,7 @@ function appendExecutionLog(taskId, taskName, runStatus, stdout, stderr, duratio
             stderr: stderr || 'No stderr returned.',
             executionTimeMs: durationMs
         };
-        logs.push(newLog);
-        writeDataSync('server_operation/scheduler_logs.json', logs);
+        schedulerStore.appendLog(newLog);
     } catch (e) {
         console.error('Failed to write execution logs:', e);
     }
@@ -138,12 +132,15 @@ function appendExecutionLog(taskId, taskName, runStatus, stdout, stderr, duratio
 // Update task execution status in tasks list
 function updateTaskRunMeta(taskId, statusStr) {
     try {
-        let tasks = getTasks();
-        const idx = tasks.findIndex(t => t.id === taskId);
-        if (idx !== -1) {
+        // only this task's run fields are changed, on the CURRENT list (an edit made during the run is kept)
+        const found = schedulerStore.mutateTasks((tasks) => {
+            const idx = tasks.findIndex(t => t.id === taskId);
+            if (idx === -1) return false;
             tasks[idx].lastRunTime = new Date().toISOString();
             tasks[idx].lastRunStatus = statusStr;
-            saveTasks(tasks);
+            return true;
+        }, { reason: 'task run metadata' });
+        if (found) {
             try {
                 const { broadcastEvent } = require('../lib/websocket');
                 broadcastEvent('TASK_COMPLETED', { taskId, statusStr });

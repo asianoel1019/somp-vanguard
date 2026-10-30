@@ -159,6 +159,12 @@ function rewriteDoc(key, newName, oldTerms, visit, id, validIds) {
         if (readDataSync(key, null) == null) return 0;
         return require('./sslMonitorService').mutateRecords((data) => rewriteVisit(data, newName, oldTerms, visit, id, validIds), 'environment rename');
     }
+    // CMDB meta: the worker writes it too -> its atomic store
+    if (key === KEYS.meta) {
+        if (readDataSync(key, null) == null) return 0;
+        return require('../lib/cmdbMetaStore').mutateMeta((data) => rewriteVisit(data, newName, oldTerms, visit, id, validIds), { reason: 'environment rename' });
+    }
+    // remaining keys are web-only replace-mode documents (database inventory / requests): synchronous read -> write
     const data = readDataSync(key, null);
     if (data === null || data === undefined) return 0;
     const count = rewriteVisit(data, newName, oldTerms, visit, id, validIds);

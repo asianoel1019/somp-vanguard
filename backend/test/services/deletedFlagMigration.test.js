@@ -7,7 +7,6 @@ const cmdb = require('../../services/cmdbModel');
 const serverDeletion = require('../../services/serverDeletion');
 
 const META_KEY = 'server_operation/server_cmdb_meta.json';
-const HISTORY_KEY = 'server_operation/server_cmdb_history.json';
 const row = (ip) => libDb.prepare('SELECT ip FROM cmdb_servers WHERE ip = ?').get(ip);
 
 test.before(async () => { await dbManager.initDB(); });
@@ -24,7 +23,7 @@ test('migration clears stale deleted flags only where the server is still presen
         '10.5.0.4': { hostname: 'ROWVIP', deleted: true }                                          // meta without VIP marks but row is a VIP
     });
     cmdb.upsertCmdbServer({ ip: '10.5.0.4', hostname: 'ROWVIP', linkedToIp: '10.5.0.3' }, 'SCANNER', { allowDeleted: true });
-    writeDataSync(HISTORY_KEY, []);
+    require('../../services/logTables').getHandle().exec('DELETE FROM cmdb_history');
 
     const r = serverDeletion.migrateResurrectedDeletedFlags();
     assert.deepEqual(r.ips, ['10.5.0.1']);
@@ -36,7 +35,7 @@ test('migration clears stale deleted flags only where the server is still presen
     assert.equal(meta['10.5.0.2'].deleted, true);
     assert.equal(meta['10.5.0.9'].deleted, true);
     assert.equal(meta['10.5.0.4'].deleted, true);
-    const h = readDataSync(HISTORY_KEY, []);
+    const h = require('../../lib/cmdbMetaStore').readHistory();
     assert.equal(h.length, 1);
     assert.deepEqual([h[0].ip, h[0].action, h[0].username], ['10.5.0.1', 'RESTORE', 'MIGRATION']);
     assert.ok(row('10.5.0.1'));

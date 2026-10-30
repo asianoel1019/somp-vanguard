@@ -43,6 +43,10 @@ function resolveOpts(key, opts = {}) {
     return {
         key,
         normalize,
+        // optional codec for documents not stored as plain JSON (e.g. an encrypted string): decode(stored) -> value,
+        // encode(doc) -> the string to store. Changes are detected on JSON.stringify(doc) (the decoded value).
+        decode: typeof opts.decode === 'function' ? opts.decode : null,
+        encode: typeof opts.encode === 'function' ? opts.encode : null,
         fallbackRevisionKey: opts.fallbackRevisionKey || `${String(key).replace(/\.json$/i, '')}.revision.json`,
         fnName: opts.fnName || 'docStore.mutateDocument',
         label: opts.label || key,
@@ -51,6 +55,10 @@ function resolveOpts(key, opts = {}) {
 }
 
 function parseDoc(raw, o) {
+    if (o.decode) {
+        if (raw === null || raw === undefined || raw === '') return o.normalize(o.decode(null));
+        try { return o.normalize(o.decode(raw)); } catch (e) { return o.normalize(null); }
+    }
     if (raw === null || raw === undefined || raw === '') return o.normalize(null);
     try { return o.normalize(typeof raw === 'string' ? JSON.parse(raw) : raw); } catch (e) { return o.normalize(null); }
 }
@@ -63,17 +71,22 @@ function loadLocked(handle, o) {
     // fallback / seed). The cache is NOT dropped here: when the document only exists in the active DB (e.g. a
     // PostgreSQL deployment whose database.sqlite never had it) dropping it would read the default and wipe the
     // document. The first write stores it in the local SQLite, later mutations are then fully locked.
-    return o.normalize(dbMod.readDataSync(o.key, null));
+    const cached = dbMod.readDataSync(o.key, null);
+    return o.decode ? parseDoc(cached, o) : o.normalize(cached);
 }
+
+/** The value to store: the codec's string, else the pretty JSON already computed for the change check. */
+const encodeDoc = (doc, json, o) => (o.encode ? o.encode(doc) : json);
 
 /** Fallback mode: the shared flat-file copy (cache dropped); the cached copy when there is no file. */
 function loadFresh(o) {
     const cached = dbMod.readDataSync(o.key, null);
     dbMod.invalidateCache(o.key);
     const fresh = dbMod.readDataSync(o.key, null);
-    if (fresh !== null && fresh !== undefined) return o.normalize(fresh);
+    const norm = (v) => (o.decode ? parseDoc(v, o) : o.normalize(v));
+    if (fresh !== null && fresh !== undefined) return norm(fresh);
     if (cached !== null && cached !== undefined) dbMod.invalidateCache(o.key, cached); // keep it for readers
-    return o.normalize(cached);
+    return norm(cached);
 }
 
 function begin(handle) {
@@ -104,7 +117,7 @@ function mutateLocked(handle, fn, o) {
         const result = runFn(fn, doc, o);
         const after = JSON.stringify(doc, null, 2);
         if (after !== before) {
-            dbMod.writeDataSync(o.key, after);
+            dbMod.writeDataSync(o.key, encodeDoc(doc, after, o));
             wrote = true;
         }
         if (own) handle.exec('COMMIT');
@@ -133,7 +146,7 @@ function mutateWithRevision(fn, o) {
         const after = JSON.stringify(doc, null, 2);
         if (after === before) return result;
         if (readRevision(o.fallbackRevisionKey) !== rev && attempt < MAX_ATTEMPTS - 1) continue; // another process wrote meanwhile: redo on its version
-        dbMod.writeDataSync(o.key, after);
+        dbMod.writeDataSync(o.key, encodeDoc(doc, after, o));
         dbMod.writeDataSync(o.fallbackRevisionKey, { rev: rev + 1, updatedAt: new Date().toISOString() });
         return result;
     }
@@ -145,6 +158,8 @@ function mutateWithRevision(fn, o) {
  *   fallbackRevisionKey  revision document used when there is no local SQLite (default `<key>.revision.json`)
  *   defaultValue         value when the document does not exist (default []; an object default makes it an object doc)
  *   normalize(v)         shape normaliser applied to the loaded value (default: array docs -> array, object docs -> object)
+ *   decode(raw), encode(doc)  codec for a document that is not stored as JSON (e.g. system/rbac.json, encrypted);
+ *                        decode receives the stored value (null when absent), encode returns the string to store
  *   fnName, label, reason  diagnostics only (error messages)
  */
 function mutateDocument(key, fn, opts = {}) {
@@ -156,4 +171,25 @@ function mutateDocument(key, fn, opts = {}) {
     return mutateWithRevision(fn, o);
 }
 
-module.exports = { mutateDocument };
+/** Replaces the contents of `doc` (array or object, in place) with `value` (same kind). */
+function replaceContents(doc, value) {
+    if (Array.isArray(doc)) {
+        doc.length = 0;
+        for (const v of Array.isArray(value) ? value : []) doc.push(v);
+        return doc;
+    }
+    for (const k of Object.keys(doc)) delete doc[k];
+    Object.assign(doc, value && typeof value === 'object' ? value : {});
+    return doc;
+}
+
+/**
+ * Whole-document replacement under the same lock as mutateDocument (for writers whose new value is computed in full,
+ * e.g. a validated settings object). Prefer mutateDocument with a delta when the value was derived from an earlier read.
+ */
+function replaceDocument(key, value, opts = {}) {
+    const defaultValue = opts.defaultValue !== undefined ? opts.defaultValue : (Array.isArray(value) ? [] : {});
+    return mutateDocument(key, (doc) => { replaceContents(doc, value); }, { ...opts, defaultValue });
+}
+
+module.exports = { mutateDocument, replaceDocument, replaceContents };

@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const dbModule = require('./db');
 const { readDataSync, writeDataSync } = dbModule;
+const { mutateDocument, replaceDocument, replaceContents } = require('./docStore');
 
 let BASE_DATA_DIR = process.env.DB_DATA_DIR;
 if (!BASE_DATA_DIR) {
@@ -222,7 +223,7 @@ async function importLegacyTargetsFileOnce(opts = {}) {
         if (shouldImport) {
             if (Array.isArray(current) && current.length > 0) createRollingBackup(current, 'pre_legacy_import');
             const sorted = sortTargets([...parsed]);
-            writeDataSync(TARGETS_KEY, sorted);
+            replaceDocument(TARGETS_KEY, sorted, { defaultValue: [], fnName: 'prometheusTargetHelper.importLegacy' });
             let timer;
             try {
                 const dbManager = require('../services/db');
@@ -302,28 +303,64 @@ async function saveTargetsSafely(newTargets, source = 'system', options = {}) {
  */
 async function updateTargetsSafely(mutator, source = 'system', options = {}) {
     return withLock(async () => {
-        const current = getTargetsSafely();
-        const out = await mutator(current);
-        if (!out || !Array.isArray(out.targets)) return { saved: false, result: out ? out.result : undefined };
-        await saveTargetsLocked(out.targets, source, options);
-        return { saved: true, result: out.result };
+        // The in-process queue orders this process' writers; the read -> mutator -> write itself is ONE
+        // cross-process atomic step (docStore.mutateDocument: the worker writes the targets too).
+        // The mutator must therefore be synchronous (every caller's mutator is).
+        return mutateTargetsDoc((current) => {
+            const out = mutator(current);
+            if (out && typeof out.then === 'function') {
+                throw new Error('updateTargetsSafely: mutator must be synchronous (it returned a Promise)');
+            }
+            if (!out || !Array.isArray(out.targets)) return { saved: false, result: out ? out.result : undefined };
+            return { saved: true, result: out.result, targets: out.targets };
+        }, source, options);
     });
 }
 
+/**
+ * Atomic read-modify-write of the targets document. decide(currentTargets) -> { saved, result, targets? }; when
+ * saved, `targets` replaces the document (after the wipe guard, rolling backup and sort of saveTargetsLocked).
+ * Runs inside mutateDocument: decide must be synchronous and must not keep state outside its return value.
+ */
+function mutateTargetsDoc(decide, source, options) {
+    // fail fast with the circuit breaker (unreadable / non-array document) before taking the write lock
+    if (!(options && options.allowWipe && options.replace)) getTargetsSafely();
+    const res = mutateDocument(TARGETS_KEY, (doc) => {
+        // Inside the lock: the CURRENT shared row (getTargetsSafely reads database.sqlite directly), with its circuit breakers
+        let current;
+        try {
+            current = getTargetsSafely();
+        } catch (e) {
+            // a full replacement with allowWipe (backup restore) may overwrite an unreadable document
+            if (!(options && options.allowWipe && options.replace)) throw e;
+            current = [];
+        }
+        const out = decide(current);
+        if (!out.saved) return { saved: false, result: out.result };
+        const sorted = prepareTargetsForSave(out.targets, current, source, options);
+        replaceContents(doc, sorted);
+        return { saved: true, result: out.result, sorted };
+    }, { defaultValue: [], fnName: 'prometheusTargetHelper.mutateTargets', label: 'Prometheus targets' });
+    return res;
+}
+
 async function saveTargetsLocked(newTargets, source = 'system', options = {}) {
+    if (!Array.isArray(newTargets)) {
+        throw new Error('saveTargetsSafely: newTargets must be an array');
+    }
+    const r = mutateTargetsDoc(() => ({ saved: true, targets: newTargets }), source, { ...options, replace: true });
+    return r.sorted;
+}
+
+/** Wipe guard, rolling backup of the current targets, sort. Returns the sorted list to store. */
+function prepareTargetsForSave(newTargets, currentFromLock, source = 'system', options = {}) {
     {
         if (!Array.isArray(newTargets)) {
             throw new Error('saveTargetsSafely: newTargets must be an array');
         }
 
         // 1. Defend against accidental wipe:
-        let currentTargets = [];
-        try {
-            currentTargets = getTargetsSafely();
-        } catch (e) {
-            if (!options.allowWipe) throw e;
-            currentTargets = [];
-        }
+        const currentTargets = Array.isArray(currentFromLock) ? currentFromLock : [];
 
         if (currentTargets.length > 30 && newTargets.length === 0 && !options.allowWipe) {
             throw new Error(`Circuit Breaker Tripped: Blocked attempt to wipe all ${currentTargets.length} targets. Set allowWipe: true if intentional.`);
@@ -342,13 +379,7 @@ async function saveTargetsLocked(newTargets, source = 'system', options = {}) {
             return compareIPs(ipA, ipB);
         });
 
-        // 4. Write to the document store (single source of truth; no flat file)
-        try {
-            writeDataSync(TARGETS_KEY, sorted);
-        } catch (dbErr) {
-            console.error('[PrometheusTargetHelper] Warning: SQLite sync failed:', dbErr.message);
-        }
-
+        // 4. The caller (mutateTargetsDoc) writes it to the document store (single source of truth; no flat file)
         return sorted;
     }
 }

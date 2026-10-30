@@ -4,14 +4,24 @@ const http = require('http');
 const https = require('https');
 const tls = require('tls');
 
-const { readDataSync, writeDataSync } = require('../lib/db');
+const { readDataSync } = require('../lib/db');
+const { mutateDocument, replaceDocument } = require('../lib/docStore');
+
+const WEBHOOKS_KEY = 'service_platform/webhooks.json';
 
 function loadWebhooks() {
-    return readDataSync('service_platform/webhooks.json', []);
+    return readDataSync(WEBHOOKS_KEY, []);
 }
 
+/** Atomic read-modify-write of the webhook list (fn synchronous, mutates in place, returns the result). */
+function mutateWebhooks(fn) {
+    return mutateDocument(WEBHOOKS_KEY, fn, { defaultValue: [], fnName: 'webhookService.mutateWebhooks', label: 'webhooks' });
+}
+
+/** Whole-list replacement under the same lock (prefer mutateWebhooks). */
 function saveWebhooks(webhooks) {
-    return writeDataSync('service_platform/webhooks.json', webhooks);
+    replaceDocument(WEBHOOKS_KEY, webhooks, { defaultValue: [] });
+    return true;
 }
 
 // Function to log webhook events into C:\ProgramData\somp-vanguard\logs\ and stdout/stderr
@@ -350,8 +360,10 @@ async function handleIncomingWebhook(id, payload, sourceIp) {
 }
 
 module.exports = {
+    WEBHOOKS_KEY,
     loadWebhooks,
     saveWebhooks,
+    mutateWebhooks,
     executeWebhook,
     triggerWebhooks,
     selectWebhooksForCategory,

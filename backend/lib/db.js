@@ -173,11 +173,57 @@ function readDataSync(key, defaultValue = null) {
     return defaultValue;
 }
 
+// --------------------------------------------------------------------------
+// Optional write tracing (off by default): DOC_WRITE_TRACE=1 appends one line per document write to
+// <data dir>/logs/doc_write_trace.log:  ISO time | pid | web|worker | key | bytes | caller file:line
+// The file is rotated at 20 MB (renamed to .1). Tracing never throws and never blocks a write.
+// --------------------------------------------------------------------------
+const TRACE_MAX_BYTES = 20 * 1024 * 1024;
+const TRACE_SKIP_FILES = /[\\/]lib[\\/](db|docStore)\.js$/;
+
+/** 'web' or 'worker', decided the same way writeDataSync picks its IPC direction. */
+function processRole() {
+    if (typeof global.sendWorkerMessage === 'function') return 'web';
+    if (typeof process.send === 'function') return 'worker';
+    const main = require.main && require.main.filename ? path.basename(require.main.filename) : '';
+    return main === 'worker.js' ? 'worker' : 'web';
+}
+
+/** First stack frames outside lib/db.js and lib/docStore.js ("file:line < file:line"). */
+function traceCaller() {
+    const frames = String(new Error().stack || '').split('\n').slice(1);
+    const out = [];
+    for (const f of frames) {
+        const m = /\(?([A-Za-z]:[\\/][^():]+|\/[^():]+|[^():\s]+\.js):(\d+):\d+\)?\s*$/.exec(f.trim());
+        if (!m) continue;
+        const file = m[1];
+        if (TRACE_SKIP_FILES.test(file) || file.startsWith('node:')) continue;
+        const rel = path.relative(path.join(__dirname, '..'), file).replace(/\\/g, '/');
+        out.push(`${rel.startsWith('..') ? file : rel}:${m[2]}`);
+        if (out.length >= 2) break;
+    }
+    return out.join(' < ') || 'unknown';
+}
+
+function traceWrite(key, bytes) {
+    try {
+        if (process.env.DOC_WRITE_TRACE !== '1') return;
+        const dir = path.join(TARGET_DB_DIR, 'logs');
+        const file = path.join(dir, 'doc_write_trace.log');
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        try {
+            if (fs.statSync(file).size >= TRACE_MAX_BYTES) fs.renameSync(file, `${file}.1`);
+        } catch (e) { /* no file yet */ }
+        fs.appendFileSync(file, `${new Date().toISOString()} | ${process.pid} | ${processRole()} | ${key} | ${bytes} | ${traceCaller()}\n`);
+    } catch (e) { /* tracing is best effort */ }
+}
+
 /**
  * Write data synchronously to Key-Value store with async DB write-through.
  */
 function writeDataSync(key, data) {
     const strData = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+    traceWrite(key, Buffer.byteLength(strData, 'utf8'));
 
     // 1. Immediately update RAM cache (synchronous read guaranteed)
     inMemoryDocStore.set(key, strData);

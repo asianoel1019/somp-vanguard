@@ -12,6 +12,7 @@ const { auditLog } = require('../lib/logger');
 const LICENSES_DIR = process.env.DB_DATA_DIR ? path.join(process.env.DB_DATA_DIR, 'data_center', 'licenses') : 'C:\\ProgramData\\somp-vanguard\\data_center\\licenses';
 
 const { readDataSync, writeDataSync } = require('../lib/db');
+const { mutateDocument, replaceDocument } = require('../lib/docStore');
 const rackStore = require('../lib/rackStore');
 const { getRacks, saveRacks, getRackRevision, normDcId } = rackStore;
 const { placementProblem, validateRacks, isSideMounted } = require('../lib/rackLayout');
@@ -213,8 +214,9 @@ function getContracts() {
     return readDataSync('data_center/contracts.json', []);
 }
 
+// Synchronous read -> change -> save callers only (no await in between); the upload route merges via mutateDocument
 function saveContracts(data) {
-    writeDataSync('data_center/contracts.json', data);
+    replaceDocument('data_center/contracts.json', data, { defaultValue: [] });
 }
 
 router.use(requireAuth);
@@ -764,9 +766,6 @@ router.post('/contracts', writeRoles, async (req, res) => {
     try {
         const { id, type, name, vendor, startDate, endDate, linkedDevices, licenseKey, serialNumber, seats, cost, currency, fileBase64, originalFileName, fileType } = req.body;
 
-        const contracts = getContracts();
-        const index = contracts.findIndex(c => c.id === id);
-
         let savedFileName = null;
         if (fileBase64 && originalFileName) {
             const base64DataStr = fileBase64.replace(/^data:([a-zA-Z0-9-+/.]+);base64,/, '');
@@ -806,20 +805,25 @@ router.post('/contracts', writeRoles, async (req, res) => {
             }
         }
 
-        const contractObj = {
-            id: id || `contract-${Date.now()}`,
-            type, name, vendor, startDate, endDate, linkedDevices, licenseKey, serialNumber, seats, cost, currency,
-            savedFileName: savedFileName || (index >= 0 ? contracts[index].savedFileName : null),
-            originalFileName: originalFileName || (index >= 0 ? contracts[index].originalFileName : null),
-            fileType: fileType || (index >= 0 ? contracts[index].fileType : null)
-        };
-
-        if (index >= 0) contracts[index] = contractObj;
-        else contracts.push(contractObj);
-
-        saveContracts(contracts);
-        auditLog(req.user.username, 'Contracts & Warranties', `${index >= 0 ? 'Updated' : 'Added'} Contract: ${name}`);
-        res.json({ success: true, contract: contractObj });
+        // The virus scan above is awaited: the contract is merged by id into the CURRENT list (atomic read-modify-write),
+        // so a contract saved / deleted meanwhile is not lost
+        const contractId = id || `contract-${Date.now()}`;
+        const saved = mutateDocument('data_center/contracts.json', (current) => {
+            const idx = id ? current.findIndex(c => c.id === id) : -1;
+            const prev = idx >= 0 ? current[idx] : null;
+            const contractObj = {
+                id: contractId,
+                type, name, vendor, startDate, endDate, linkedDevices, licenseKey, serialNumber, seats, cost, currency,
+                savedFileName: savedFileName || (prev ? prev.savedFileName : null),
+                originalFileName: originalFileName || (prev ? prev.originalFileName : null),
+                fileType: fileType || (prev ? prev.fileType : null)
+            };
+            if (idx >= 0) current[idx] = contractObj;
+            else current.push(contractObj);
+            return { contractObj, updated: idx >= 0 };
+        }, { defaultValue: [], fnName: 'rack.saveContract', label: 'contracts' });
+        auditLog(req.user.username, 'Contracts & Warranties', `${saved.updated ? 'Updated' : 'Added'} Contract: ${name}`);
+        res.json({ success: true, contract: saved.contractObj });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

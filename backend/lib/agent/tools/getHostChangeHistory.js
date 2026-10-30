@@ -1,8 +1,7 @@
-const { readDataSync } = require('../../db');
+const { readHistory } = require('../../cmdbMetaStore');
 const { queryCmdbServers } = require('../../../services/cmdbModel');
 const { findMonitors, splitIps, truncateText } = require('./common');
 
-const HISTORY_KEY = 'server_operation/server_cmdb_history.json';
 const IP_RE = /^(\d{1,3}\.){3}\d{1,3}$/;
 
 function show(v) {
@@ -40,10 +39,8 @@ module.exports = {
         }
         if (!ips.size) return { count: 0, changes: [], note: `No host matches "${host}"` };
 
-        const history = readDataSync(HISTORY_KEY, []);
-        const changes = (Array.isArray(history) ? history : [])
-            .filter(h => ips.has(h.ip) && h.action !== 'Global Auto-Sync')
-            .slice(0, limit)
+        // table cmdb_history, newest first (same filter / limit as the former document scan)
+        const changes = readHistory({ ips: [...ips], excludeAction: 'Global Auto-Sync', limit })
             .map(h => ({ timestamp: h.timestamp, ip: h.ip, user: h.username, action: h.action, changedFields: diffFields(h.oldData, h.newData) }));
         return { count: changes.length, ips: [...ips], changes };
     },

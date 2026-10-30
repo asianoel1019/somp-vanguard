@@ -219,8 +219,9 @@ test('paused execution does not persist injected system credentials', async (t) 
     process.env.AD_ADMIN_PWD = 'super-secret-ad-pwd';
     t.after(() => { delete process.env.AD_ADMIN_PWD; });
     const exec = await executeWorkflow(approvalWorkflow('wf-ap-secret'));
-    const stored = JSON.stringify(readDataSync('workflow_executions.json', []).find(e => e.id === exec.id));
-    assert.ok(!stored.includes('super-secret-ad-pwd'));
+    const raw = require('../../services/logTables').getHandle().prepare('SELECT entry FROM workflow_executions WHERE exec_id = ?').get(exec.id);
+    assert.ok(raw && raw.entry.includes(exec.id));
+    assert.ok(!raw.entry.includes('super-secret-ad-pwd'));
 });
 
 test('approving resumes from the approval node and completes the workflow', async () => {
@@ -274,11 +275,17 @@ test('resumed workflow can hit a second approval', async () => {
     assert.equal(done.nodeResults.final.status, 'success');
 });
 
-test('waiting executions are never trimmed from history', async () => {
+test('waiting executions are never trimmed from history', async (t) => {
+    // the table cap is 5000; the trimming rule is the same at any cap, so test it at the former 200
+    const { executionLimits } = require('../../lib/workflow');
+    const before = executionLimits.cap;
+    executionLimits.cap = 200;
+    t.after(() => { executionLimits.cap = before; });
     const paused = await executeWorkflow(approvalWorkflow('wf-ap-trim'));
     for (let i = 0; i < 205; i++) {
         await executeWorkflow({ id: 'wf-bulk', nodes: [loopNode('l', [])], edges: [] });
     }
     assert.equal(getExecution(paused.id).status, 'waiting_approval');
-    assert.ok(readDataSync('workflow_executions.json', []).length <= 200);
+    const count = require('../../services/logTables').getHandle().prepare('SELECT COUNT(*) AS c FROM workflow_executions').get().c;
+    assert.ok(count <= 200, `${count} rows`);
 });

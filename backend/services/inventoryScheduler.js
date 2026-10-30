@@ -72,7 +72,8 @@ function scanLog(msg) {
     console.log(`[Inventory] ${msg}`);
 }
 
-const { readDataSync, writeDataSync } = require('../lib/db');
+const { readDataSync } = require('../lib/db');
+const { mutateDocument, replaceDocument } = require('../lib/docStore');
 const scoutDb = require('./scoutDb');
 const { updateTargetsSafely } = require('../lib/prometheusTargetHelper');
 const { isIpVip, buildVipSet, reconcileAllLinkedVips, removeIpFromPrometheusTargets } = require('../lib/vipLinkageHelper');
@@ -332,8 +333,15 @@ function readJson(file, defaultData = []) {
     return readDataSync(getKey(file), defaultData);
 }
 
+// The inventory config is written by the web (settings edit) AND this worker (lastScan / lastDiscovered after a scan):
+// whole-document writes go through the shared document lock, field updates through mutateConfig.
 function writeJson(file, data) {
-    writeDataSync(getKey(file), data);
+    replaceDocument(getKey(file), data, { defaultValue: Array.isArray(data) ? [] : {}, fnName: 'inventoryScheduler.writeJson' });
+}
+
+/** Atomic read-modify-write of server_operation/oscheck/config.json (fn synchronous, mutates in place, returns the result). */
+function mutateConfig(fn, opts = {}) {
+    return mutateDocument(getKey(CONFIG_FILE), fn, { defaultValue: {}, fnName: 'inventoryScheduler.mutateConfig', label: 'inventory config', reason: opts.reason });
 }
 
 const inventoryStore = require('./inventoryStore');
@@ -1051,9 +1059,12 @@ async function runScanInner(config, validSubnets, options) {
 
         // lastScan / lastDiscovered are server-owned and describe the last COMPLETE full scan
         if (!isPartial && !scanAborted) {
-            updatedConfig.lastScan = new Date().toISOString();
-            updatedConfig.lastDiscovered = scanStatus.discovered;
-            writeJson(CONFIG_FILE, updatedConfig);
+            // only the server-owned scan fields, on the CURRENT config (a settings edit made during the scan is kept)
+            const lastScan = new Date().toISOString();
+            mutateConfig((cfg) => {
+                cfg.lastScan = lastScan;
+                cfg.lastDiscovered = scanStatus.discovered;
+            }, { reason: 'scan finished' });
         }
         
         const durationMs = Date.now() - scanStatus.startTime;
@@ -1354,9 +1365,10 @@ module.exports = {
     abortScanOrCloseGhost,
     initInventoryScheduler, 
     recoverInterruptedStatus,
-    readJson, 
-    writeJson, 
-    getAllSubnetData, 
+    readJson,
+    writeJson,
+    mutateConfig,
+    getAllSubnetData,
     sendComplianceReport,
     updateServerTags,
     autoSyncPrometheusTarget,

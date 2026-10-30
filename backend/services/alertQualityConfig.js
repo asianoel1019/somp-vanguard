@@ -3,7 +3,8 @@
  * Shared by the web and worker processes; the worker sees writes via the existing
  * INVALIDATE_DOC_CACHE IPC plus this module's 30 s cache.
  */
-const { readDataSync, writeDataSync } = require('../lib/db');
+const { readDataSync } = require('../lib/db');
+const { replaceDocument } = require('../lib/docStore');
 
 const CONFIG_KEY = 'system/alert_quality.json';
 const CACHE_MS = 30000;
@@ -114,7 +115,8 @@ function saveConfig(input) {
         err.errors = r.errors;
         throw err;
     }
-    writeDataSync(CONFIG_KEY, r.value);
+    // whole-document replacement (the validated, fully merged settings) under the shared document lock
+    replaceDocument(CONFIG_KEY, r.value, { defaultValue: {}, fnName: 'alertQualityConfig.saveConfig', label: 'alert quality' });
     invalidateConfig();
     return r.value;
 }

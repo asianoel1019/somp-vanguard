@@ -82,6 +82,12 @@ function updateDoc(docKey, fn, empty) {
         if (readDataSync(docKey, null) == null) return empty;
         return require('./sslMonitorService').mutateRecords((records) => fn(records).result, 'environment migration');
     }
+    // CMDB meta: the worker writes it too -> its atomic store (fn re-runs on the current document)
+    if (docKey === DOCS.meta) {
+        if (readDataSync(docKey, null) == null) return empty;
+        return require('../lib/cmdbMetaStore').mutateMeta((meta) => fn(meta).result, { reason: 'environment migration' });
+    }
+    // remaining keys are web-only replace-mode documents (database inventory / requests): synchronous read -> write
     const data = readDataSync(docKey, null);
     if (data === null || data === undefined) return empty;
     const out = fn(data);

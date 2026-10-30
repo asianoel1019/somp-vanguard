@@ -591,7 +591,7 @@ router.get('/lifecycle-config', checkRole(['SuperAdmin', 'Operator', 'Viewer']),
 // 10. Lifecycle Violation: Fetch state and violation records
 const {
     getViolationsData,
-    saveViolationsData,
+    mutateViolationsData,
     scanLifecycleViolations,
     deleteIndices
 } = require('../services/elkLifecycleScheduler');
@@ -609,14 +609,13 @@ router.get('/lifecycle-violations', checkRole(['SuperAdmin', 'Operator', 'Viewer
 router.post('/lifecycle-violations/config', checkRole(['SuperAdmin', 'Operator']), (req, res) => {
     const { schedule, targetEnv, indexPattern } = req.body;
     try {
-        const current = getViolationsData();
-        const updated = {
-            ...current,
-            schedule: schedule || current.schedule || '1 day',
-            targetEnv: targetEnv || current.targetEnv,
-            indexPattern: typeof indexPattern === 'string' ? indexPattern.trim() : current.indexPattern
-        };
-        saveViolationsData(updated);
+        // atomic read-modify-write: only the config fields change (a running scan's results are kept)
+        const updated = mutateViolationsData((current) => {
+            current.schedule = schedule || current.schedule || '1 day';
+            current.targetEnv = targetEnv || current.targetEnv;
+            current.indexPattern = typeof indexPattern === 'string' ? indexPattern.trim() : current.indexPattern;
+            return JSON.parse(JSON.stringify(current));
+        });
         auditLog(req.user.username, 'ELK Manager', `Updated lifecycle violation configuration (Pattern: ${updated.indexPattern}, Schedule: ${updated.schedule})`);
         res.json({ success: true, config: updated });
     } catch (err) {

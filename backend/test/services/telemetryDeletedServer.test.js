@@ -68,7 +68,7 @@ test('IP reuse: a different hostname on a deleted IP registers as a new server a
     const meta = readDataSync(META_KEY, {});
     assert.equal(meta['10.9.9.7'].deleted, false);
     assert.equal(meta['10.9.9.7'].restoredBy, 'SYSTEM');
-    assert.ok(readDataSync('server_operation/server_cmdb_history.json', []).some(h => h.ip === '10.9.9.7' && h.action === 'RESTORE_IP_REUSE'));
+    assert.ok(require('../../lib/cmdbMetaStore').readHistory().some(h => h.ip === '10.9.9.7' && h.action === 'RESTORE_IP_REUSE'));
 });
 
 test('a deleted-but-reporting agent is answered from a 60 s cache, not by re-reading CMDB meta', () => {

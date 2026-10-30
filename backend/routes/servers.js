@@ -1,7 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const { requireAuth, checkRole, checkFeature } = require('../middleware/auth');
-const { readDB, writeDB } = require('../lib/db');
+const { readDB } = require('../lib/db');
+// every dns_data.json change is an atomic read-modify-write of the CURRENT document (lib/dnsDataStore.js)
+const { mutateDnsDb } = require('../lib/dnsDataStore');
 const { runPowerShell, getADCredentialHeader, getCimSessionHeader, getCimSessionCleanup } = require('../lib/powershell');
 const { auditLog } = require('../lib/logger');
 
@@ -47,16 +49,16 @@ router.get('/:id/status', async (req, res) => {
 
 // POST /api/servers/:id/toggle
 router.post('/:id/toggle', checkRole(['SuperAdmin', 'Operator']), async (req, res) => {
-    const db = await readDB();
-    const server = db.servers.find(s => s.id === req.params.id);
+    const server = mutateDnsDb((db) => {
+        const srv = db.servers.find(s => s.id === req.params.id);
+        if (!srv) return null;
+        srv.disabled = !srv.disabled;
+        return { ...srv };
+    }, { reason: 'server toggle' });
     if (!server) return res.status(404).json({ error: 'Server not found' });
-
-    server.disabled = !server.disabled;
 
     // Clear alive check cache so it checks immediately on next call
     delete statusCache[req.params.id];
-
-    await writeDB(db);
 
     auditLog(req.user.username, 'DNS Hub', `${server.disabled ? 'Disabled' : 'Enabled'} DNS Server: ${server.name} (${server.hostname})`);
     res.json(server);
@@ -67,7 +69,6 @@ router.post('/', checkRole(['SuperAdmin', 'Operator']), async (req, res) => {
     const { name, hostname } = req.body;
     if (!name || !hostname) return res.status(400).json({ error: 'Name and hostname required' });
 
-    const db = await readDB();
     const newServer = {
         id: Date.now().toString(),
         name,
@@ -76,8 +77,7 @@ router.post('/', checkRole(['SuperAdmin', 'Operator']), async (req, res) => {
         cachedDomains: [],
         lastCacheUpdate: null
     };
-    db.servers.push(newServer);
-    await writeDB(db);
+    mutateDnsDb((db) => { db.servers.push(newServer); }, { reason: 'server add' });
 
     auditLog(req.user.username, 'DNS Hub', `Added DNS Server: ${name} (${hostname})`);
     res.json(newServer);
@@ -86,29 +86,30 @@ router.post('/', checkRole(['SuperAdmin', 'Operator']), async (req, res) => {
 // PUT /api/servers/:id
 router.put('/:id', checkRole(['SuperAdmin', 'Operator']), async (req, res) => {
     const { name, hostname } = req.body;
-    const db = await readDB();
-    const server = db.servers.find(s => s.id === req.params.id);
-    if (!server) return res.status(404).json({ error: 'Server not found' });
-
-    const oldName = server.name;
-    const oldHost = server.hostname;
-    if (name) server.name = name;
-    if (hostname) server.hostname = hostname;
-
-    await writeDB(db);
+    const upd = mutateDnsDb((db) => {
+        const srv = db.servers.find(s => s.id === req.params.id);
+        if (!srv) return null;
+        const old = { name: srv.name, hostname: srv.hostname };
+        if (name) srv.name = name;
+        if (hostname) srv.hostname = hostname;
+        return { old, server: { ...srv } };
+    }, { reason: 'server update' });
+    if (!upd) return res.status(404).json({ error: 'Server not found' });
+    const server = upd.server;
+    const oldName = upd.old.name;
+    const oldHost = upd.old.hostname;
     auditLog(req.user.username, 'DNS Hub', `Updated DNS Server: ${oldName} -> ${server.name} (${oldHost} -> ${server.hostname})`);
     res.json(server);
 });
 
 // DELETE /api/servers/:id
 router.delete('/:id', checkRole(['SuperAdmin']), async (req, res) => {
-    const db = await readDB();
-    const server = db.servers.find(s => s.id === req.params.id);
-    const serverName = server ? server.name : req.params.id;
-
-    db.servers = db.servers.filter(s => s.id !== req.params.id);
+    const serverName = mutateDnsDb((db) => {
+        const srv = db.servers.find(s => s.id === req.params.id);
+        for (let i = db.servers.length - 1; i >= 0; i--) if (db.servers[i].id === req.params.id) db.servers.splice(i, 1);
+        return srv ? srv.name : req.params.id;
+    }, { reason: 'server delete' });
     delete statusCache[req.params.id];
-    await writeDB(db);
 
     auditLog(req.user.username, 'DNS Hub', `Deleted DNS Server: ${serverName}`);
     res.json({ success: true });
@@ -270,14 +271,21 @@ router.post('/:id/cache-update', checkRole(['SuperAdmin', 'Operator']), async (r
         server.cachedDomains = zones;
         server.lastCacheUpdate = Date.now();
         server.lastError = null;
-        await writeDB(db);
+        // merge only this server's cache fields into the CURRENT document (the query above took seconds)
+        mutateDnsDb((cur) => {
+            const srv = cur.servers.find(s => s.id === server.id);
+            if (srv) { srv.cachedDomains = zones; srv.lastCacheUpdate = server.lastCacheUpdate; srv.lastError = null; }
+        }, { reason: 'zone cache update' });
 
         auditLog(req.user.username, 'DNS Hub', `Updated Zone Cache for: ${server.name}`);
         res.json({ success: true, domains: zones });
     } catch (error) {
         console.error('Cache update error:', error);
         server.lastError = 'Failed to update domain cache';
-        await writeDB(db);
+        mutateDnsDb((cur) => {
+            const srv = cur.servers.find(s => s.id === server.id);
+            if (srv) srv.lastError = server.lastError;
+        }, { reason: 'zone cache update error' });
         res.status(500).json({ error: 'Failed to update domain cache from server. Please contact administrator.' });
     }
 });

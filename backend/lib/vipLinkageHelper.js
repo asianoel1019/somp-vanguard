@@ -1,28 +1,17 @@
-const { readDataSync, writeDataSync, db } = require('./db');
+const { readDataSync, db } = require('./db');
+const cmdbMetaStore = require('./cmdbMetaStore');
 const { auditLog, queueNotification, summarizeLines } = require('./logger');
 const { updateTargetsSafely } = require('./prometheusTargetHelper');
 const { getCmdbServerByIp, upsertCmdbServer, deleteCmdbServer } = require('../services/cmdbModel');
 
 const CMDB_META_KEY = 'server_operation/server_cmdb_meta.json';
-const CMDB_HISTORY_KEY = 'server_operation/server_cmdb_history.json';
 const IPAM_KEY = 'network_service/ipam/subnets.json';
 
 // Helper to record CMDB Audit History
 function recordCmdbHistoryEntry(ip, username, action, oldData, newData) {
     try {
-        let history = readDataSync(CMDB_HISTORY_KEY, []);
-        const entry = {
-            id: Date.now().toString() + '-' + Math.random().toString(36).substr(2, 4),
-            ip: String(ip).trim(),
-            username: username || 'SYSTEM',
-            action: action || 'UPDATE',
-            timestamp: new Date().toISOString(),
-            oldData: oldData || {},
-            newData: newData || {}
-        };
-        history.unshift(entry);
-        if (history.length > 500) history = history.slice(0, 500);
-        writeDataSync(CMDB_HISTORY_KEY, history);
+        // atomic append (the worker writes the same history)
+        cmdbMetaStore.appendHistory(cmdbMetaStore.makeHistoryEntry(ip, username, action, oldData, newData), 500);
     } catch (e) {
         console.error('[vipLinkageHelper] CMDB History error:', e.message);
     }
@@ -152,8 +141,8 @@ async function linkVip(primaryIp, secondaryIp, username = 'SYSTEM') {
 
     // 3. Update in Server List CMDB Meta & cmdb_servers table
     try {
-        let cmdbMeta = readDataSync(CMDB_META_KEY, {});
-
+        // atomic read-modify-write of the CMDB meta (the worker writes it too); side effects run afterwards
+        const { oldSecData, oldPriData, priMeta } = cmdbMetaStore.mutateMeta((cmdbMeta) => {
         const oldSecData = cmdbMeta[sec] ? { ...cmdbMeta[sec] } : {};
         const oldPriData = cmdbMeta[pri] ? { ...cmdbMeta[pri] } : {};
 
@@ -180,8 +169,8 @@ async function linkVip(primaryIp, secondaryIp, username = 'SYSTEM') {
         if (!Array.isArray(cmdbMeta[pri].vips)) cmdbMeta[pri].vips = [];
         if (!cmdbMeta[pri].vips.includes(sec)) cmdbMeta[pri].vips.push(sec);
         cmdbMeta[pri].updatedAt = new Date().toISOString();
-
-        writeDataSync(CMDB_META_KEY, cmdbMeta);
+        return { oldSecData, oldPriData, priMeta: { ...cmdbMeta[pri] } };
+        }, { reason: 'VIP link' });
 
         // Update materialized SQLite table: cmdb_servers
         if (db) {
@@ -196,9 +185,9 @@ async function linkVip(primaryIp, secondaryIp, username = 'SYSTEM') {
                 // If primary not yet in table, upsert with VIP linkage
                 upsertCmdbServer({
                     ip: pri,
-                    hostname: primaryHostname || cmdbMeta[pri].hostname || pri,
+                    hostname: primaryHostname || priMeta.hostname || pri,
                     secondaryIps: [sec],
-                    ...cmdbMeta[pri]
+                    ...priMeta
                 }, 'MANUAL');
             }
 
@@ -208,7 +197,7 @@ async function linkVip(primaryIp, secondaryIp, username = 'SYSTEM') {
 
         // Record CMDB History
         recordCmdbHistoryEntry(sec, username, 'LINK_VIP_DELETE', oldSecData, { deleted: true, isVip: true, linkedTo: pri });
-        recordCmdbHistoryEntry(pri, username, 'LINK_VIP_PRIMARY', oldPriData, { secondaryIps: cmdbMeta[pri].secondaryIps });
+        recordCmdbHistoryEntry(pri, username, 'LINK_VIP_PRIMARY', oldPriData, { secondaryIps: priMeta.secondaryIps });
 
         // Remove VIP monitor from scoutDb if exists
         try {
@@ -288,7 +277,10 @@ async function unlinkVip(targetIp, username = 'SYSTEM') {
 
     // 3. Revert in CMDB Meta & cmdb_servers
     try {
-        let cmdbMeta = readDataSync(CMDB_META_KEY, {});
+        // atomic read-modify-write of the CMDB meta (the worker writes it too); side effects run afterwards
+        const inventoryPrimary = primaryIp;
+        const unlinked = cmdbMetaStore.mutateMeta((cmdbMeta) => {
+        let primaryIp = inventoryPrimary;
         const oldData = cmdbMeta[cleanIp] ? { ...cmdbMeta[cleanIp] } : {};
 
         if (!primaryIp && cmdbMeta[cleanIp]) {
@@ -323,8 +315,11 @@ async function unlinkVip(targetIp, username = 'SYSTEM') {
             }
             cmdbMeta[primaryIp].updatedAt = new Date().toISOString();
         }
-
-        writeDataSync(CMDB_META_KEY, cmdbMeta);
+        return { primaryIp, oldData, entry: cmdbMeta[cleanIp] ? { ...cmdbMeta[cleanIp] } : null };
+        }, { reason: 'VIP unlink' });
+        primaryIp = unlinked.primaryIp;
+        const oldData = unlinked.oldData;
+        const cmdbMeta = unlinked.entry ? { [cleanIp]: unlinked.entry } : {};
 
         // Update cmdb_servers table
         if (db) {
@@ -392,8 +387,8 @@ async function reconcileAllLinkedVips() {
         if (pairs.length === 0) return;
 
         console.log(`[vipLinkageHelper] Reconciling ${pairs.length} VIP linkages...`);
-        let cmdbMeta = readDataSync(CMDB_META_KEY, {});
-
+        // A + B: one atomic read-modify-write of the CMDB meta (the web writes it too)
+        cmdbMetaStore.mutateMeta((cmdbMeta) => {
         for (const [sec, pri] of pairs) {
             // A. Ensure CMDB Meta primary has secondaryIps
             if (!cmdbMeta[pri]) cmdbMeta[pri] = {};
@@ -411,7 +406,10 @@ async function reconcileAllLinkedVips() {
             cmdbMeta[sec].isVip = true;
             cmdbMeta[sec].isSecondary = true;
             cmdbMeta[sec].linkedTo = pri;
+        }
+        }, { reason: 'VIP reconcile' });
 
+        for (const [sec, pri] of pairs) {
             // C. Ensure cmdb_servers table reflects primary & secondary
             const priRow = getCmdbServerByIp(pri);
             if (priRow) {
@@ -424,8 +422,6 @@ async function reconcileAllLinkedVips() {
             }
             deleteCmdbServer(sec);
         }
-
-        writeDataSync(CMDB_META_KEY, cmdbMeta);
 
         // D + E. Remove linked VIPs and any other VIP target from Prometheus in ONE atomic read-modify-write.
         // The VIP set is computed once (after the meta above is saved), not per target.

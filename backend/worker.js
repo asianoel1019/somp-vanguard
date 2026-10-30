@@ -119,6 +119,10 @@ async function startWorker() {
             catch (e) { console.error('[Worker] Inventory hosts migration failed:', e.message); }
         });
 
+        // Log tables (scheduler logs, CMDB history, DNS changes, workflow executions / history): retention prune
+        // (RETENTION_*_DAYS + row caps) shortly after start, then daily; bounded batches. Never blocks startup.
+        try { require('./services/logTables').scheduleDailyPrune(); } catch (e) { console.error('[Worker] Log table retention skipped:', e.message); }
+
         const { initInventoryScheduler } = require('./services/inventoryScheduler');
         await initInventoryScheduler({ startup: true });
         console.log('[Worker] Inventory Scheduler initialized.');
@@ -304,6 +308,14 @@ process.on('message', (msg) => {
             reloadScheduler();
         } catch (e) {
             console.error('[Worker] Error reloading Task Scheduler:', e.message);
+        }
+    } else if (msg.type === 'RELOAD_PROMETHEUS_SCHEDULER') {
+        console.log('[Worker] Received IPC to reload Prometheus health scheduler.');
+        try {
+            const { initPrometheusScheduler } = require('./services/prometheusScheduler');
+            initPrometheusScheduler();
+        } catch (e) {
+            console.error('[Worker] Error reloading Prometheus health scheduler:', e.message);
         }
     }
 });

@@ -7,7 +7,8 @@
  *    then process.env (an `enc:` value there is decrypted as well, never used as a literal password).
  *  - resolveCredentials(config, subnetOrIp) = profile of the subnet when it has complete credentials for an OS, else the default.
  */
-const { readDataSync, writeDataSync } = require('./db');
+const { readDataSync } = require('./db');
+const { mutateDocument } = require('./docStore');
 const { PROFILE_NAME_RE, findSubnetSettings } = require('./inventoryValidation');
 
 const PROFILES_KEY = 'server_operation/inventory_credential_profiles.json';
@@ -55,8 +56,19 @@ function readStore() {
     return data && typeof data === 'object' && !Array.isArray(data) ? data : {};
 }
 
-function writeStore(data) {
-    writeDataSync(PROFILES_KEY, data);
+/** Atomic read-modify-write of the profile store (fn synchronous, mutates in place, returns the result). */
+function mutateStore(fn) {
+    return mutateDocument(PROFILES_KEY, fn, {
+        defaultValue: {},
+        // a legacy string document is parsed like readStore does
+        normalize: (v) => {
+            let data = v;
+            if (typeof v === 'string') { try { data = JSON.parse(v); } catch (e) { data = {}; } }
+            return data && typeof data === 'object' && !Array.isArray(data) ? data : {};
+        },
+        fnName: 'inventoryCredentials.mutateStore',
+        label: 'credential profiles',
+    });
 }
 
 /** Profile as the API shows it: never a password, only whether one is stored. */
@@ -119,7 +131,10 @@ function putProfile(name, input, username = 'system') {
     const winPassword = cleanText(input.winPassword, 'winPassword', errors);
     const linuxPassword = cleanText(input.linuxPassword, 'linuxPassword', errors);
     if (errors.length) return { errors };
-    const store = readStore();
+    // atomic read-modify-write of the CURRENT store; the passwords are encrypted once, outside fn
+    const winEnc = winPassword !== undefined ? encryptSecret(winPassword) : undefined;
+    const linuxEnc = linuxPassword !== undefined ? encryptSecret(linuxPassword) : undefined;
+    return mutateStore((store) => {
     const exists = Object.prototype.hasOwnProperty.call(store, name);
     if (!exists && Object.keys(store).length >= MAX_PROFILES) return { errors: [`At most ${MAX_PROFILES} profiles are supported`] };
     const prev = exists ? (store[name] || {}) : {};
@@ -127,8 +142,8 @@ function putProfile(name, input, username = 'system') {
     const changed = [];
     if (winUser !== undefined && winUser !== (prev.winUser || '')) { next.winUser = winUser; changed.push('winUser'); }
     if (linuxUser !== undefined && linuxUser !== (prev.linuxUser || '')) { next.linuxUser = linuxUser; changed.push('linuxUser'); }
-    if (winPassword !== undefined) { next.winPassword_enc = encryptSecret(winPassword); changed.push('winPassword'); }
-    if (linuxPassword !== undefined) { next.linuxPassword_enc = encryptSecret(linuxPassword); changed.push('linuxPassword'); }
+    if (winPassword !== undefined) { next.winPassword_enc = winEnc; changed.push('winPassword'); }
+    if (linuxPassword !== undefined) { next.linuxPassword_enc = linuxEnc; changed.push('linuxPassword'); }
     next.winUser = next.winUser || '';
     next.linuxUser = next.linuxUser || '';
     next.winPassword_enc = next.winPassword_enc || '';
@@ -136,8 +151,8 @@ function putProfile(name, input, username = 'system') {
     next.updatedAt = new Date().toISOString();
     next.updatedBy = username;
     store[name] = next;
-    writeStore(store);
     return { profile: publicProfile(name, next), created: !exists, changed };
+    });
 }
 
 /** Names of the subnet entries whose settings reference the profile. */
@@ -147,11 +162,11 @@ function subnetsUsingProfile(config, name) {
 }
 
 function deleteProfile(name) {
-    const store = readStore();
-    if (!Object.prototype.hasOwnProperty.call(store, name)) return false;
-    delete store[name];
-    writeStore(store);
-    return true;
+    return mutateStore((store) => {
+        if (!Object.prototype.hasOwnProperty.call(store, name)) return false;
+        delete store[name];
+        return true;
+    });
 }
 
 function decryptIfEncrypted(v) {

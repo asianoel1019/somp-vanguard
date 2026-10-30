@@ -4,13 +4,14 @@ const { requireAuth, checkRole, checkFeature, checkAnyFeature } = require('../mi
 const { auditLog } = require('../lib/logger');
 const { readDataSync, db } = require('../lib/db');
 const { 
-    readJson, 
-    writeJson, 
+    readJson,
+    mutateConfig,
     sendComplianceReport,
     validateInventoryConfig,
     CONFIG_FILE
 } = require('../services/inventoryScheduler');
 const { isIpv4, isValidApiKey, API_KEY_ERROR, shellQuote, psQuote, mergeConfigPatch, getSubnetSettings, parseSubnetEntry } = require('../lib/inventoryValidation');
+const { replaceContents } = require('../lib/docStore');
 const inventoryHistory = require('../services/inventoryHistory');
 const inventoryCredentials = require('../lib/inventoryCredentials');
 const { BOM, csvRow } = require('../lib/csvExport');
@@ -514,15 +515,24 @@ router.post('/config', requireWriter, async (req, res) => {
             }
             if (unknown.length) return res.status(400).json({ error: `Invalid inventory configuration: ${unknown.slice(0, 5).join('; ')}`, errors: unknown });
         }
-        const toSave = mergeConfigPatch(existing, req.body, check);
-        if (req.body.schedule !== undefined && req.body.schedule !== null) {
-            // The schedule is merged per sub-field, so completeness is checked on the merged result
-            const schedErrors = validateSchedule(toSave.schedule);
-            if (schedErrors.length) {
-                return res.status(400).json({ error: `Invalid inventory configuration: ${schedErrors.slice(0, 5).join('; ')}`, errors: schedErrors });
+        // The patch is merged into the CURRENT stored config in ONE atomic read-modify-write (the worker writes
+        // lastScan / lastDiscovered into the same document; the reads above were awaited)
+        const schedErrors = mutateConfig((current) => {
+            const toSave = mergeConfigPatch(current, req.body, check);
+            // a newer lastScan that so far only reached the shared active database (readStoredConfig) is kept
+            const scanMs = (c) => { const n = new Date((c && c.lastScan) || 0).getTime(); return Number.isFinite(n) ? n : 0; };
+            if (scanMs(existing) > scanMs(toSave)) { toSave.lastScan = existing.lastScan; toSave.lastDiscovered = existing.lastDiscovered; }
+            if (req.body.schedule !== undefined && req.body.schedule !== null) {
+                // The schedule is merged per sub-field, so completeness is checked on the merged result
+                const errs = validateSchedule(toSave.schedule);
+                if (errs.length) return errs;
             }
+            replaceContents(current, toSave);
+            return [];
+        }, { reason: 'inventory settings' });
+        if (schedErrors.length) {
+            return res.status(400).json({ error: `Invalid inventory configuration: ${schedErrors.slice(0, 5).join('; ')}`, errors: schedErrors });
         }
-        writeJson(CONFIG_FILE, toSave);
         auditLog(req.user.username, 'Inventory', 'Updated inventory configuration');
         const reloaded = inventoryControl.requestSchedulerReload();
         res.json({

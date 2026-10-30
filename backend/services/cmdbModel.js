@@ -1,9 +1,9 @@
-const { db, readDataSync, writeDataSync } = require('../lib/db');
+const { db, readDataSync } = require('../lib/db');
+const { replaceDocument } = require('../lib/docStore');
 const envRegistry = require('../lib/environmentRegistry');
 
 const CMDB_AUTHORITY_KEY = 'server_operation/cmdb_field_authority.json';
 const CMDB_META_KEY = 'server_operation/server_cmdb_meta.json';
-const CMDB_HISTORY_KEY = 'server_operation/server_cmdb_history.json';
 const IPAM_KEY = 'network_service/ipam/subnets.json';
 const PROMETHEUS_KEY = 'prometheus_targets.json';
 const ENV_KEY = 'system/environments.json';
@@ -204,7 +204,8 @@ function getFieldAuthorityRules() {
  * Save customized Field Authority rules
  */
 function saveFieldAuthorityRules(rules) {
-    writeDataSync(CMDB_AUTHORITY_KEY, rules);
+    // whole-document replacement (the validated rules object) under the shared document lock
+    replaceDocument(CMDB_AUTHORITY_KEY, rules, { defaultValue: {}, fnName: 'cmdbModel.saveFieldAuthorityRules' });
     return getFieldAuthorityRules();
 }
 
@@ -212,7 +213,7 @@ function saveFieldAuthorityRules(rules) {
  * Reset Field Authority rules to system defaults
  */
 function resetFieldAuthorityRules() {
-    writeDataSync(CMDB_AUTHORITY_KEY, DEFAULT_FIELD_AUTHORITY);
+    replaceDocument(CMDB_AUTHORITY_KEY, JSON.parse(JSON.stringify(DEFAULT_FIELD_AUTHORITY)), { defaultValue: {}, fnName: 'cmdbModel.resetFieldAuthorityRules' });
     return DEFAULT_FIELD_AUTHORITY;
 }
 
@@ -511,28 +512,41 @@ function isIpReused(meta, ip, incomingHostname) {
 
 function appendHistory(ip, action, username, oldData, newData) {
     try {
-        let history = readDataSync(CMDB_HISTORY_KEY, []);
-        history.unshift({
+        // atomic append through the CMDB store (web and worker both write the history)
+        require('../lib/cmdbMetaStore').appendHistory({
             id: Date.now().toString() + '-' + Math.random().toString(36).substr(2, 4),
             ip, username, action, timestamp: new Date().toISOString(), oldData: oldData || {}, newData: newData || {}
-        });
-        if (history.length > 500) history = history.slice(0, 500);
-        writeDataSync(CMDB_HISTORY_KEY, history);
+        }, 500);
     } catch (e) { /* history is best effort */ }
 }
 
-/** Clears the deleted flag because the IP was reused by a different host (history RESTORE_IP_REUSE). */
+/**
+ * Clears the deleted flag because the IP was reused by a different host (history RESTORE_IP_REUSE).
+ * `meta` is the caller's snapshot (kept consistent for its later decisions); the stored document is changed through
+ * an atomic read-modify-write of the CURRENT meta, only when the entry is still flagged deleted there.
+ */
 function reviveForIpReuse(meta, ip, newHostname) {
+    const nowIso = new Date().toISOString();
+    const host = String(newHostname).trim();
+    const revive = (m) => {
+        m.deleted = false;
+        m.restoredAt = nowIso;
+        m.restoredBy = 'SYSTEM';
+        m.hostname = host;
+        delete m.deletedNames;
+        delete m.deletedAt;
+        delete m.deletedBy;
+    };
     const old = { ...meta[ip] };
-    meta[ip].deleted = false;
-    meta[ip].restoredAt = new Date().toISOString();
-    meta[ip].restoredBy = 'SYSTEM';
-    meta[ip].hostname = String(newHostname).trim();
-    delete meta[ip].deletedNames;
-    delete meta[ip].deletedAt;
-    delete meta[ip].deletedBy;
-    writeDataSync(CMDB_META_KEY, meta);
-    appendHistory(ip, 'RESTORE_IP_REUSE', 'SYSTEM', old, meta[ip]);
+    revive(meta[ip]);
+    const stored = require('../lib/cmdbMetaStore').mutateMeta((cur) => {
+        if (!cur[ip] || cur[ip].deleted !== true) return null; // revived / changed meanwhile by another writer
+        const before = { ...cur[ip] };
+        revive(cur[ip]);
+        return { old: before, entry: { ...cur[ip] } };
+    }, { reason: 'IP reuse revive' });
+    if (!stored) return;
+    appendHistory(ip, 'RESTORE_IP_REUSE', 'SYSTEM', stored.old, stored.entry);
     console.log(`[CMDB] ${ip} is now used by ${newHostname} (was ${old.hostname}); treating as a new server`);
 }
 

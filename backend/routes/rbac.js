@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { authMiddleware, checkRole } = require('../middleware/auth');
-const { readRbacConfig, updateUserRole, removeUserRole, writeRbacConfig, isReservedMappingName, normalizeMappingName, getAllowedAdDomain } = require('../lib/rbac');
+const { readRbacConfig, updateUserRole, removeUserRole, mutateRbacConfig, isReservedMappingName, normalizeMappingName, getAllowedAdDomain } = require('../lib/rbac');
 const { runPowerShell, getADCredentialHeader } = require('../lib/powershell');
 const { auditLog } = require('../lib/logger');
 const { BUILTIN_SUPERADMIN_MAPPING, FEATURE_KEYS, SUPERADMIN_LOCKED_FEATURES } = require('../lib/featureCatalog');
@@ -36,28 +36,35 @@ function updateBuiltinMapping(req, res) {
         return res.status(400).json({ error: 'description must be a string of at most 500 characters' });
     }
 
-    const config = readRbacConfig(); // guarantees the built-in exists
-    const builtin = config.groups[BUILTIN_SUPERADMIN_MAPPING];
-    const before = { ...(builtin.features || {}) };
-    const next = { ...before, ...sanitizeBuiltinFeatures(body.features) };
-    SUPERADMIN_LOCKED_FEATURES.forEach(k => { next[k] = true; }); // lock-out guard
+    // atomic read-modify-write of the CURRENT document (normalisation guarantees the built-in exists)
+    let out;
+    try {
+        out = mutateRbacConfig((config) => {
+            const builtin = config.groups[BUILTIN_SUPERADMIN_MAPPING];
+            const before = { ...(builtin.features || {}) };
+            const next = { ...before, ...sanitizeBuiltinFeatures(body.features) };
+            SUPERADMIN_LOCKED_FEATURES.forEach(k => { next[k] = true; }); // lock-out guard
 
-    const turnedOn = Object.keys(next).filter(k => next[k] === true && before[k] !== true);
-    const turnedOff = Object.keys(next).filter(k => next[k] !== true && before[k] === true);
-    builtin.features = next;
-    let descriptionChanged = false;
-    if (typeof body.description === 'string') {
-        const desc = body.description.trim();
-        descriptionChanged = desc !== builtin.description;
-        builtin.description = desc;
-    }
-    if (!writeRbacConfig(config)) {
+            const turnedOn = Object.keys(next).filter(k => next[k] === true && before[k] !== true);
+            const turnedOff = Object.keys(next).filter(k => next[k] !== true && before[k] === true);
+            builtin.features = next;
+            let descriptionChanged = false;
+            if (typeof body.description === 'string') {
+                const desc = body.description.trim();
+                descriptionChanged = desc !== builtin.description;
+                builtin.description = desc;
+            }
+            return { turnedOn, turnedOff, descriptionChanged, description: builtin.description, groups: JSON.parse(JSON.stringify(config.groups)) };
+        });
+    } catch (e) {
+        console.error('[RBAC] Error writing rbac.json:', e);
         return res.status(500).json({ error: 'Failed to save RBAC configuration' });
     }
+    const { turnedOn, turnedOff, descriptionChanged } = out;
     auditLog(req.user.username, 'RBAC',
         `Updated built-in SuperAdmin mapping feature switches (on: ${turnedOn.join(', ') || 'none'}; off: ${turnedOff.join(', ') || 'none'})`
-        + (descriptionChanged ? `; description changed to "${builtin.description.slice(0, 200)}"` : ''));
-    return res.json({ success: true, groups: config.groups });
+        + (descriptionChanged ? `; description changed to "${out.description.slice(0, 200)}"` : ''));
+    return res.json({ success: true, groups: out.groups });
 }
 
 // All RBAC routes require SuperAdmin
@@ -222,19 +229,21 @@ router.post('/groups', (req, res) => {
         if (!name || !mappingTarget) {
             return res.status(400).json({ error: 'Mapping Name and Target are required' });
         }
-        const config = readRbacConfig();
-        if (!config.groups) config.groups = {};
-        config.groups[name] = {
-            type: mappingType,
-            target: mappingTarget,
-            adOu: mappingTarget, // for backward compat
-            enabled: enabled !== false,
-            features: features || {},
-            auditLogs: auditLogs || {}
-        };
-        writeRbacConfig(config);
+        // atomic read-modify-write of the CURRENT document
+        const groups = mutateRbacConfig((config) => {
+            if (!config.groups) config.groups = {};
+            config.groups[name] = {
+                type: mappingType,
+                target: mappingTarget,
+                adOu: mappingTarget, // for backward compat
+                enabled: enabled !== false,
+                features: features || {},
+                auditLogs: auditLogs || {}
+            };
+            return JSON.parse(JSON.stringify(config.groups));
+        });
         auditLog(req.user.username, 'AD User Control', `Added/Updated AD Mapping (${mappingType}): ${name} -> ${mappingTarget}`);
-        res.json({ success: true, groups: config.groups });
+        res.json({ success: true, groups });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
@@ -248,13 +257,16 @@ router.delete('/groups/:name', (req, res) => {
             auditLog(req.user.username, 'RBAC', `Rejected attempt to delete the built-in SuperAdmin mapping (${name})`);
             return res.status(403).json({ error: 'The built-in mapping cannot be deleted' });
         }
-        const config = readRbacConfig();
-        if (config.groups && config.groups[name]) {
-            delete config.groups[name];
-            writeRbacConfig(config);
+        let groups = readRbacConfig().groups || {};
+        if (groups[name]) {
+            // atomic read-modify-write of the CURRENT document
+            groups = mutateRbacConfig((config) => {
+                if (config.groups && config.groups[name]) delete config.groups[name];
+                return JSON.parse(JSON.stringify(config.groups || {}));
+            });
             auditLog(req.user.username, 'AD User Control', `Deleted Group: ${name}`);
         }
-        res.json({ success: true, groups: config.groups || {} });
+        res.json({ success: true, groups });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }

@@ -3,7 +3,8 @@ const router = express.Router();
 const snmp = require('net-snmp');
 const { requireAuth, checkRole, checkFeature, checkAnyFeature } = require('../middleware/auth');
 const { auditLog } = require('../lib/logger');
-const { readDataSync, writeDataSync } = require('../lib/db');
+const { readDataSync } = require('../lib/db');
+const { mutateDocument, replaceContents } = require('../lib/docStore');
 const { encryptText, decryptText } = require('../lib/crypto');
 const crypto = require('crypto');
 const rackStore = require('../lib/rackStore');
@@ -46,8 +47,8 @@ router.use(requireAuth);
 router.use(checkAnyFeature('networkDevice', 'dataCenter'));
 const networkDeviceOnly = checkFeature('networkDevice');
 
-function getSnmpSettings() {
-    const data = readDataSync(SNMP_FILE, {});
+/** Decrypts every stored secret of the settings map IN PLACE. Returns true when a legacy format was found. */
+function decryptSnmpData(data) {
     let migrationNeeded = false;
     for (let id in data) {
         ['community', 'v3AuthPass', 'v3PrivPass'].forEach(field => {
@@ -70,20 +71,41 @@ function getSnmpSettings() {
             }
         });
     }
-    if (migrationNeeded) {
-        saveSnmpSettings(data);
+    return migrationNeeded;
+}
+
+function getSnmpSettings() {
+    const data = readDataSync(SNMP_FILE, {});
+    if (decryptSnmpData(data)) {
+        // legacy secrets: re-encrypt the CURRENT document with the current scheme
+        mutateSnmpSettings(() => {});
     }
     return data;
 }
 
-function saveSnmpSettings(data) {
+/** Stored form of a decrypted settings map (a copy with every secret encrypted). */
+function encryptSnmpData(data) {
     const toSave = JSON.parse(JSON.stringify(data));
     for (let id in toSave) {
         if (toSave[id].community) toSave[id].community = encryptText(toSave[id].community);
         if (toSave[id].v3AuthPass) toSave[id].v3AuthPass = encryptText(toSave[id].v3AuthPass);
         if (toSave[id].v3PrivPass) toSave[id].v3PrivPass = encryptText(toSave[id].v3PrivPass);
     }
-    writeDataSync(SNMP_FILE, toSave);
+    return toSave;
+}
+
+/**
+ * Atomic read-modify-write of the SNMP settings (lib/docStore.js): fn(settings) gets the CURRENT map with decrypted
+ * secrets, mutates it in place (synchronously) and returns the result; the whole map is stored re-encrypted, as before.
+ */
+function mutateSnmpSettings(fn) {
+    return mutateDocument(SNMP_FILE, (stored) => {
+        const plain = JSON.parse(JSON.stringify(stored));
+        decryptSnmpData(plain);
+        const result = fn(plain);
+        replaceContents(stored, encryptSnmpData(plain));
+        return result;
+    }, { defaultValue: {}, fnName: 'networkDevice.mutateSnmpSettings', label: 'SNMP settings' });
 }
 
 /**
@@ -406,12 +428,11 @@ router.post('/:id/snmp', checkRole(['SuperAdmin', 'Operator']), (req, res) => {
         const { id } = req.params;
         if (!findNetworkDevice(id)) return res.status(404).json({ error: 'Device not found' });
 
-        const allSettings = getSnmpSettings();
-        const result = normalizeSnmpSettings(req.body, allSettings[id]);
+        const result = normalizeSnmpSettings(req.body, getSnmpSettings()[id]);
         if (result.error) return res.status(400).json({ error: result.error });
 
-        allSettings[id] = result.settings;
-        saveSnmpSettings(allSettings);
+        // only this device's entry changes, on the CURRENT document
+        mutateSnmpSettings((allSettings) => { allSettings[id] = result.settings; });
 
         auditLog(req.user.username, 'Network Device', `Updated SNMP settings for device ${id} (${result.settings.enabled ? `enabled, ${result.settings.version}` : 'disabled'})`);
         res.json({ success: true, enabled: result.settings.enabled });

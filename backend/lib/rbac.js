@@ -1,5 +1,6 @@
 const { encryptText, decryptText } = require('./crypto');
-const { readDataSync, writeDataSync } = require('./db');
+const { readDataSync } = require('./db');
+const { mutateDocument, replaceContents } = require('./docStore');
 const { BUILTIN_SUPERADMIN_MAPPING, FEATURE_KEYS, LEGACY_CONFIG_FEATURE_KEYS, SUPERADMIN_LOCKED_FEATURES } = require('./featureCatalog');
 
 const BUILTIN_DESCRIPTION = 'Applies to all SuperAdmin users. The local admin account always has every feature.';
@@ -155,7 +156,8 @@ function readRbacConfig() {
         // Upgrade: create / repair the built-in SuperAdmin mapping once and persist it,
         // so its initial switches are frozen and later group edits do not change them.
         if (ensureBuiltinSuperAdmin(config)) {
-            writeRbacConfig(config);
+            // persisted through an atomic read-modify-write of the CURRENT document (any process may get here)
+            try { mutateRbacConfig(() => {}); } catch (e) { console.error('[RBAC] Error writing rbac.json:', e); }
         }
         return config;
     } catch (err) {
@@ -164,11 +166,56 @@ function readRbacConfig() {
     }
 }
 
+const RBAC_KEY = 'system/rbac.json';
+
+/** Stored value -> config object, or null when absent / not encrypted (tampered) / undecryptable (same rules as readRbacConfig). */
+function decodeStoredRbac(stored) {
+    if (stored === null || stored === undefined) return null;
+    if (typeof stored !== 'string' || !stored.includes(':') || stored.startsWith('{')) return null;
+    const decrypted = decryptText(stored);
+    if (decrypted === stored) return null;
+    const config = JSON.parse(decrypted);
+    return config && typeof config === 'object' && !Array.isArray(config) ? config : null;
+}
+
+const rbacCodec = {
+    decode: decodeStoredRbac,
+    encode: (config) => encryptText(JSON.stringify(config, null, 2)),
+    normalize: (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : {}),
+    defaultValue: {},
+};
+
+/** The read-side normalisation (roles incl. None, groups, built-in SuperAdmin mapping) applied in place. */
+function normalizeRbacConfig(config) {
+    if (Object.keys(config).length === 0) {
+        Object.assign(config, { roles: ["SuperAdmin", "Operator", "Viewer", "None"], users: {}, defaultRole: "Viewer", groups: {} });
+    }
+    if (!Array.isArray(config.roles)) {
+        config.roles = ["SuperAdmin", "Operator", "Viewer", "None"];
+    } else if (!config.roles.includes('None')) {
+        config.roles.push('None');
+    }
+    if (!config.users || typeof config.users !== 'object') config.users = {};
+    if (!config.groups) config.groups = {};
+    ensureBuiltinSuperAdmin(config);
+    return config;
+}
+
+/**
+ * Atomic read-modify-write of system/rbac.json (encrypted document) through lib/docStore.js: fn(config) receives the
+ * CURRENT, normalised config, mutates it in place and returns the result (synchronous; see docStore's fn contract).
+ */
+function mutateRbacConfig(fn) {
+    return mutateDocument(RBAC_KEY, (config) => {
+        normalizeRbacConfig(config);
+        return fn(config);
+    }, { ...rbacCodec, fnName: 'rbac.mutateRbacConfig', label: 'RBAC' });
+}
+
+/** Stores `config` as given (whole-document replacement under the same lock). Returns true / false. */
 function writeRbacConfig(config) {
     try {
-        const plainText = JSON.stringify(config, null, 2);
-        const cipherText = encryptText(plainText);
-        writeDataSync('system/rbac.json', cipherText);
+        mutateDocument(RBAC_KEY, (doc) => { replaceContents(doc, JSON.parse(JSON.stringify(config))); }, { ...rbacCodec, fnName: 'rbac.writeRbacConfig', label: 'RBAC' });
         return true;
     } catch (err) {
         console.error('[RBAC] Error writing rbac.json:', err);
@@ -198,23 +245,32 @@ function updateUserRole(username, domain, role, groupName) {
         throw new Error(`Invalid role: ${role}`);
     }
     const key = `${username}@${domain}`.toLowerCase();
-    config.users[key] = groupName ? { role, groupName } : role;
-    return writeRbacConfig(config);
+    try {
+        mutateRbacConfig((cfg) => { cfg.users[key] = groupName ? { role, groupName } : role; });
+        return true;
+    } catch (err) {
+        console.error('[RBAC] Error writing rbac.json:', err);
+        return false;
+    }
 }
 
 function removeUserRole(username, domain) {
-    const config = readRbacConfig();
     const key = `${username}@${domain}`.toLowerCase();
-    if (config.users[key]) {
-        delete config.users[key];
-        return writeRbacConfig(config);
+    if (!readRbacConfig().users[key]) return true;
+    try {
+        mutateRbacConfig((cfg) => { if (cfg.users[key]) delete cfg.users[key]; });
+        return true;
+    } catch (err) {
+        console.error('[RBAC] Error writing rbac.json:', err);
+        return false;
     }
-    return true;
 }
 
 module.exports = {
+    RBAC_KEY,
     readRbacConfig,
     writeRbacConfig,
+    mutateRbacConfig,
     getUserRole,
     updateUserRole,
     removeUserRole,

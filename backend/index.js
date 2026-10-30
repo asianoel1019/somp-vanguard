@@ -71,6 +71,7 @@ const { initWebSocketServer } = require('./lib/websocket');
 const { initGuacamoleProxy } = require('./services/guacamoleProxy');
 const fs = require('fs');
 const dbModule = require('./lib/db');
+const docRegistry = require('./lib/docRegistry');
 
 // --- SQLite Virtual File System (VFS) Intercept ---
 const originalReadFileSync = fs.readFileSync;
@@ -84,7 +85,11 @@ const SAVE_DATA_DIR = path.resolve(process.env.DB_DATA_DIR || 'C:\\\\ProgramData
 function isSaveDataJson(filepath) {
     if (typeof filepath !== 'string') return false;
     const absPath = path.resolve(filepath).toLowerCase();
-    return absPath.startsWith(SAVE_DATA_DIR) && absPath.endsWith('.json');
+    if (!(absPath.startsWith(SAVE_DATA_DIR) && absPath.endsWith('.json'))) return false;
+    // A flat file whose name is a '/' <-> '_' variant of a registered document key (e.g. the fallback copy
+    // network_service_ipam_subnets.json that lib/db.js reads / writes) is a plain file: mapping it to a document key
+    // would read a stale alias row or create one (see lib/docRegistry.js isAliasKey, scripts/cleanup_doc_aliases.js).
+    return !docRegistry.isAliasKey(getDbKey(filepath));
 }
 
 function syncFsDelay(ms) {
@@ -538,6 +543,15 @@ initDB().then(async () => {
         require('./services/scoutAlertEngine').registerEvaluator();
     } catch (e) {
         console.error('[Startup] Failed to register alert evaluators:', e.message);
+    }
+
+    // One-time copy of the former log documents (scheduler logs, CMDB history, DNS changes, workflow executions /
+    // history) into their tables, before the worker is forked. Idempotent and cross-process safe (marker row in the
+    // same transaction); every reader / writer also migrates lazily, so a failure here is retried on first use.
+    try {
+        require('./services/logTables').migrateAll();
+    } catch (e) {
+        console.error('[Startup] Log table migration skipped:', e.message);
     }
 
     // Run automated CMDB migration if table is empty

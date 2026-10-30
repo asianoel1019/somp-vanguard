@@ -217,6 +217,8 @@ function readLegacySources() {
         if (db) {
             const rows = db.prepare('SELECT key, value FROM document_store WHERE key LIKE ?').all(`${DOC_PREFIX}%`);
             for (const r of rows) {
+                // LIKE treats '_' as a wildcard: skip alias keys such as server/operation/oscheck/data/... (canonical keys only)
+                if (typeof r.key !== 'string' || !r.key.startsWith(DOC_PREFIX)) continue;
                 try {
                     const list = JSON.parse(r.value);
                     if (Array.isArray(list)) sources.push({ origin: 'db', key: r.key, list });

@@ -1,4 +1,7 @@
 const store = require('./db');
+// executions and version history live in tables workflow_executions / workflow_history (services/logTables.js):
+// one row per execution (updated in place) / per version snapshot
+const logTables = require('../services/logTables');
 const crypto = require('crypto');
 const { encryptText, decryptText } = require('./crypto');
 const { executeSSH } = require('./ssh');
@@ -435,7 +438,10 @@ function topoSort(nodes, edges) {
 
 // System credentials are injected at run time and must never be persisted with a paused execution
 const SYSTEM_CTX_KEYS = ['AD_ADMIN_USER', 'AD_ADMIN_PWD', 'LINUX_ADMIN_USER', 'LINUX_ADMIN_PWD'];
-const MAX_EXECUTION_HISTORY = 200;
+// Row cap of the executions table (oldest finished executions are trimmed first; waiting_approval rows are kept).
+// Was 200 entries in the former document; retention RETENTION_WORKFLOW_EXECUTIONS_DAYS applies on top (worker prune).
+const MAX_EXECUTION_HISTORY = logTables.TABLES.workflow_executions.cap;
+const executionLimits = { cap: MAX_EXECUTION_HISTORY }; // tests lower the cap
 
 function injectSystemContext(ctx) {
   // System credentials auto-injected for dynamic variable resolution
@@ -450,22 +456,9 @@ function sanitizeContext(ctx) {
 }
 
 function saveExecution(execution) {
-  const history = store.readDataSync('workflow_executions.json', []);
-  const idx = history.findIndex(e => e.id === execution.id);
-  if (idx >= 0) history[idx] = execution;
-  else history.push(execution);
-
-  // Trim oldest finished executions first; executions waiting for approval are kept
-  let excess = history.length - MAX_EXECUTION_HISTORY;
-  for (let i = 0; i < history.length && excess > 0;) {
-    if (history[i].status !== 'waiting_approval') {
-      history.splice(i, 1);
-      excess--;
-    } else {
-      i++;
-    }
-  }
-  store.writeDataSync('workflow_executions.json', history);
+  // replaces the stored row of this id in place (or appends it), then trims the oldest finished executions above
+  // the cap; executions waiting for approval are kept
+  logTables.saveExecution(execution, executionLimits.cap);
 }
 
 function recordOutput(ctx, nodeId, output) {
@@ -704,9 +697,8 @@ function createWorkflow(data) {
   store.writeDataSync('workflows.json', workflows);
   
   // Save initial version to history
-  const history = store.readDataSync('workflow_history.json', []);
-  history.push(JSON.parse(JSON.stringify(wf)));
-  store.writeDataSync('workflow_history.json', history);
+  const snapshot = JSON.parse(JSON.stringify(wf));
+  logTables.appendWorkflowHistory(snapshot);
   
   return wf;
 }
@@ -717,14 +709,9 @@ function updateWorkflow(id, patch) {
   if (idx === -1) return null;
 
   // Save pre-update snapshot to history
-  const history = store.readDataSync('workflow_history.json', []);
-  history.push(JSON.parse(JSON.stringify(workflows[idx])));
-  const wfHistory = history.filter(h => h.id === id);
-  if (wfHistory.length > 10) {
-    const toRemove = wfHistory[0];
-    history.splice(history.indexOf(toRemove), 1);
-  }
-  store.writeDataSync('workflow_history.json', history);
+  const snapshot = JSON.parse(JSON.stringify(workflows[idx]));
+  // append; when this workflow then has more than 10 snapshots, its oldest one is removed (as before)
+  logTables.appendWorkflowHistory(snapshot, 10);
 
   if (patch.name !== undefined) workflows[idx].name = patch.name;
   if (patch.description !== undefined) workflows[idx].description = patch.description;
@@ -753,27 +740,24 @@ function deleteWorkflow(id) {
   store.writeDataSync('workflows.json', workflows);
   
   // Clean up history
-  const history = store.readDataSync('workflow_history.json', []).filter(h => h.id !== id);
-  store.writeDataSync('workflow_history.json', history);
+  logTables.deleteWorkflowHistory(id);
   
   return true;
 }
 
 function getWorkflowHistory(id) {
-  return store.readDataSync('workflow_history.json', []).filter(h => h.id === id);
+  return logTables.listWorkflowHistory(id);
 }
 
 // ─── Execution History ─────────────────────────────
 
+// newest started first (stable for equal start times), optionally of one workflow, at most `limit`
 function getExecutions(workflowId, limit = 20) {
-  return store.readDataSync('workflow_executions.json', [])
-    .filter(e => !workflowId || e.workflowId === workflowId)
-    .sort((a, b) => new Date(b.startedAt) - new Date(a.startedAt))
-    .slice(0, limit);
+  return logTables.listExecutions(workflowId, limit);
 }
 
 function getExecution(id) {
-  return store.readDataSync('workflow_executions.json', []).find(e => e.id === id) || null;
+  return logTables.getExecution(id);
 }
 
 async function rerunExecution(executionId, triggerOpts = {}) {
@@ -820,5 +804,5 @@ async function executeSingleNode(node, sampleCtx = {}) {
 module.exports = {
   getAllWorkflows, getWorkflow, createWorkflow, updateWorkflow, deleteWorkflow,
   executeWorkflow, resolveApproval, getExecutions, getExecution, rerunExecution, getWorkflowHistory,
-  executeSingleNode
+  executeSingleNode, executionLimits
 };

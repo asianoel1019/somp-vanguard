@@ -3,7 +3,8 @@ const router = express.Router();
 const fs = require('fs');
 const path = require('path');
 const { requireAuth, checkFeature, checkRole } = require('../middleware/auth');
-const { readDB, writeDB, readDataSync, writeDataSync } = require('../lib/db');
+const { readDB, readDataSync } = require('../lib/db');
+const dnsDataStore = require('../lib/dnsDataStore');
 const { runPowerShell, getADCredentialHeader, getCimSessionHeader, getCimSessionCleanup, sanitizePsString } = require('../lib/powershell');
 const { auditLog, batchAuditLog } = require('../lib/logger');
 const { encryptText, decryptText } = require('../lib/crypto');
@@ -156,23 +157,18 @@ try {
 `;
 }
 
-const DNS_LOG_FILE = 'dns_changes.json';
-
 function appendDnsChangeLog(user, actions) {
     try {
-        let logs = readDataSync(DNS_LOG_FILE, []);
-        
         const timestamp = new Date().toLocaleString('sv-SE', { timeZone: process.env.TZ || 'Asia/Taipei' });
         const newLogs = actions.map(action => ({
             timestamp,
             user,
             action
         }));
-        
-        logs = [...newLogs, ...logs].slice(0, 5000); // keep last 5000
-        writeDataSync(DNS_LOG_FILE, logs);
+        // one row per change in table dns_changes (listed in this order, before the older ones)
+        dnsDataStore.appendDnsChanges(newLogs);
     } catch (e) {
-        console.error('Failed to write dns_changes.json', e);
+        console.error('Failed to write the DNS change log', e);
     }
 }
 
@@ -649,8 +645,8 @@ router.post('/delete', checkRole(['SuperAdmin', 'Operator']), async (req, res) =
 
 router.get('/logs', async (req, res) => {
     try {
-        let logs = readDataSync(DNS_LOG_FILE, []);
-        res.json(logs);
+        // table dns_changes, newest first, the last 5000 (as the former capped document)
+        res.json(dnsDataStore.listDnsChanges());
     } catch (e) {
         res.status(500).json({ error: 'Failed to read logs' });
     }
@@ -803,7 +799,6 @@ router.get('/schedule', async (req, res) => {
 // POST /schedule
 router.post('/schedule', checkRole(['SuperAdmin', 'Operator']), async (req, res) => {
     try {
-        const db = await readDB();
         const newSched = req.body;
         
         // Validate exportPath
@@ -820,8 +815,8 @@ router.post('/schedule', checkRole(['SuperAdmin', 'Operator']), async (req, res)
         delete newSched.svcUser;
         delete newSched.svcPassword;
 
-        db.exportSchedule = newSched;
-        await writeDB(db);
+        // atomic read-modify-write of the CURRENT dns_data.json (only exportSchedule changes)
+        dnsDataStore.mutateDnsDb((db) => { db.exportSchedule = newSched; }, { reason: 'export schedule' });
         
         // Notify Background Worker to re-initialize scheduler via IPC, fallback to local if standalone
         const sent = typeof global.sendWorkerMessage === 'function' && global.sendWorkerMessage({ 

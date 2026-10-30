@@ -247,25 +247,24 @@ async function runExportTask() {
                         console.log(`[Scheduler] IPAM FQDN Sync completed: ${syncRes.updated} updated, ${syncRes.cleared} cleared, ${syncRes.skipped} skipped.`);
                         
                         // Sync FQDN to Server List CMDB metadata
-                        const { readDataSync, writeDataSync } = require('../lib/db');
-                        const CMDB_META_KEY = 'server_operation/server_cmdb_meta.json';
-                        let cmdbMeta = readDataSync(CMDB_META_KEY, {});
-                        let metaChanged = false;
-
-                        syncRecords.forEach(rec => {
-                            if (rec.ip && rec.fqdn) {
-                                const cleanIp = String(rec.ip).trim();
-                                if (!cmdbMeta[cleanIp]) cmdbMeta[cleanIp] = {};
-                                if (cmdbMeta[cleanIp].fqdn !== rec.fqdn) {
-                                    cmdbMeta[cleanIp].fqdn = rec.fqdn;
-                                    cmdbMeta[cleanIp].updatedAt = new Date().toISOString();
-                                    metaChanged = true;
+                        // atomic read-modify-write of the CURRENT meta (this runs in the worker; the web writes it too)
+                        const metaChanged = require('../lib/cmdbMetaStore').mutateMeta((cmdbMeta) => {
+                            let changed = false;
+                            syncRecords.forEach(rec => {
+                                if (rec.ip && rec.fqdn) {
+                                    const cleanIp = String(rec.ip).trim();
+                                    if (!cmdbMeta[cleanIp]) cmdbMeta[cleanIp] = {};
+                                    if (cmdbMeta[cleanIp].fqdn !== rec.fqdn) {
+                                        cmdbMeta[cleanIp].fqdn = rec.fqdn;
+                                        cmdbMeta[cleanIp].updatedAt = new Date().toISOString();
+                                        changed = true;
+                                    }
                                 }
-                            }
-                        });
+                            });
+                            return changed;
+                        }, { reason: 'DNS export FQDN sync' });
 
                         if (metaChanged) {
-                            writeDataSync(CMDB_META_KEY, cmdbMeta);
                             console.log('[Scheduler] Server List CMDB FQDN Sync completed.');
                         }
                     } catch (syncErr) {

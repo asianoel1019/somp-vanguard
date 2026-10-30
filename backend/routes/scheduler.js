@@ -26,29 +26,26 @@ function parseTargets(targets) {
     return targets.split(/[,\n;]/).map(t => t.trim().replace(/\r/g, '')).filter(t => t);
 }
 
-const { readDataSync, writeDataSync } = require('../lib/db');
+const { readDataSync } = require('../lib/db');
+// The worker writes the task list too (run metadata after each cron run): every change is an atomic
+// read-modify-write of the CURRENT list through lib/schedulerStore.js
+const schedulerStore = require('../lib/schedulerStore');
 
 // Helper to read tasks
 function getTasks() {
-    return readDataSync('server_operation/scheduler_tasks.json', []);
-}
-
-// Helper to save tasks
-function saveTasks(data) {
-    writeDataSync('server_operation/scheduler_tasks.json', data);
+    return schedulerStore.readTasks();
 }
 
 // Helper to read logs
 function getLogs() {
-    const logs = readDataSync('server_operation/scheduler_logs.json', []);
-    // Return last 200 logs to prevent rendering massive tables
-    return logs.reverse().slice(0, 200);
+    // Return last 200 logs (newest first) to prevent rendering massive tables
+    return schedulerStore.listRecentLogs(200);
 }
 
 // Stats Endpoint
 router.get('/stats', (req, res) => {
     try {
-        const logs = readDataSync('server_operation/scheduler_logs.json', []);
+        const logs = schedulerStore.listLogsForStats();
         const stats = {};
         
         logs.forEach(log => {
@@ -84,14 +81,15 @@ router.get('/stats', (req, res) => {
 });
 
 // Helper to reload cron engine if initialized
+// The cron engine runs only in the background worker. Reloading it here would start a second engine in the web
+// process and every task would then run twice: ask the worker to reload instead.
 function triggerEngineReload() {
     try {
-        const service = require('../services/taskSchedulerService');
-        if (typeof service.reloadScheduler === 'function') {
-            service.reloadScheduler();
+        if (typeof global.sendWorkerMessage === 'function') {
+            global.sendWorkerMessage({ type: 'RELOAD_TASK_SCHEDULER' });
         }
     } catch (e) {
-        console.warn('[Scheduler Router] Dynamic engine reload skipped: service not fully loaded yet.');
+        console.warn('[Scheduler Router] Worker reload request failed:', e.message);
     }
 }
 
@@ -117,7 +115,6 @@ router.post('/tasks/add', canWrite, (req, res) => {
         return res.status(400).json({ error: 'Invalid Cron Expression format.' });
     }
 
-    const tasks = getTasks();
     const newTask = {
         id: Date.now().toString(),
         name,
@@ -132,8 +129,7 @@ router.post('/tasks/add', canWrite, (req, res) => {
         lastRunTime: 'N/A'
     };
 
-    tasks.push(newTask);
-    saveTasks(tasks);
+    schedulerStore.mutateTasks((tasks) => { tasks.push(newTask); }, { reason: 'task add' });
     triggerEngineReload();
     
     const user = req.user ? req.user.username : 'System';
@@ -152,12 +148,9 @@ router.put('/tasks/update', canWrite, (req, res) => {
         return res.status(400).json({ error: 'Invalid Cron Expression format.' });
     }
 
-    let tasks = getTasks();
+    const updated = schedulerStore.mutateTasks((tasks) => {
     const taskIndex = tasks.findIndex(t => t.id === id);
-
-    if (taskIndex === -1) {
-        return res.status(404).json({ error: 'Task not found' });
-    }
+    if (taskIndex === -1) return null;
 
     tasks[taskIndex] = {
         ...tasks[taskIndex],
@@ -169,44 +162,51 @@ router.put('/tasks/update', canWrite, (req, res) => {
         nixCommand: nixCommand !== undefined ? nixCommand : tasks[taskIndex].nixCommand,
         executeAt: executeAt !== undefined ? executeAt : tasks[taskIndex].executeAt
     };
+    return { ...tasks[taskIndex] };
+    }, { reason: 'task update' });
 
-    saveTasks(tasks);
+    if (!updated) {
+        return res.status(404).json({ error: 'Task not found' });
+    }
     triggerEngineReload();
 
     const user = req.user ? req.user.username : 'System';
-    auditLog(user, 'Task Scheduler', `Updated scheduled task: ${tasks[taskIndex].name}`);
-    res.json({ success: true, task: tasks[taskIndex] });
+    auditLog(user, 'Task Scheduler', `Updated scheduled task: ${updated.name}`);
+    res.json({ success: true, task: updated });
 });
 
 // POST /tasks/toggle/:id - Toggle task state (active/inactive)
 router.post('/tasks/toggle/:id', canWrite, (req, res) => {
     const id = req.params.id;
-    let tasks = getTasks();
-    const taskIndex = tasks.findIndex(t => t.id === id);
+    const toggled = schedulerStore.mutateTasks((tasks) => {
+        const taskIndex = tasks.findIndex(t => t.id === id);
+        if (taskIndex === -1) return null;
+        tasks[taskIndex].status = tasks[taskIndex].status === 'active' ? 'inactive' : 'active';
+        return { ...tasks[taskIndex] };
+    }, { reason: 'task toggle' });
 
-    if (taskIndex === -1) {
+    if (!toggled) {
         return res.status(404).json({ error: 'Task not found' });
     }
-
-    const nextStatus = tasks[taskIndex].status === 'active' ? 'inactive' : 'active';
-    tasks[taskIndex].status = nextStatus;
-    
-    saveTasks(tasks);
+    const nextStatus = toggled.status;
     triggerEngineReload();
 
     const user = req.user ? req.user.username : 'System';
-    auditLog(user, 'Task Scheduler', `Toggled task ${tasks[taskIndex].name} to: ${nextStatus}`);
-    res.json({ success: true, task: tasks[taskIndex] });
+    auditLog(user, 'Task Scheduler', `Toggled task ${toggled.name} to: ${nextStatus}`);
+    res.json({ success: true, task: toggled });
 });
 
 // DELETE /tasks/delete/:id - Remove a task
 router.delete('/tasks/delete/:id', canDelete, (req, res) => {
     const id = req.params.id;
-    let tasks = getTasks();
-    const filtered = tasks.filter(t => t.id !== id);
+    const removed = schedulerStore.mutateTasks((tasks) => {
+        const idx = tasks.findIndex(t => t.id === id);
+        if (idx === -1) return false;
+        for (let i = tasks.length - 1; i >= 0; i--) if (tasks[i].id === id) tasks.splice(i, 1);
+        return true;
+    }, { reason: 'task delete' });
 
-    if (tasks.length !== filtered.length) {
-        saveTasks(filtered);
+    if (removed) {
         triggerEngineReload();
         const user = req.user ? req.user.username : 'System';
         auditLog(user, 'Task Scheduler', `Deleted scheduled task ID: ${id}`);

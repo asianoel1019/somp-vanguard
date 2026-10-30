@@ -17,6 +17,7 @@
  */
 const scoutDb = require('./scoutDb');
 const { readDataSync, writeDataSync } = require('../lib/db');
+const cmdbMetaStore = require('../lib/cmdbMetaStore');
 const { getTargetsSafely, updateTargetsSafely } = require('../lib/prometheusTargetHelper');
 const { removeIpFromPrometheusTargets } = require('../lib/vipLinkageHelper');
 const { getCmdbServerByIp } = require('./cmdbModel');
@@ -24,7 +25,6 @@ const { parseList } = require('./maintenanceWindows');
 const { auditLog } = require('../lib/logger');
 
 const CMDB_META_KEY = 'server_operation/server_cmdb_meta.json';
-const CMDB_HISTORY_KEY = 'server_operation/server_cmdb_history.json';
 const MIGRATION_MARKER_KEY = 'system/cmdb_deleted_flag_migration.json';
 const CHUNK = 400;
 const HISTORY_BATCH = 1000;
@@ -348,30 +348,29 @@ function scheduleAlertsMonitorIndex(delayMs = 5 * 60 * 1000) {
 function migrateResurrectedDeletedFlags() {
     try {
         if (readDataSync(MIGRATION_MARKER_KEY, null)) return { skipped: true, cleared: 0, ips: [] };
-        const meta = readMeta();
-        const cleared = [];
-        for (const [ip, m] of Object.entries(meta)) {
-            if (!m || m.deleted !== true || isLinkedVipMeta(m)) continue;
-            const row = getCmdbServerByIp(ip);
-            if (!row || row.linkedToIp || row.isSecondary) continue;
-            cleared.push({ ip, old: { ...m } });
-            m.deleted = false;
-            m.restoredAt = new Date().toISOString();
-            m.restoredBy = 'MIGRATION';
-            delete m.deletedAt;
-            delete m.deletedBy;
-        }
-        if (cleared.length > 0) {
-            writeDataSync(CMDB_META_KEY, meta);
-            const history = readDataSync(CMDB_HISTORY_KEY, []);
-            for (const c of cleared) {
-                history.unshift({
-                    id: Date.now().toString() + '-' + Math.random().toString(36).substr(2, 4),
-                    ip: c.ip, username: 'MIGRATION', action: 'RESTORE', timestamp: new Date().toISOString(),
-                    oldData: c.old, newData: meta[c.ip]
-                });
+        // atomic read-modify-write of the CURRENT meta; fn keeps its outputs in its return value
+        const cleared = cmdbMetaStore.mutateMeta((meta) => {
+            const out = [];
+            for (const [ip, m] of Object.entries(meta)) {
+                if (!m || m.deleted !== true || isLinkedVipMeta(m)) continue;
+                const row = getCmdbServerByIp(ip);
+                if (!row || row.linkedToIp || row.isSecondary) continue;
+                const old = { ...m };
+                m.deleted = false;
+                m.restoredAt = new Date().toISOString();
+                m.restoredBy = 'MIGRATION';
+                delete m.deletedAt;
+                delete m.deletedBy;
+                out.push({ ip, old, entry: { ...m } });
             }
-            writeDataSync(CMDB_HISTORY_KEY, history.slice(0, 500));
+            return out;
+        }, { reason: 'deleted-flag migration' });
+        if (cleared.length > 0) {
+            cmdbMetaStore.appendHistory(cleared.map(c => ({
+                id: Date.now().toString() + '-' + Math.random().toString(36).substr(2, 4),
+                ip: c.ip, username: 'MIGRATION', action: 'RESTORE', timestamp: new Date().toISOString(),
+                oldData: c.old, newData: c.entry
+            })), 500);
             const first = cleared.slice(0, 20).map(c => c.ip).join(', ');
             auditLog('MIGRATION', 'Server List CMDB', `Cleared stale deleted flag on ${cleared.length} server(s) still present in Server List: ${first}${cleared.length > 20 ? ', ...' : ''}`);
         }

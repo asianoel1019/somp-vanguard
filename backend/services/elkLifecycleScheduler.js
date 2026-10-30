@@ -1,5 +1,6 @@
 const axios = require('axios');
-const { readDataSync, writeDataSync } = require('../lib/db');
+const { readDataSync } = require('../lib/db');
+const { mutateDocument, replaceDocument } = require('../lib/docStore');
 const { auditLog } = require('../lib/logger');
 const { getEnvMap, getEsBaseUrl, getHttpConfig } = require('../lib/elkHelper');
 
@@ -20,8 +21,21 @@ function getViolationsData() {
     return readDataSync(STORE_KEY, DEFAULT_CONFIG);
 }
 
+/**
+ * Atomic read-modify-write of the violations document (the worker's scheduled scan and the web's on-demand scan,
+ * config edit and index delete all write it). fn gets the CURRENT document (DEFAULT_CONFIG when there is none yet,
+ * as getViolationsData returns).
+ */
+function mutateViolationsData(fn) {
+    return mutateDocument(STORE_KEY, (doc) => {
+        if (Object.keys(doc).length === 0) Object.assign(doc, JSON.parse(JSON.stringify(DEFAULT_CONFIG)));
+        return fn(doc);
+    }, { defaultValue: {}, fnName: 'elkLifecycle.mutateViolationsData', label: 'ELK lifecycle violations' });
+}
+
+/** Whole-document replacement under the same lock (prefer mutateViolationsData). */
 function saveViolationsData(data) {
-    writeDataSync(STORE_KEY, data);
+    replaceDocument(STORE_KEY, data, { defaultValue: {} });
 }
 
 /**
@@ -95,21 +109,20 @@ async function scanLifecycleViolations(env, indexPattern) {
         }
     }
 
-    // Persist latest findings
-    const current = getViolationsData();
-    const updated = {
-        ...current,
-        targetEnv: targetCluster || current.targetEnv || Object.keys(envMap)[0] || '',
-        indexPattern: pattern,
-        lastScanTime: new Date().toISOString(),
-        lastScanStatus: 'Success',
-        violations: allViolations,
-        totalChecked: checkedIndexMap.size,
-        lastError: null
-    };
-
-    saveViolationsData(updated);
-    return updated;
+    // Persist latest findings: the scan results replace only the scan fields of the CURRENT document
+    // (a schedule / pattern edit made while Elasticsearch was queried is kept)
+    return mutateViolationsData((current) => {
+        Object.assign(current, {
+            targetEnv: targetCluster || current.targetEnv || Object.keys(envMap)[0] || '',
+            indexPattern: pattern,
+            lastScanTime: new Date().toISOString(),
+            lastScanStatus: 'Success',
+            violations: allViolations,
+            totalChecked: checkedIndexMap.size,
+            lastError: null
+        });
+        return JSON.parse(JSON.stringify(current));
+    });
 }
 
 /**
@@ -144,11 +157,13 @@ async function deleteIndices(env, indexNames, username = 'SYSTEM') {
     }
 
     // Remove successfully deleted indices from stored violation cache
-    const current = getViolationsData();
     const successfulDeletes = new Set(results.filter(r => r.success).map(r => r.index));
-    if (successfulDeletes.size > 0 && Array.isArray(current.violations)) {
-        current.violations = current.violations.filter(v => !successfulDeletes.has(v.index));
-        saveViolationsData(current);
+    if (successfulDeletes.size > 0) {
+        mutateViolationsData((current) => {
+            if (Array.isArray(current.violations)) {
+                current.violations = current.violations.filter(v => !successfulDeletes.has(v.index));
+            }
+        });
     }
 
     return results;
@@ -217,10 +232,10 @@ function initElkLifecycleScheduler() {
                     console.log(`[ELK Lifecycle Scheduler] Scheduled scan completed successfully.`);
                 } catch (scanErr) {
                     console.error(`[ELK Lifecycle Scheduler] Scheduled scan failed:`, scanErr.message);
-                    const cur = getViolationsData();
-                    cur.lastScanStatus = 'Failed';
-                    cur.lastError = scanErr.message;
-                    saveViolationsData(cur);
+                    mutateViolationsData((cur) => {
+                        cur.lastScanStatus = 'Failed';
+                        cur.lastError = scanErr.message;
+                    });
                 }
             }
         } catch (e) {
@@ -232,6 +247,7 @@ function initElkLifecycleScheduler() {
 module.exports = {
     getViolationsData,
     saveViolationsData,
+    mutateViolationsData,
     scanLifecycleViolations,
     deleteIndices,
     initElkLifecycleScheduler

@@ -35,7 +35,7 @@
         </svg>
       </div>
       <div class="brand-text">SOMP Vanguard</div>
-      <span class="brand-badge">v1.7.6 ENTERPRISE</span>
+      <span class="brand-badge">v1.7.7 ENTERPRISE</span>
     </div>
 
     <!-- Navigation Tabs -->
@@ -343,12 +343,54 @@
     <!-- Release Notes & System Changelog Section -->
     <section class="changelog-banner" style="margin-top: 60px; padding: 32px; background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border-subtle); border-radius: 16px;">
       <div class="section-heading-group" style="text-align: left; margin-bottom: 24px;">
-        <div class="section-tag" style="background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3);">VERSION 1.7.6 RELEASE NOTES</div>
-        <h2 class="section-title">SOMP Vanguard 1.7 版更新全覽 (10/9 更新，1.7.3 於 10/15、1.7.4 於 10/19、1.7.5 於 10/20、1.7.6 於 10/22 發布)</h2>
+        <div class="section-tag" style="background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3);">VERSION 1.7.7 RELEASE NOTES</div>
+        <h2 class="section-title">SOMP Vanguard 1.7 版更新全覽 (10/9 更新，1.7.3 於 10/15、1.7.4 於 10/19、1.7.5 於 10/20、1.7.6 於 10/22、1.7.7 於 10/30 發布)</h2>
         <p class="section-desc" style="margin: 0;">系統於 10/9 正式更新至 1.7 版，重大更新涵蓋遠端桌面閘道、底層多資料庫架構重構、Prometheus SD、ELK 生命週期與高可用容錯強化。</p>
       </div>
 
       <div class="changelog-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px;">
+        <div class="changelog-card" style="background: var(--bg-card); padding: 18px 20px; border-radius: 12px; border: 1px solid var(--border-subtle);">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+            <span style="font-weight: 700; color: #f87171; font-size: 0.95rem;">v1.7.7 安全修正</span>
+            <span style="font-size: 0.75rem; background: #f8717126; color: #f87171; padding: 2px 8px; border-radius: 10px;">SECURITY</span>
+          </div>
+          <ul style="margin: 0; padding-left: 18px; font-size: 0.85rem; color: var(--text-muted); line-height: 1.6;">
+            <li><strong>安全修正：Web RDP 不再自動帶入 AD 管理員密碼</strong>：帳號預設為目前登入者，密碼一律需自行輸入；先前在帳號等於 <code>AD_ADMIN_USER</code> 時會自動帶入 <code>AD_ADMIN_PWD</code>，等於不需知道密碼即可以 AD 管理員身分登入 Windows 主機，已移除。</li>
+            <li><strong>安全修正：Remote Command</strong>：目標主機只接受 IPv4 / 主機名稱（修正可在 IP 欄夾帶 PowerShell 指令、於 SOMP 主機上執行的命令注入，Server Check 的 OS 偵測一併修正）；Windows 可輸入自己的 Windows 密碼以 <code>網域\登入者</code> 執行，個人帳號連線失敗或未輸入時改用 Settings 服務帳號（結果標示使用的帳號，指令最多執行一次），不再讀取專案根目錄 <code>config.json</code> 的明文密碼，帳密改經 stdin 傳遞、不寫入暫存檔；指令庫新增 / 刪除改需 Operator 以上並寫入稽核紀錄（修正 Viewer 可修改、Runbook 共用的指令庫），並修正刪除自訂指令時畫面錯誤。</li>
+            <li><strong>安全修正：Network Device SNMP 查詢</strong>：SNMP 查詢原本會使用前端傳入的 IP（Viewer 也可呼叫），可藉此讓系統把設備的 community / v3 帳號送到任意主機；改為一律使用機櫃中儲存的設備 IP。新增每台設備的「啟用 SNMP 查詢」開關，停用時完全不查詢；未設定過的設備預設停用，不再以 <code>public</code> 查詢。</li>
+            <li><strong>安全修正：SSL Manager</strong>：上傳憑證檔時，檔案類型與內容原本直接組進 PowerShell 腳本（可在 SOMP 主機上執行任意指令），改為 PEM / DER 由 Node 解析、PFX 以固定腳本經 stdin 傳入；清單不再回傳加密的私鑰 / 檔案；檢視私鑰改為僅限 SuperAdmin 並記入稽核紀錄。</li>
+          </ul>
+        </div>
+
+        <div class="changelog-card" style="background: var(--bg-card); padding: 18px 20px; border-radius: 12px; border: 1px solid var(--border-subtle);">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+            <span style="font-weight: 700; color: #fbbf24; font-size: 0.95rem;">v1.7.7 資料正確性與穩定性</span>
+            <span style="font-size: 0.75rem; background: #fbbf2426; color: #fbbf24; padding: 2px 8px; border-radius: 10px;">MAJOR FIX</span>
+          </div>
+          <ul style="margin: 0; padding-left: 18px; font-size: 0.85rem; color: var(--text-muted); line-height: 1.6;">
+            <li><strong>修正：Data Center 可能整座機房被誤刪</strong>：原本儲存機房時會把整份清單送回覆蓋，畫面資料過舊時會刪除別人剛新增的機房（連同機櫃、設備、IPAM 的 IP 與 SNMP 設定）。改為逐筆新增 / 修改；刪除需 SuperAdmin 並輸入機房名稱確認，刪除後立即生效（修正原本刪除時回 500、機櫃資料未刪除的問題）。機櫃儲存加上版本檢查，別人已修改時拒絕並自動重新載入，不再覆蓋他人設備或誤釋放 IP；儲存前檢查 U 位重疊、超出高度、跨越 Split 分界與重複設備 ID。</li>
+            <li><strong>修正：Data Center 權限與備品庫存</strong>：機房、機櫃、硬體問題、合約的寫入 API 補上 Operator 以上的角色檢查（原本 Viewer 可直接呼叫 API 修改甚至刪除）；Network Device 的設備更新只接受機櫃資料。備品數量統一為 <code>quantity</code> 並由伺服器加減（修正報修選用備品時其實沒有扣庫存的問題），出庫超過庫存會拒絕；報修使用備品同一次選用只扣一次，庫存不足時報修不儲存。</li>
+            <li><strong>修正：IPAM 資料被覆蓋或清除</strong>：編輯網段名稱時會用畫面上的舊資料覆蓋整段 IP 的使用狀態，已改為只修改網段欄位；DNS 同步只清除確定抓取成功區域的 FQDN（原本部分抓取時會清空其他區域）；網頁與背景服務同時寫入 IPAM 時不再互相覆蓋；修正批次更新網段一律回 404 的問題。</li>
+            <li><strong>修正：SSL Manager 掃描與告警</strong>：只存檔案的憑證每天被誤探測、誤發告警且到期日被清掉的問題已修正；掃描結果改為合併寫回，不再覆蓋掃描期間新增 / 刪除的資料；新增「已過期」與「不受信任」顯示；告警改為只在狀態改變時發送；全部檢查改為背景平行執行；新增編輯功能與主機 / Port 驗證。</li>
+            <li><strong>修正：排程任務被執行兩次</strong>：在畫面新增或編輯排程任務（以及 Prometheus 健康檢查設定）後，網頁服務會另外啟動一個排程引擎，任務會被執行兩次直到重啟；已改為只由背景服務執行。</li>
+            <li><strong>統一資料存取</strong>：網頁服務與背景服務都會寫入的資料（CMDB 補充資料、排程、Prometheus 目標、Webhooks、RBAC 等）改為資料庫鎖定寫入，不再互相覆蓋；排程 / CMDB / DNS / Workflow 紀錄改存資料表並依 <code>RETENTION_*_DAYS</code> 自動清除（升級時自動搬移，舊資料保留）；新增寫入追蹤開關 <code>DOC_WRITE_TRACE</code> 與重複舊 key 清理工具 <code>Cleanup_Doc_Aliases.bat</code>（預設只產生報告）。</li>
+          </ul>
+        </div>
+
+        <div class="changelog-card" style="background: var(--bg-card); padding: 18px 20px; border-radius: 12px; border: 1px solid var(--border-subtle);">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+            <span style="font-weight: 700; color: #38bdf8; font-size: 0.95rem;">v1.7.7 功能改善</span>
+            <span style="font-size: 0.75rem; background: #38bdf826; color: #38bdf8; padding: 2px 8px; border-radius: 10px;">IMPROVEMENT</span>
+          </div>
+          <ul style="margin: 0; padding-left: 18px; font-size: 0.85rem; color: var(--text-muted); line-height: 1.6;">
+            <li><strong>Network Device 修正</strong>：SNMP v2c 設定實際以 v1 查詢的問題已修正（新增 v1 選項）；設備清單與查詢不再直接讀取本機 SQLite（改用 PostgreSQL / MSSQL / MariaDB 時不會再整頁錯誤）；修改設備 IP 時會釋放舊 IP；刪除設備會一併刪除 SNMP 設定；新增設備與 SNMP 設定加上完整驗證，錯誤顯示實際原因。</li>
+            <li><strong>IPAM 改善</strong>：CIDR 正規化並拒絕重複 / 重疊網段，新網段限 /20～/30，舊大網段同步時自動補上 IP；自動同步改為最精確網段比對，公網 IP 不再自動建立網段；「下一個可用 IP」跳過閘道與保留範圍並保留 10 分鐘；系統自動登記的 IP 手動修改需 SuperAdmin 確認；刪除含使用中 IP 的網段需 SuperAdmin 並輸入 CIDR；單一 IP 欄位驗證；網段清單改為只載入摘要，點開才載入 IP。</li>
+            <li><strong>Topology Map 改版</strong>：修正機櫃背面設備未畫出、雙向連線畫成兩條而同一對設備的多條線只剩一條、同名設備亂接、跨機房設備被當成找不到等問題；連線改為無箭頭並標示兩端埠號（<code>P1 ↔ P3</code>）。新增隱藏未接線設備、網路 / 電源圖層與類型篩選、搜尋定位、保留拖曳位置與重新排版、重新整理與錯誤提示，以及手動觸發的即時埠狀態（只查已啟用 SNMP 的設備）。</li>
+            <li><strong>Remote Command 穩定性</strong>：Linux 指令加上 120 秒執行逾時（不會再因 <code>tail -f</code> 等指令永久卡住）、每台輸出上限 512 KB；新增「停止」按鈕，關閉頁面也會停止派送尚未開始的主機；一次最多 200 台、重複主機自動合併、格式錯誤的請求回 400；開始與結束各寫一筆稽核紀錄。</li>
+            <li><strong>匯入檔依 OS 產生</strong>：依 CMDB 的 OS 產生 CPU / Memory / Disk 測試：Linux 維持 SNMP（net-snmp OID）；Windows 改用 PerfCounter（<code>% Processor Time</code>）、Memory（WMI）、DriveSpace（所有本機磁碟，剩餘 &lt; 15%），與現行 HostMonitor 設定一致。CMDB 未填 OS 的主機只產生 Ping，其 CPU / Memory / Disk 會略過並列在檔案最後。比對結果顯示 OS 標籤，CSV 多一欄 OS。</li>
+          </ul>
+        </div>
+
         <div class="changelog-card" style="background: var(--bg-card); padding: 18px 20px; border-radius: 12px; border: 1px solid var(--border-subtle);">
           <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
             <span style="font-weight: 700; color: #f59e0b; font-size: 0.95rem;">v1.7.6 SuperAdmin 功能開關</span>
@@ -363,18 +405,6 @@
             <li><strong>生效時間</strong>：API 檢查在修改開關後立即生效；已登入的工作階段要到下次登入才會更新登入時取得的功能清單（側邊欄於重新整理頁面後更新）。升級前簽發、仍帶有舊 <code>SuperAdmin</code> 群組名稱的非 SuperAdmin 工作階段，需重新登入才會取得改名後 <code>(legacy)</code> 群組的功能。</li>
             <li><strong>防鎖死與緊急帳號</strong>：Settings / RBAC / Audit log 對 SuperAdmin 永遠開啟；本機管理員帳號永遠擁有全部功能；<code>APP_ENABLE_&lt;功能&gt;=false</code> 仍優先。</li>
             <li><strong>升級注意</strong>：自動建立，初始開關 = 升級前 SuperAdmin 的實際功能，行為不變；既有名為 <code>SuperAdmin</code> 的自訂 Mapping 改名為 <code>SuperAdmin (legacy)</code>。另移除 SFTP API 中從未生效的 <code>Admin</code> 角色（存取對象不變）。</li>
-            <li><strong>安全修正：Web RDP 不再自動帶入 AD 管理員密碼</strong>：帳號預設為目前登入者，密碼一律需自行輸入；先前在帳號等於 <code>AD_ADMIN_USER</code> 時會自動帶入 <code>AD_ADMIN_PWD</code>，等於不需知道密碼即可以 AD 管理員身分登入 Windows 主機，已移除。</li>
-            <li><strong>安全修正：Remote Command</strong>：目標主機只接受 IPv4 / 主機名稱（修正可在 IP 欄夾帶 PowerShell 指令、於 SOMP 主機上執行的命令注入，Server Check 的 OS 偵測一併修正）；Windows 可輸入自己的 Windows 密碼以 <code>網域\登入者</code> 執行，個人帳號連線失敗或未輸入時改用 Settings 服務帳號（結果標示使用的帳號，指令最多執行一次），不再讀取專案根目錄 <code>config.json</code> 的明文密碼，帳密改經 stdin 傳遞、不寫入暫存檔；指令庫新增 / 刪除改需 Operator 以上並寫入稽核紀錄（修正 Viewer 可修改、Runbook 共用的指令庫），並修正刪除自訂指令時畫面錯誤。</li>
-            <li><strong>修正：Data Center 可能整座機房被誤刪</strong>：原本儲存機房時會把整份清單送回覆蓋，畫面資料過舊時會刪除別人剛新增的機房（連同機櫃、設備、IPAM 的 IP 與 SNMP 設定）。改為逐筆新增 / 修改；刪除需 SuperAdmin 並輸入機房名稱確認，刪除後立即生效（修正原本刪除時回 500、機櫃資料未刪除的問題）。機櫃儲存加上版本檢查，別人已修改時拒絕並自動重新載入，不再覆蓋他人設備或誤釋放 IP；儲存前檢查 U 位重疊、超出高度、跨越 Split 分界與重複設備 ID。</li>
-            <li><strong>修正：Data Center 權限與備品庫存</strong>：機房、機櫃、硬體問題、合約的寫入 API 補上 Operator 以上的角色檢查（原本 Viewer 可直接呼叫 API 修改甚至刪除）；Network Device 的設備更新只接受機櫃資料。備品數量統一為 <code>quantity</code> 並由伺服器加減（修正報修選用備品時其實沒有扣庫存的問題），出庫超過庫存會拒絕；報修使用備品同一次選用只扣一次，庫存不足時報修不儲存。</li>
-            <li><strong>安全修正：Network Device SNMP 查詢</strong>：SNMP 查詢原本會使用前端傳入的 IP（Viewer 也可呼叫），可藉此讓系統把設備的 community / v3 帳號送到任意主機；改為一律使用機櫃中儲存的設備 IP。新增每台設備的「啟用 SNMP 查詢」開關，停用時完全不查詢；未設定過的設備預設停用，不再以 <code>public</code> 查詢。</li>
-            <li><strong>Network Device 修正</strong>：SNMP v2c 設定實際以 v1 查詢的問題已修正（新增 v1 選項）；設備清單與查詢不再直接讀取本機 SQLite（改用 PostgreSQL / MSSQL / MariaDB 時不會再整頁錯誤）；修改設備 IP 時會釋放舊 IP；刪除設備會一併刪除 SNMP 設定；新增設備與 SNMP 設定加上完整驗證，錯誤顯示實際原因。</li>
-            <li><strong>安全修正：SSL Manager</strong>：上傳憑證檔時，檔案類型與內容原本直接組進 PowerShell 腳本（可在 SOMP 主機上執行任意指令），改為 PEM / DER 由 Node 解析、PFX 以固定腳本經 stdin 傳入；清單不再回傳加密的私鑰 / 檔案；檢視私鑰改為僅限 SuperAdmin 並記入稽核紀錄。</li>
-            <li><strong>修正：SSL Manager 掃描與告警</strong>：只存檔案的憑證每天被誤探測、誤發告警且到期日被清掉的問題已修正；掃描結果改為合併寫回，不再覆蓋掃描期間新增 / 刪除的資料；新增「已過期」與「不受信任」顯示；告警改為只在狀態改變時發送；全部檢查改為背景平行執行；新增編輯功能與主機 / Port 驗證。</li>
-            <li><strong>修正：IPAM 資料被覆蓋或清除</strong>：編輯網段名稱時會用畫面上的舊資料覆蓋整段 IP 的使用狀態，已改為只修改網段欄位；DNS 同步只清除確定抓取成功區域的 FQDN（原本部分抓取時會清空其他區域）；網頁與背景服務同時寫入 IPAM 時不再互相覆蓋；修正批次更新網段一律回 404 的問題。</li>
-            <li><strong>IPAM 改善</strong>：CIDR 正規化並拒絕重複 / 重疊網段，新網段限 /20～/30，舊大網段同步時自動補上 IP；自動同步改為最精確網段比對，公網 IP 不再自動建立網段；「下一個可用 IP」跳過閘道與保留範圍並保留 10 分鐘；系統自動登記的 IP 手動修改需 SuperAdmin 確認；刪除含使用中 IP 的網段需 SuperAdmin 並輸入 CIDR；單一 IP 欄位驗證；網段清單改為只載入摘要，點開才載入 IP。</li>
-            <li><strong>Topology Map 改版</strong>：修正機櫃背面設備未畫出、雙向連線畫成兩條而同一對設備的多條線只剩一條、同名設備亂接、跨機房設備被當成找不到等問題；連線改為無箭頭並標示兩端埠號（<code>P1 ↔ P3</code>）。新增隱藏未接線設備、網路 / 電源圖層與類型篩選、搜尋定位、保留拖曳位置與重新排版、重新整理與錯誤提示，以及手動觸發的即時埠狀態（只查已啟用 SNMP 的設備）。</li>
-            <li><strong>Remote Command 穩定性</strong>：Linux 指令加上 120 秒執行逾時（不會再因 <code>tail -f</code> 等指令永久卡住）、每台輸出上限 512 KB；新增「停止」按鈕，關閉頁面也會停止派送尚未開始的主機；一次最多 200 台、重複主機自動合併、格式錯誤的請求回 400；開始與結束各寫一筆稽核紀錄。</li>
           </ul>
         </div>
 
@@ -417,7 +447,6 @@
             <li><strong>自動使用最新備份檔</strong>：開啟畫面與每次比對都會重新掃描 UNC 目錄並使用最新備份檔（可「固定」指定檔案，固定的檔案被移除時自動取消），畫面顯示實際使用的檔案；UNC 掃描結果最多快取 10 秒；已移除每 10 分鐘的背景自動比對。</li>
             <li><strong>明確報錯</strong>：UNC 失敗或逾時（可設定 5–120 秒）時直接顯示原因，不再悄悄改用其他檔案；只認符合檔名規則的備份檔；CMDB 超過 1000 台也會全部比對，並排除已刪除主機。</li>
             <li><strong>安全修正</strong>：上傳的備份改存於資料目錄下的私有資料夾，不再寫入公開的 <code>docs/</code>（舊的 <code>docs/</code> 內備份不再被讀取，請自行刪除）；檔名須符合規則，同名上傳回 409、確認後才覆蓋；修正可讓服務卡住的檔名規則比對。</li>
-            <li><strong>匯入檔依 OS 產生</strong>：依 CMDB 的 OS 產生 CPU / Memory / Disk 測試：Linux 維持 SNMP（net-snmp OID）；Windows 改用 PerfCounter（<code>% Processor Time</code>）、Memory（WMI）、DriveSpace（所有本機磁碟，剩餘 &lt; 15%），與現行 HostMonitor 設定一致。CMDB 未填 OS 的主機只產生 Ping，其 CPU / Memory / Disk 會略過並列在檔案最後。比對結果顯示 OS 標籤，CSV 多一欄 OS。</li>
           </ul>
         </div>
 

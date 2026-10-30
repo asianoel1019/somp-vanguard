@@ -1,6 +1,7 @@
 // Side effects of rack device changes, shared by the Server Rack routes (routes/rack.js) and the
 // Network Device routes (routes/networkDevice.js): IPAM use / free and removal of SNMP settings.
-const { readDataSync, writeDataSync } = require('./db');
+const { readDataSync } = require('./db');
+const { mutateDocument } = require('./docStore');
 const ipamSync = require('./ipamSync');
 
 const SNMP_FILE = 'network_service/snmp_settings.json';
@@ -23,7 +24,7 @@ function deviceMapOf(racks) {
  */
 function syncDeviceChanges(oldDevices, newDevices, username, source = 'Server Rack') {
     const snmpSettings = readDataSync(SNMP_FILE, {}) || {};
-    let snmpChanged = false;
+    const removedWithSnmp = [];
     const ipActions = [];
 
     for (const id in oldDevices) {
@@ -31,10 +32,7 @@ function syncDeviceChanges(oldDevices, newDevices, username, source = 'Server Ra
             if (oldDevices[id].ip) {
                 ipActions.push({ ip: oldDevices[id].ip, hostname: '', username, action: 'free', source });
             }
-            if (snmpSettings[id]) {
-                delete snmpSettings[id];
-                snmpChanged = true;
-            }
+            if (snmpSettings[id]) removedWithSnmp.push(id);
         }
     }
 
@@ -55,7 +53,17 @@ function syncDeviceChanges(oldDevices, newDevices, username, source = 'Server Ra
         }
     }
 
-    if (snmpChanged) writeDataSync(SNMP_FILE, snmpSettings);
+    // only the removed devices' entries are deleted, on the CURRENT document (atomic read-modify-write)
+    let snmpChanged = false;
+    if (removedWithSnmp.length > 0) {
+        snmpChanged = mutateDocument(SNMP_FILE, (settings) => {
+            let changed = false;
+            for (const id of removedWithSnmp) {
+                if (settings[id]) { delete settings[id]; changed = true; }
+            }
+            return changed;
+        }, { defaultValue: {}, fnName: 'rackDeviceSync.removeSnmp', label: 'SNMP settings' });
+    }
     // via the module object so tests can stub batchSyncIpsToIpam
     if (ipActions.length > 0) ipamSync.batchSyncIpsToIpam(ipActions);
     return { ipActions, snmpChanged };

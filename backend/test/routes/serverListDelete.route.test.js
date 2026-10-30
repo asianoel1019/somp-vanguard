@@ -12,7 +12,6 @@ const serverDeletion = require('../../services/serverDeletion');
 const { getTargetsSafely, saveTargetsSafely } = require('../../lib/prometheusTargetHelper');
 
 const META_KEY = 'server_operation/server_cmdb_meta.json';
-const HISTORY_KEY = 'server_operation/server_cmdb_history.json';
 
 const tok = (role, username = role.toLowerCase()) => `Bearer ${signToken({ username, domain: 'corp', role, groups: ['sl'] })}`;
 const admin = tok('SuperAdmin'), op = tok('Operator'), viewer = tok('Viewer');
@@ -33,7 +32,8 @@ const get = (sql, params = []) => dbManager.get(sql, params);
 const count = (table, where = '1=1', params = []) => get(`SELECT COUNT(*) AS c FROM ${table} WHERE ${where}`, params).c;
 const cmdbRow = (ip) => libDb.prepare('SELECT ip, hostname FROM cmdb_servers WHERE ip = ?').get(ip);
 const meta = () => readDataSync(META_KEY, {});
-const history = () => readDataSync(HISTORY_KEY, []);
+// CMDB history: table cmdb_history (services/logTables.js), newest first
+const history = () => require('../../lib/cmdbMetaStore').readHistory();
 const bearer = (t) => ({ Authorization: t });
 
 function promTarget(ip, host) {
@@ -45,7 +45,7 @@ async function seed() {
     for (const t of ['monitors', 'metrics', 'alerts', 'alert_state', 'notify_state', 'rule_bindings', 'rule_exclusions', 'rules', 'maintenance_windows',
         'windows_events', 'linux_logs', 'remediation_logs', 'forensic_tasks', 'forensic_reports']) run(`DELETE FROM ${t}`);
     libDb.prepare('DELETE FROM cmdb_servers').run();
-    writeDataSync(HISTORY_KEY, []);
+    require('../../services/logTables').getHandle().exec('DELETE FROM cmdb_history');
     writeDataSync('prometheus_targets.json', []);
 
     cmdb.upsertCmdbServer({ ip: '10.1.1.1', hostname: 'H1', applicationName: 'App1' }, 'MANUAL');

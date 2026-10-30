@@ -2,8 +2,9 @@ const fs = require('fs');
 const path = require('path');
 const net = require('net');
 const { auditLog, sendTelegramAlert, summarizeLines } = require('../lib/logger');
-const { getTargetsSafely, saveTargetsSafely } = require('../lib/prometheusTargetHelper');
-const { readDataSync, writeDataSync } = require('../lib/db');
+const { getTargetsSafely, saveTargetsSafely, updateTargetsSafely } = require('../lib/prometheusTargetHelper');
+const { readDataSync } = require('../lib/db');
+const { mutateDocument } = require('../lib/docStore');
 
 const HEALTH_CHECK_CONFIG_KEY = 'prometheus_health_check.json';
 
@@ -21,18 +22,30 @@ function getHealthCheckConfig() {
     }
 }
 
+/** Atomic read-modify-write of the health check config (the web edits it, every scan - web or worker - sets lastRun). */
+function mutateHealthCheckConfig(fn) {
+    return mutateDocument(HEALTH_CHECK_CONFIG_KEY, fn, { defaultValue: {}, fnName: 'prometheusScheduler.mutateHealthCheckConfig', label: 'Prometheus health check config' });
+}
+
 function updateHealthCheckConfig(newConfig) {
-    const current = getHealthCheckConfig();
-    const updated = {
-        ...current,
-        enabled: !!newConfig.enabled,
-        intervalMinutes: Math.max(1, parseInt(newConfig.intervalMinutes, 10) || 15)
-    };
-    if (newConfig.lastRun !== undefined) {
-        updated.lastRun = newConfig.lastRun;
+    const updated = mutateHealthCheckConfig((cfg) => {
+        const current = { enabled: false, intervalMinutes: 15, lastRun: null, ...cfg };
+        Object.assign(cfg, current, {
+            enabled: !!newConfig.enabled,
+            intervalMinutes: Math.max(1, parseInt(newConfig.intervalMinutes, 10) || 15)
+        });
+        if (newConfig.lastRun !== undefined) {
+            cfg.lastRun = newConfig.lastRun;
+        }
+        return { ...cfg };
+    });
+    // The health poller runs in the background worker: from the web process ask the worker to restart it
+    // (starting it here would poll twice); in the worker itself restart it directly.
+    if (typeof global.sendWorkerMessage === 'function') {
+        global.sendWorkerMessage({ type: 'RELOAD_PROMETHEUS_SCHEDULER' });
+    } else if (typeof process.send === 'function') {
+        initPrometheusScheduler();
     }
-    writeDataSync(HEALTH_CHECK_CONFIG_KEY, updated);
-    initPrometheusScheduler();
     return updated;
 }
 
@@ -109,30 +122,26 @@ async function runPrometheusHealthScan() {
             sendTelegramAlert(`🚨 [Prometheus Target Alert]\n${newlyOffline.length} 個 Exporter 轉為離線：\n${summarizeLines(newlyOffline.sort())}`, 'Prometheus');
         }
 
-        // Re-read latest targets to avoid overwriting user edits during the scan
-        const latestTargets = getTargets();
-        let updatedTargetsCount = 0;
+        // Merge only the probe fields into the CURRENT targets (atomic read-modify-write: user edits made during the
+        // scan, in this or the other process, are kept)
+        const { result: latestCount } = await updateTargetsSafely((latestTargets) => {
+            latestTargets.forEach(lt => {
+                const scanned = targets.find(t => t.labels.addr === lt.labels.addr);
+                if (scanned) {
+                    lt._status = scanned._status;
+                    lt._lastChecked = scanned._lastChecked;
+                }
+            });
+            return { targets: latestTargets, result: latestTargets.length };
+        }, 'health_scan');
 
-        latestTargets.forEach(lt => {
-            const scanned = targets.find(t => t.labels.addr === lt.labels.addr);
-            if (scanned) {
-                lt._status = scanned._status;
-                lt._lastChecked = scanned._lastChecked;
-                updatedTargetsCount++;
-            }
-        });
-
-        await saveTargets(latestTargets);
-        
         const nowIso = new Date().toISOString();
-        const currentCfg = getHealthCheckConfig();
-        currentCfg.lastRun = nowIso;
-        writeDataSync(HEALTH_CHECK_CONFIG_KEY, currentCfg);
+        mutateHealthCheckConfig((cfg) => { cfg.lastRun = nowIso; });
 
-        const summary = `Health scan complete. Targets: ${latestTargets.length}, Offline: ${offlineCount}`;
+        const summary = `Health scan complete. Targets: ${latestCount}, Offline: ${offlineCount}`;
         console.log(`[Prometheus] ${summary}`);
         auditLog('System', 'Prometheus', summary);
-        return { total: latestTargets.length, offline: offlineCount, lastRun: nowIso };
+        return { total: latestCount, offline: offlineCount, lastRun: nowIso };
     } finally {
         isScanning = false;
     }

@@ -37,7 +37,6 @@ router.post('/', requireAuth, webhookWriteGate, requireAdminOrOperator, (req, re
             return res.status(400).json({ error: 'Webhook Name and URL are required.' });
         }
 
-        const webhooks = webhookService.loadWebhooks();
         const id = 'wh_' + Date.now();
         const newWebhook = {
             id,
@@ -50,8 +49,8 @@ router.post('/', requireAuth, webhookWriteGate, requireAdminOrOperator, (req, re
             enabledLogs: Array.isArray(enabledLogs) ? enabledLogs : undefined
         };
 
-        webhooks.push(newWebhook);
-        webhookService.saveWebhooks(webhooks);
+        // atomic read-modify-write of the CURRENT list
+        const webhooks = webhookService.mutateWebhooks((list) => { list.push(newWebhook); return list.map(w => ({ ...w })); });
 
         auditLog(req.user.username, 'Integration Hub', `Created Webhook: "${newWebhook.name}"`);
         res.json({ success: true, webhook: newWebhook, webhooks });
@@ -66,11 +65,10 @@ router.put('/:id', requireAuth, webhookWriteGate, requireAdminOrOperator, (req, 
         const { id } = req.params;
         const { name, url, method, headers, bodyTemplate, enabled, enabledLogs } = req.body;
 
-        const webhooks = webhookService.loadWebhooks();
+        // atomic read-modify-write of the CURRENT list
+        const out = webhookService.mutateWebhooks((webhooks) => {
         const index = webhooks.findIndex(w => w.id === id);
-        if (index === -1) {
-            return res.status(404).json({ error: 'Webhook not found.' });
-        }
+        if (index === -1) return null;
 
         if (name) webhooks[index].name = name.trim();
         if (url) webhooks[index].url = url.trim();
@@ -79,8 +77,12 @@ router.put('/:id', requireAuth, webhookWriteGate, requireAdminOrOperator, (req, 
         if (bodyTemplate !== undefined) webhooks[index].bodyTemplate = bodyTemplate;
         if (enabled !== undefined) webhooks[index].enabled = enabled;
         if (enabledLogs !== undefined) webhooks[index].enabledLogs = Array.isArray(enabledLogs) ? enabledLogs : [];
-
-        webhookService.saveWebhooks(webhooks);
+        return { index, webhooks: webhooks.map(w => ({ ...w })) };
+        });
+        if (!out) {
+            return res.status(404).json({ error: 'Webhook not found.' });
+        }
+        const { index, webhooks } = out;
 
         auditLog(req.user.username, 'Integration Hub', `Updated Webhook: "${webhooks[index].name}"`);
         res.json({ success: true, webhook: webhooks[index], webhooks });
@@ -93,15 +95,18 @@ router.put('/:id', requireAuth, webhookWriteGate, requireAdminOrOperator, (req, 
 router.delete('/:id', requireAuth, webhookWriteGate, requireAdminOrOperator, (req, res) => {
     try {
         const { id } = req.params;
-        const webhooks = webhookService.loadWebhooks();
-        const index = webhooks.findIndex(w => w.id === id);
-        if (index === -1) {
+        // atomic read-modify-write of the CURRENT list
+        const out = webhookService.mutateWebhooks((list) => {
+            const index = list.findIndex(w => w.id === id);
+            if (index === -1) return null;
+            const removedName = list[index].name;
+            list.splice(index, 1);
+            return { name: removedName, webhooks: list.map(w => ({ ...w })) };
+        });
+        if (!out) {
             return res.status(404).json({ error: 'Webhook not found.' });
         }
-
-        const name = webhooks[index].name;
-        webhooks.splice(index, 1);
-        webhookService.saveWebhooks(webhooks);
+        const { name, webhooks } = out;
 
         auditLog(req.user.username, 'Integration Hub', `Deleted Webhook: "${name}"`);
         res.json({ success: true, webhooks });

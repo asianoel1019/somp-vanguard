@@ -3,17 +3,29 @@
 
 const KNOWN_HOSTS_KEY = 'server_operation/ssh_known_hosts.json';
 
+// Both processes pin keys (inventory scans in the worker, deploy / remote actions in the web): the default store
+// changes the document only through an atomic read-modify-write (lib/docStore.js), never read -> write.
 const defaultStore = {
     read() {
         const { readDataSync } = require('./db');
         const data = readDataSync(KNOWN_HOSTS_KEY, {});
         return data && typeof data === 'object' && !Array.isArray(data) ? data : {};
     },
-    write(data) {
-        const { writeDataSync } = require('./db');
-        writeDataSync(KNOWN_HOSTS_KEY, data);
+    mutate(fn) {
+        const { mutateDocument } = require('./docStore');
+        return mutateDocument(KNOWN_HOSTS_KEY, fn, { defaultValue: {}, fnName: 'sshHostKeys.mutate', label: 'SSH known hosts' });
     }
 };
+
+/** fn(known) on the store: atomically via store.mutate when it has one, else read -> fn -> write (test stores). */
+function mutateKnown(store, fn) {
+    if (typeof store.mutate === 'function') return store.mutate(fn);
+    const known = store.read();
+    const before = JSON.stringify(known);
+    const result = fn(known);
+    if (JSON.stringify(known) !== before) store.write(known);
+    return result;
+}
 
 function normalizeFingerprint(hash) {
     const h = String(hash || '').trim().toLowerCase().replace(/^sha256:/, '');
@@ -26,26 +38,30 @@ function normalizeFingerprint(hash) {
  */
 function checkHostKey(host, hash, store = defaultStore) {
     const fingerprint = normalizeFingerprint(hash);
-    const known = store.read();
-    const entry = known[host];
-    const now = new Date().toISOString();
-    if (!entry || !entry.fingerprint) {
+    const entry = store.read()[host];
+    if (entry && entry.fingerprint) {
+        if (entry.fingerprint === fingerprint) return { status: 'match', fingerprint };
+        return { status: 'mismatch', expected: entry.fingerprint, fingerprint };
+    }
+    // first sight: pin on the CURRENT document (another process may have pinned this host meanwhile)
+    return mutateKnown(store, (known) => {
+        const cur = known[host];
+        if (cur && cur.fingerprint) {
+            if (cur.fingerprint === fingerprint) return { status: 'match', fingerprint };
+            return { status: 'mismatch', expected: cur.fingerprint, fingerprint };
+        }
+        const now = new Date().toISOString();
         known[host] = { fingerprint, firstSeen: now, lastSeen: now };
-        store.write(known);
         return { status: 'new', fingerprint };
-    }
-    if (entry.fingerprint === fingerprint) {
-        return { status: 'match', fingerprint };
-    }
-    return { status: 'mismatch', expected: entry.fingerprint, fingerprint };
+    });
 }
 
 function forgetHostKey(host, store = defaultStore) {
-    const known = store.read();
-    if (!Object.prototype.hasOwnProperty.call(known, host)) return false;
-    delete known[host];
-    store.write(known);
-    return true;
+    return mutateKnown(store, (known) => {
+        if (!Object.prototype.hasOwnProperty.call(known, host)) return false;
+        delete known[host];
+        return true;
+    });
 }
 
 function listHostKeys(store = defaultStore) {

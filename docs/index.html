@@ -1,0 +1,2700 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SOMP Vanguard - 企業級智能維運管理平台 官方文檔中心</title>
+  <meta name="description"
+    content="SOMP Vanguard (sys-op-manager) 官方技術與使用說明文檔中心。包含完整 Simplified CMDB、Scout 監控、2D 資料中心與 42U 機櫃、AD Control、SIEM 安全鑑識、Kubernetes 與 Mail Relay 雙核心 AI 顧問、Database 資料庫治理、原生本地時間輪排程引擎與 REST API 規範。">
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700;800;900&display=swap"
+    rel="stylesheet">
+
+  <!-- Stylesheets -->
+  <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+  <!-- =========================================================================
+       Global Site Header
+       ========================================================================= -->
+  <header class="site-header">
+    <div class="brand-container" onclick="switchView('landing')">
+      <div class="brand-logo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"
+          stroke-linejoin="round">
+          <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+          <polyline points="2 17 12 22 22 17"></polyline>
+          <polyline points="2 12 12 17 22 12"></polyline>
+        </svg>
+      </div>
+      <div class="brand-text">SOMP Vanguard</div>
+      <span class="brand-badge">v1.7.6 ENTERPRISE</span>
+    </div>
+
+    <!-- Navigation Tabs -->
+    <nav class="header-nav">
+      <button class="nav-tab-btn active" data-view="landing">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+          <polyline points="9 22 9 12 15 12 15 22"></polyline>
+        </svg>
+        產品首頁
+      </button>
+      <button class="nav-tab-btn" data-view="docs">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+          <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+        </svg>
+        系統使用手冊
+      </button>
+      <button class="nav-tab-btn" data-view="api">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="16 18 22 12 16 6"></polyline>
+          <polyline points="8 6 2 12 8 18"></polyline>
+        </svg>
+        REST API 完整文檔
+      </button>
+      <button class="nav-tab-btn" data-view="troubleshooting">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="12" y1="8" x2="12" y2="12"></line>
+          <line x1="12" y1="16" x2="12.01" y2="16"></line>
+        </svg>
+        故障排查 (FAQ)
+      </button>
+    </nav>
+
+    <!-- Header Actions -->
+    <div class="header-actions">
+      <button class="search-box-btn search-trigger">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8"></circle>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+        </svg>
+        <span>搜尋文檔...</span>
+        <span class="kbd-shortcut">Ctrl K</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- =========================================================================
+       VIEW 1: Landing Page (產品總覽與首頁)
+       ========================================================================= -->
+  <main id="landing-view" class="view-container active landing-view">
+
+    <!-- Hero Section -->
+    <section class="hero-section">
+      <div class="hero-pill">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+        </svg>
+        Windows Server 2016 企業維運管理中樞
+      </div>
+      <h1 class="hero-title">SOMP Vanguard<br>一站式智能維運與基礎架構管理平台</h1>
+      <p class="hero-subtitle">
+        整合 Simplified CMDB、Scout 智慧監控與自癒、2D 機房與 42U/48U 機櫃、AD Control 網域目錄、SIEM 安全鑑識、雙核心 AI 維運顧問（K8s / Mail
+        Relay）、Database 跨引擎治理、原生本地時間輪排程引擎、以及 <strong>Apache Guacamole 純瀏覽器 Web 遠端桌面 (Web-RDP / SSH & 6 大擬真 OS 主題)</strong> 的高可用企業維運中樞。
+      </p>
+      <div class="hero-actions">
+        <button class="btn-hero btn-hero-primary" onclick="switchView('docs', '#chapter-1')">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path>
+            <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path>
+          </svg>
+          探索完整使用手冊
+        </button>
+        <button class="btn-hero btn-hero-secondary" onclick="switchView('api')">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="16 18 22 12 16 6"></polyline>
+            <polyline points="8 6 2 12 8 18"></polyline>
+          </svg>
+          查閱 REST API 文檔
+        </button>
+        <button class="btn-hero btn-hero-secondary" onclick="switchView('troubleshooting')">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="12" y1="8" x2="12" y2="12"></line>
+            <line x1="12" y1="16" x2="12.01" y2="16"></line>
+          </svg>
+          故障排查診斷中心
+        </button>
+      </div>
+
+      <!-- Hero Key Metrics -->
+      <div class="hero-stats-grid">
+        <div class="stat-card">
+          <div class="stat-number">3-Tier</div>
+          <div class="stat-label">AES-256 RBAC 安全權限矩陣</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-number">Dual AI</div>
+          <div class="stat-label">K8s &amp; Mail 雙核心維運顧問</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-number">HTML5 Remote</div>
+          <div class="stat-label">Guacamole 純瀏覽器 Web-RDP / SSH</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-number">DEB / RPM</div>
+          <div class="stat-label">Scout Agent 跨平台自動適配</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-number">2D &amp; 42U</div>
+          <div class="stat-label">機房平面圖與刀鋒 Chassis 視覺化</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-number">Native Time</div>
+          <div class="stat-label">原生本地時間輪排程輪詢引擎</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Quick Start 3-Step Section -->
+    <section class="quickstart-banner">
+      <div class="section-heading-group" style="text-align: left; margin-bottom: 20px;">
+        <div class="section-tag">QUICK ONBOARDING</div>
+        <h2 class="section-title">三步快速啟動企業級智能維運</h2>
+        <p class="section-desc" style="margin: 0;">無論是全新主機上線或是大型機房納管，均可在數分鐘內完成接入與自動化監控配置。</p>
+      </div>
+      <div class="quickstart-steps">
+        <div class="step-card">
+          <span class="step-badge">STEP 1</span>
+          <h3 class="step-title">登入與權限初始化</h3>
+          <p class="step-text">使用 <code>admin@local</code> 本地管理員或 AD 網域帳號登入系統，SuperAdmin 可自左側導覽列 <strong>Settings (系統設定中樞)</strong> 集中配置 RBAC 角色對應、全域 AI 顧問參數與 Feature Flags 模組開關（已全面整併入主控台，舊版 <code>/_setting</code> 獨立路徑已正式棄用）。</p>
+        </div>
+        <div class="step-card">
+          <span class="step-badge">STEP 2</span>
+          <h3 class="step-title">部署 Agent 與 CMDB 同步</h3>
+          <p class="step-text">在 Scout Monitor 複製一鍵安裝指令部署 Linux (DEB/RPM) 或 Windows Agent，並於 Server List 點擊
+            <strong>Global Auto-Sync</strong> 自動關聯機房 Compute、Nutanix 節點與 IPAM 網段資源。</p>
+        </div>
+        <div class="step-card">
+          <span class="step-badge">STEP 3</span>
+          <h3 class="step-title">建立自動化排程與自癒</h3>
+          <p class="step-text">在 Task Scheduler 設定以 OS 本地時間輪詢的自動化維護工作，並於 Scout 監控設定服務中斷自動自癒修復腳本與 Webhook
+            多管道即時告警，實現無人值守運維。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Core Pillars Grid (10 Major Capability Pillars) -->
+    <section>
+      <div class="section-heading-group">
+        <div class="section-tag">CORE CAPABILITIES</div>
+        <h2 class="section-title">全方位十強企業核心運維體系</h2>
+        <p class="section-desc">涵蓋伺服器資產、網域治理、實時監控、實體機房、資安鑑識、網路服務、核心平台、資料庫治理與自動化排程。</p>
+      </div>
+
+      <div class="features-grid">
+        <!-- 1. CMDB & Server Operation -->
+        <div class="feature-card c-indigo" onclick="switchView('docs', '#chapter-2')">
+          <div class="feature-icon-box">🖥️</div>
+          <h3 class="feature-card-title">伺服器維運 (Server Operation)</h3>
+          <p class="feature-card-text">
+            涵蓋 Simplified CMDB、360° 抽屜、Dual-NIC/VIP 雙向連動、時區合規、<strong>⚠️ Hardware Drift 漂移偵測與一鍵校準</strong>、PowerShell/SSH
+            遠端指令庫、<strong>🔍 Server Check 跨主機巡檢</strong>、<strong>🚀 Windows 遠端無人值守 Provision</strong>、<strong>🏢 Nutanix
+              超融合 VM 克隆</strong>，以及 <strong>🖥️ Apache Guacamole 純瀏覽器 Web 遠端桌面（Web-RDP / Web-SSH、6 款經典擬真 OS 視窗風格、30秒短效 AES-256 加密 Token、AD 網域單一登入 SSO、一鍵畫面截圖與雙向剪貼簿傳輸）</strong>。
+          </p>
+          <div class="feature-card-footer">
+            <span>探索 Server Operation 模組</span>
+            <span>&rarr;</span>
+          </div>
+        </div>
+
+        <!-- 2. AD Control Hub -->
+        <div class="feature-card c-cyan" onclick="switchView('docs', '#chapter-5')">
+          <div class="feature-icon-box">👤</div>
+          <h3 class="feature-card-title">Active Directory &amp; GPO 網域治理</h3>
+          <p class="feature-card-text">
+            樹狀瀏覽 Active Directory OU 階層與物件。提供全網域帳號秒級模糊檢索、<strong>帳號一鍵解鎖與重設密碼</strong>、群組成員關係調整，以及 <strong>GPO
+              群組原則連結分析、狀態管理與登錄檔備份</strong>。
+          </p>
+          <div class="feature-card-footer">
+            <span>檢視 AD Control Hub</span>
+            <span>&rarr;</span>
+          </div>
+        </div>
+
+        <!-- 3. Scout Monitor & Agent -->
+        <div class="feature-card c-cyan" onclick="switchView('docs', '#chapter-3')">
+          <div class="feature-icon-box">📊</div>
+          <h3 class="feature-card-title">Scout 智慧監控與代理程式</h3>
+          <p class="feature-card-text">
+            即時採集 CPU、RAM、Disk、Net、Ping、服務與 Top 10 行程。原生支援 Ubuntu/Debian <code>.deb</code>、RHEL <code>.rpm</code> 與
+            Windows 背景排程。整合自動自癒 (Self-Healing)、<strong>📺 Live Event Viewer 即時日誌串流</strong> 與 <strong>🔔 6 大 Webhook
+              告警管道</strong>。
+          </p>
+          <div class="feature-card-footer">
+            <span>檢視監控與 Agent 部署</span>
+            <span>&rarr;</span>
+          </div>
+        </div>
+
+        <!-- 4. Data Center & Racks -->
+        <div class="feature-card c-emerald" onclick="switchView('docs', '#chapter-4')">
+          <div class="feature-icon-box">🏢</div>
+          <h3 class="feature-card-title">資料中心與實體資產管理</h3>
+          <p class="feature-card-text">
+            2D Top-Down 機房平面圖直觀導航。42U/48U 機櫃槽位管理、刀鋒/Nutanix 多節點 Chassis SN/iLO/CVM 序號維護、Topology Map 雙向網路拓撲、<strong>📦
+              備用零件庫存與低水位預警</strong>、<strong>📜 原廠保固合約到期追蹤</strong> 與 <strong>🔧 故障報修工單</strong>。
+          </p>
+          <div class="feature-card-footer">
+            <span>檢閱機房與機櫃管理</span>
+            <span>&rarr;</span>
+          </div>
+        </div>
+
+        <!-- 5. SIEM & Forensics -->
+        <div class="feature-card c-rose" onclick="switchView('docs', '#chapter-6')">
+          <div class="feature-icon-box">🛡️</div>
+          <h3 class="feature-card-title">資訊安全、鑑識與審計日誌</h3>
+          <p class="feature-card-text">
+            集中收集 Windows Event Log 與 Linux 安全日誌。內建 Event ID 4625 暴力破解、4720 帳號建立、4728 管理員變更、7045 新服務安裝與 Linux sudo
+            提權調查。搭配 <strong>隨選安全取證 (On-Demand Forensics)</strong> 與 <strong>全域不可篡改操作審計日誌 (Audit Log Viewer)</strong>。
+          </p>
+          <div class="feature-card-footer">
+            <span>了解安全鑑識功能</span>
+            <span>&rarr;</span>
+          </div>
+        </div>
+
+        <!-- 6. Network Service -->
+        <div class="feature-card c-amber" onclick="switchView('docs', '#chapter-7')">
+          <div class="feature-icon-box">🖧</div>
+          <h3 class="feature-card-title">網路服務治理 (Network Service)</h3>
+          <p class="feature-card-text">
+            整合 FortiProxy &amp; Squid 代理伺服器 ACL 與熱分析、<strong>🖧 Network Device 實體網路設備 SNMP 監控與介面流量</strong>、<strong>🔍
+              NetSearch 跨廠牌網路設定全文檢索</strong>、<strong>🔑 SSL Certificate 憑證全生命週期 (AES-256 私鑰保護、30 天到期警報)</strong> 與
+            <strong>🌐 IPAM 位址衝突排查</strong>。
+          </p>
+          <div class="feature-card-footer">
+            <span>探索網路服務治理</span>
+            <span>&rarr;</span>
+          </div>
+        </div>
+
+        <!-- 7. Service Platform (AI Advisors) -->
+        <div class="feature-card c-amber" onclick="switchView('docs', '#chapter-8')">
+          <div class="feature-icon-box">🛠️</div>
+          <h3 class="feature-card-title">企業核心平台 (含 雙核心 AI 維運顧問)</h3>
+          <p class="feature-card-text">
+            提供 <strong>☸️ Kubernetes 容器雲 (🤖 AI Pod &amp; Event 事故診斷專家)</strong>、<strong>✉️ Mail Relay 郵件轉發叢集 (🤖 AI NDR
+              退信與佇列塞車分析師)</strong>、<strong>📊 ELK Platform (ES 叢集/Shard 負載/Logstash Pipeline)</strong>、<strong>💾
+              Unified NAS 儲存管理</strong>、<strong>📁 內建安全 SFTP 伺服器</strong>、Redis 快取、Prometheus Targets 與 AD DNS Hub。
+          </p>
+          <div class="feature-card-footer">
+            <span>探索核心平台與 AI 顧問</span>
+            <span>&rarr;</span>
+          </div>
+        </div>
+
+        <!-- 8. Database Hub -->
+        <div class="feature-card c-cyan" onclick="switchView('docs', '#chapter-9')">
+          <div class="feature-icon-box">🛢️</div>
+          <h3 class="feature-card-title">Database 企業資料庫治理中樞</h3>
+          <p class="feature-card-text">
+            跨引擎支援 SQLite 本地庫、MySQL、PostgreSQL、SQL Server。<strong>全新支援系統底層多資料庫架構
+              (PostgreSQL/MariaDB/MSSQL)</strong>、<strong>方案 A 全庫整併 (Document Store RAM Cache 0.001ms 快取雙寫)</strong> 與
+            <strong>40GB 雙 SQLite 無損串流遷移</strong>。內建 <strong>🤖 AI SQL Advisor 慢查詢分析</strong>、長事務緊急擊殺 (Kill
+            Query)、<strong>動態敏感資料遮罩 (Data Masking)</strong> 與 Schema Diff 結構遷移腳本產生器。
+          </p>
+          <div class="feature-card-footer">
+            <span>探索資料庫治理中樞</span>
+            <span>&rarr;</span>
+          </div>
+        </div>
+
+        <!-- 9. Automation & Task Scheduler -->
+        <div class="feature-card c-purple" onclick="switchView('docs', '#chapter-10')">
+          <div class="feature-icon-box">⏱️</div>
+          <h3 class="feature-card-title">自動化排程與 27 篇 SOP Runbook</h3>
+          <p class="feature-card-text">
+            嚴格採用 Windows OS 本地時間（<code>Date</code> 配合 <code>setInterval</code>）輪詢的排程引擎，徹底杜絕 Windows 跨日時差 Bug。支援視覺化 DAG
+            工作流程設計器，並內建 <strong>27 篇企業級標準維運 SOP 知識庫</strong> 與升級智慧自動合併機制。
+          </p>
+          <div class="feature-card-footer">
+            <span>查閱自動化與 Runbook</span>
+            <span>&rarr;</span>
+          </div>
+        </div>
+
+        <!-- 10. Security, Settings & Theme Engine -->
+        <div class="feature-card c-indigo" onclick="switchView('docs', '#chapter-11')">
+          <div class="feature-icon-box">⚙️</div>
+          <h3 class="feature-card-title">後台設定、開發者工具與主題引擎</h3>
+          <p class="feature-card-text">
+            於 Vanguard 主控台側邊導覽列提供 <strong>Settings 系統設定中樞（限定 SuperAdmin）</strong>，支援 35+ 模組動態 Feature Flags 熱開關（徹底棄用舊版 <code>/_setting</code> 獨立路徑）、集中配置全域 AI Advisor 與外部 LLM 連線、<strong>敏感設定 enc: (AES-256-CBC) 透明加密儲存</strong>、SQLite 定期冷備份與配置快照、<strong>Dev Tools 開發者工具箱</strong>、全域操作審計日誌 (Audit Log) 與 <strong>4 款賽博擬真動態主題 (Themes)</strong>。
+          </p>
+          <div class="feature-card-footer">
+            <span>進入系統設定說明</span>
+            <span>&rarr;</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Release Notes & System Changelog Section -->
+    <section class="changelog-banner" style="margin-top: 60px; padding: 32px; background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border-subtle); border-radius: 16px;">
+      <div class="section-heading-group" style="text-align: left; margin-bottom: 24px;">
+        <div class="section-tag" style="background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3);">VERSION 1.7.6 RELEASE NOTES</div>
+        <h2 class="section-title">SOMP Vanguard 1.7 版更新全覽 (10/9 更新，1.7.3 於 10/15、1.7.4 於 10/19、1.7.5 於 10/20、1.7.6 於 10/22 發布)</h2>
+        <p class="section-desc" style="margin: 0;">系統於 10/9 正式更新至 1.7 版，重大更新涵蓋遠端桌面閘道、底層多資料庫架構重構、Prometheus SD、ELK 生命週期與高可用容錯強化。</p>
+      </div>
+
+      <div class="changelog-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px;">
+        <div class="changelog-card" style="background: var(--bg-card); padding: 18px 20px; border-radius: 12px; border: 1px solid var(--border-subtle);">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+            <span style="font-weight: 700; color: #f59e0b; font-size: 0.95rem;">v1.7.6 SuperAdmin 功能開關</span>
+            <span style="font-size: 0.75rem; background: rgba(245, 158, 11, 0.15); color: #f59e0b; padding: 2px 8px; border-radius: 10px;">NEW FEATURE</span>
+          </div>
+          <ul style="margin: 0; padding-left: 18px; font-size: 0.85rem; color: var(--text-muted); line-height: 1.6;">
+            <li><strong>內建「SuperAdmin」AD Mapping</strong>：Settings → RBAC → AD Mappings 第一列（Built-in），套用於所有 SuperAdmin 使用者；僅 SuperAdmin 可編輯其功能開關，不可刪除 / 停用 / 改名，也不可建立同名 Mapping。修改寫入稽核。</li>
+            <li><strong>行為變更</strong>：SuperAdmin 的功能改為完全依此 Mapping（API 檢查、登入回應、側邊欄使用同一判定），不再採「任一群組有開即可」；非 SuperAdmin 的判定規則不變。開關會隱藏畫面，<strong>該功能的 API 也回 403</strong>（詳見 11.2）。</li>
+            <li><strong>行為變更：功能開關同時管制 API（也影響非 SuperAdmin）</strong>：Remote Command、Server Check、Nutanix、Prometheus Target、Redis Control、SOP Runbook、Task Scheduler、SFTP Manager、Network Device、Live Event Viewer、Log Settings 新增 API 功能檢查。所屬群組未開啟這些功能的使用者（任何角色）將無法再呼叫其 API（403），畫面也不再顯示；共用 API（Web Remote、SNMP 設定 / 輪詢、Settings 的 Run Scan Now 與 SFTP 測試連線）具備任一相關功能即可。Network Device 設備管理改需 <code>networkDevice</code>（原為 <code>dataCenter</code>）；Live Event Viewer / Log Settings 改依各自功能，不再需要 <code>monitorScout</code>。另外 Data Center（<code>/api/rack</code>）、指令庫、ELK SIEM、SIEM Analytics、On-Demand Forensics、Webhooks、AI Service 的 API 也依呼叫畫面的功能檢查（未新增功能鍵）。所有使用者的側邊欄改依完整功能清單顯示（未開啟的 Scout Monitor、Alerts、Agents、NAS、HostMonitor Checker 等畫面會隱藏）。升級前請確認一般使用者的 AD Mapping 已勾選其需要的功能。</li>
+            <li><strong>行為變更：新增角色限制（Viewer 不可執行）</strong>：Remote Command 執行指令；Task Scheduler 新增 / 編輯 / 啟停 / 立即執行（Operator 以上）與刪除（僅 SuperAdmin）；Prometheus Target 寫入（新增 / 匯入 / 編輯 / 暫停 / 刪除 / 還原 / 健康檢查設定與執行）；Settings「Run Scan Now」（Operator 以上）。介面原本已對 Viewer 隱藏這些操作。</li>
+            <li><strong>升級後可正常使用的畫面</strong>：先前 SuperAdmin 看得到、但若沒有任何 Mapping 開啟就被 API 拒絕（403）的 Scout Monitor、Alerts &amp; Rules、Agents、NAS Manager、HostMonitor Checker 與 Self-Healing，升級後在內建 Mapping 中預設開啟，SuperAdmin 可正常使用，也可在內建 Mapping 中關閉。</li>
+            <li><strong>生效時間</strong>：API 檢查在修改開關後立即生效；已登入的工作階段要到下次登入才會更新登入時取得的功能清單（側邊欄於重新整理頁面後更新）。升級前簽發、仍帶有舊 <code>SuperAdmin</code> 群組名稱的非 SuperAdmin 工作階段，需重新登入才會取得改名後 <code>(legacy)</code> 群組的功能。</li>
+            <li><strong>防鎖死與緊急帳號</strong>：Settings / RBAC / Audit log 對 SuperAdmin 永遠開啟；本機管理員帳號永遠擁有全部功能；<code>APP_ENABLE_&lt;功能&gt;=false</code> 仍優先。</li>
+            <li><strong>升級注意</strong>：自動建立，初始開關 = 升級前 SuperAdmin 的實際功能，行為不變；既有名為 <code>SuperAdmin</code> 的自訂 Mapping 改名為 <code>SuperAdmin (legacy)</code>。另移除 SFTP API 中從未生效的 <code>Admin</code> 角色（存取對象不變）。</li>
+            <li><strong>安全修正：Web RDP 不再自動帶入 AD 管理員密碼</strong>：帳號預設為目前登入者，密碼一律需自行輸入；先前在帳號等於 <code>AD_ADMIN_USER</code> 時會自動帶入 <code>AD_ADMIN_PWD</code>，等於不需知道密碼即可以 AD 管理員身分登入 Windows 主機，已移除。</li>
+            <li><strong>安全修正：Remote Command</strong>：目標主機只接受 IPv4 / 主機名稱（修正可在 IP 欄夾帶 PowerShell 指令、於 SOMP 主機上執行的命令注入，Server Check 的 OS 偵測一併修正）；Windows 可輸入自己的 Windows 密碼以 <code>網域\登入者</code> 執行，個人帳號連線失敗或未輸入時改用 Settings 服務帳號（結果標示使用的帳號，指令最多執行一次），不再讀取專案根目錄 <code>config.json</code> 的明文密碼，帳密改經 stdin 傳遞、不寫入暫存檔；指令庫新增 / 刪除改需 Operator 以上並寫入稽核紀錄（修正 Viewer 可修改、Runbook 共用的指令庫），並修正刪除自訂指令時畫面錯誤。</li>
+            <li><strong>修正：Data Center 可能整座機房被誤刪</strong>：原本儲存機房時會把整份清單送回覆蓋，畫面資料過舊時會刪除別人剛新增的機房（連同機櫃、設備、IPAM 的 IP 與 SNMP 設定）。改為逐筆新增 / 修改；刪除需 SuperAdmin 並輸入機房名稱確認，刪除後立即生效（修正原本刪除時回 500、機櫃資料未刪除的問題）。機櫃儲存加上版本檢查，別人已修改時拒絕並自動重新載入，不再覆蓋他人設備或誤釋放 IP；儲存前檢查 U 位重疊、超出高度、跨越 Split 分界與重複設備 ID。</li>
+            <li><strong>修正：Data Center 權限與備品庫存</strong>：機房、機櫃、硬體問題、合約的寫入 API 補上 Operator 以上的角色檢查（原本 Viewer 可直接呼叫 API 修改甚至刪除）；Network Device 的設備更新只接受機櫃資料。備品數量統一為 <code>quantity</code> 並由伺服器加減（修正報修選用備品時其實沒有扣庫存的問題），出庫超過庫存會拒絕；報修使用備品同一次選用只扣一次，庫存不足時報修不儲存。</li>
+            <li><strong>安全修正：Network Device SNMP 查詢</strong>：SNMP 查詢原本會使用前端傳入的 IP（Viewer 也可呼叫），可藉此讓系統把設備的 community / v3 帳號送到任意主機；改為一律使用機櫃中儲存的設備 IP。新增每台設備的「啟用 SNMP 查詢」開關，停用時完全不查詢；未設定過的設備預設停用，不再以 <code>public</code> 查詢。</li>
+            <li><strong>Network Device 修正</strong>：SNMP v2c 設定實際以 v1 查詢的問題已修正（新增 v1 選項）；設備清單與查詢不再直接讀取本機 SQLite（改用 PostgreSQL / MSSQL / MariaDB 時不會再整頁錯誤）；修改設備 IP 時會釋放舊 IP；刪除設備會一併刪除 SNMP 設定；新增設備與 SNMP 設定加上完整驗證，錯誤顯示實際原因。</li>
+            <li><strong>安全修正：SSL Manager</strong>：上傳憑證檔時，檔案類型與內容原本直接組進 PowerShell 腳本（可在 SOMP 主機上執行任意指令），改為 PEM / DER 由 Node 解析、PFX 以固定腳本經 stdin 傳入；清單不再回傳加密的私鑰 / 檔案；檢視私鑰改為僅限 SuperAdmin 並記入稽核紀錄。</li>
+            <li><strong>修正：SSL Manager 掃描與告警</strong>：只存檔案的憑證每天被誤探測、誤發告警且到期日被清掉的問題已修正；掃描結果改為合併寫回，不再覆蓋掃描期間新增 / 刪除的資料；新增「已過期」與「不受信任」顯示；告警改為只在狀態改變時發送；全部檢查改為背景平行執行；新增編輯功能與主機 / Port 驗證。</li>
+            <li><strong>修正：IPAM 資料被覆蓋或清除</strong>：編輯網段名稱時會用畫面上的舊資料覆蓋整段 IP 的使用狀態，已改為只修改網段欄位；DNS 同步只清除確定抓取成功區域的 FQDN（原本部分抓取時會清空其他區域）；網頁與背景服務同時寫入 IPAM 時不再互相覆蓋；修正批次更新網段一律回 404 的問題。</li>
+            <li><strong>IPAM 改善</strong>：CIDR 正規化並拒絕重複 / 重疊網段，新網段限 /20～/30，舊大網段同步時自動補上 IP；自動同步改為最精確網段比對，公網 IP 不再自動建立網段；「下一個可用 IP」跳過閘道與保留範圍並保留 10 分鐘；系統自動登記的 IP 手動修改需 SuperAdmin 確認；刪除含使用中 IP 的網段需 SuperAdmin 並輸入 CIDR；單一 IP 欄位驗證；網段清單改為只載入摘要，點開才載入 IP。</li>
+            <li><strong>Topology Map 改版</strong>：修正機櫃背面設備未畫出、雙向連線畫成兩條而同一對設備的多條線只剩一條、同名設備亂接、跨機房設備被當成找不到等問題；連線改為無箭頭並標示兩端埠號（<code>P1 ↔ P3</code>）。新增隱藏未接線設備、網路 / 電源圖層與類型篩選、搜尋定位、保留拖曳位置與重新排版、重新整理與錯誤提示，以及手動觸發的即時埠狀態（只查已啟用 SNMP 的設備）。</li>
+            <li><strong>Remote Command 穩定性</strong>：Linux 指令加上 120 秒執行逾時（不會再因 <code>tail -f</code> 等指令永久卡住）、每台輸出上限 512 KB；新增「停止」按鈕，關閉頁面也會停止派送尚未開始的主機；一次最多 200 台、重複主機自動合併、格式錯誤的請求回 400；開始與結束各寫一筆稽核紀錄。</li>
+          </ul>
+        </div>
+
+        <div class="changelog-card" style="background: var(--bg-card); padding: 18px 20px; border-radius: 12px; border: 1px solid var(--border-subtle);">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+            <span style="font-weight: 700; color: #f87171; font-size: 0.95rem;">v1.7.6 告警規則排除主機</span>
+            <span style="font-size: 0.75rem; background: rgba(248, 113, 113, 0.15); color: #f87171; padding: 2px 8px; border-radius: 10px;">NEW FEATURE</span>
+          </div>
+          <ul style="margin: 0; padding-left: 18px; font-size: 0.85rem; color: var(--text-muted); line-height: 1.6;">
+            <li><strong>Excluded Hosts</strong>：依環境 / Tag / API Key 套用的告警規則可排除個別主機或 Tag（Scout Monitor、Alerts &amp; Rules、Agents 的規則頁籤）。被排除的主機完全不評估該規則：不告警、不通知、不升級；排除優先於直接綁定。新增 / 移除皆寫入稽核。</li>
+            <li><strong>既有告警自動結束</strong>：新增排除、或主機之後才加上被排除的 Tag 時，該規則在這些主機上未處理的告警會以 <code>🚫 Excluded</code> 結束（不送恢復通知）；Worker 每分鐘也會補做一次檢查。已在 <code>📦 告警摘要</code> 佇列中的該主機訊息仍會隨下一則摘要送出一次。</li>
+            <li><strong>行為變更：多條離線規則的選擇</strong>：同一主機適用多條離線 / 連線規則時，改為以最明確的綁定為準（直接指定主機 &gt; API Key &gt; Tag &gt; 環境），不再依建立順序。被排除離線規則的主機，Dashboard 離線判定改用預設門檻（5 分鐘或 3 倍回報間隔取大者），且不發離線告警。</li>
+            <li><strong>刪除主機</strong>：Scout 主機或 Server List 主機刪除時，一律刪除該主機的排除設定（Tag 排除保留）；刪除規則會刪除其排除。</li>
+            <li><strong>修正 scout.sqlite 壓縮重建（<code>npm run db:vacuum</code>）遺失資料表</strong>：改為依來源資料庫結構複製全部資料表與索引（僅 metrics / windows_events / linux_logs 只保留近 3 天），維護時段、通知狀態、Server Inventory、Server Provision、規則排除等不再被丟棄；任一資料表複製失敗時不會替換原資料庫。<code>migrate_all_sqlite_to_db.js</code> 同樣改為依來源結構遷移。</li>
+            <li><strong>升級注意</strong>：新增資料表 <code>rule_exclusions</code> 與欄位 <code>alerts.resolvedReason</code>，啟動時自動建立。</li>
+          </ul>
+        </div>
+
+        <div class="changelog-card" style="background: var(--bg-card); padding: 18px 20px; border-radius: 12px; border: 1px solid var(--border-subtle);">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+            <span style="font-weight: 700; color: #a78bfa; font-size: 0.95rem;">v1.7.6 Server Provision：Worker 執行、續跑與已安裝偵測</span>
+            <span style="font-size: 0.75rem; background: rgba(167, 139, 250, 0.15); color: #a78bfa; padding: 2px 8px; border-radius: 10px;">ENHANCEMENT</span>
+          </div>
+          <ul style="margin: 0; padding-left: 18px; font-size: 0.85rem; color: var(--text-muted); line-height: 1.6;">
+            <li><strong>Worker 執行與重啟續跑</strong>：安裝工作優先在背景 Worker 執行，Worker 不可用時由 Web 後援執行；服務或 Worker 重啟後，尚未開始的主機會自動續跑一次，執行到一半的主機標示為 interrupted（可「重跑失敗主機」）。</li>
+            <li><strong>行為變更：Windows 安裝改用服務帳號</strong>：改以 Settings 的 <code>AD_ADMIN_USER</code> / <code>AD_ADMIN_PWD</code>（與 Server Inventory 同一來源）執行，不再使用登入者本人的帳密；觸發者仍記錄於 SOMP 稽核與安裝歷史；未設定服務帳號時執行、預檢與重試會直接回錯誤。服務帳號需具備目標主機 WinRM / 本機管理員權限與 NAS 讀取權限。</li>
+            <li><strong>已安裝偵測（略過已安裝）</strong>：軟體主清單每個套件可選填 <code>|@detect:...</code> 規則（Windows 登錄檔 DisplayName / 最低版本或檔案存在；Linux <code>rpm</code> / <code>dpkg</code> / 指令回傳值），已安裝的套件標示 skipped；勾選「Force reinstall」可忽略偵測；預檢會列出每台主機已安裝的套件。</li>
+            <li><strong>部署後自動清理</strong>：單一安裝檔複製到 <code>X:\SOMP_Provision\&lt;工作編號&gt;\</code>，主機處理完後只刪除該工作的資料夾（先保存 install_*.log）；腳本套件仍放在 <code>X:\&lt;資料夾&gt;</code> 不刪除；勾選「Keep installers」可保留（7 天後清除）。</li>
+            <li><strong>移除 Disk Setup</strong>：資料碟 X:、網卡更名與停用 IPv6 改由 Nutanix Clone VM 負責；舊請求的 <code>setDisk</code> 欄位會被忽略。</li>
+            <li><strong>設定與清單解析</strong>：Settings 新增 <code>PROVISION_HOST_CONCURRENCY</code>、<code>PROVISION_HISTORY_RETENTION_DAYS</code>、<code>PROVISION_MIN_FREE_GB</code>；Server Provision 與 Nutanix Clone VM 共用設定解析，修正從 Settings 儲存的軟體清單只讀到第一筆的問題，清單一律一行一筆顯示。</li>
+          </ul>
+        </div>
+
+        <div class="changelog-card" style="background: var(--bg-card); padding: 18px 20px; border-radius: 12px; border: 1px solid var(--border-subtle);">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+            <span style="font-weight: 700; color: #34d399; font-size: 0.95rem;">v1.7.6 HostMonitor Checker 修正</span>
+            <span style="font-size: 0.75rem; background: rgba(52, 211, 153, 0.15); color: #34d399; padding: 2px 8px; border-radius: 10px;">MAJOR FIX</span>
+          </div>
+          <ul style="margin: 0; padding-left: 18px; font-size: 0.85rem; color: var(--text-muted); line-height: 1.6;">
+            <li><strong>自動使用最新備份檔</strong>：開啟畫面與每次比對都會重新掃描 UNC 目錄並使用最新備份檔（可「固定」指定檔案，固定的檔案被移除時自動取消），畫面顯示實際使用的檔案；UNC 掃描結果最多快取 10 秒；已移除每 10 分鐘的背景自動比對。</li>
+            <li><strong>明確報錯</strong>：UNC 失敗或逾時（可設定 5–120 秒）時直接顯示原因，不再悄悄改用其他檔案；只認符合檔名規則的備份檔；CMDB 超過 1000 台也會全部比對，並排除已刪除主機。</li>
+            <li><strong>安全修正</strong>：上傳的備份改存於資料目錄下的私有資料夾，不再寫入公開的 <code>docs/</code>（舊的 <code>docs/</code> 內備份不再被讀取，請自行刪除）；檔名須符合規則，同名上傳回 409、確認後才覆蓋；修正可讓服務卡住的檔名規則比對。</li>
+            <li><strong>匯入檔依 OS 產生</strong>：依 CMDB 的 OS 產生 CPU / Memory / Disk 測試：Linux 維持 SNMP（net-snmp OID）；Windows 改用 PerfCounter（<code>% Processor Time</code>）、Memory（WMI）、DriveSpace（所有本機磁碟，剩餘 &lt; 15%），與現行 HostMonitor 設定一致。CMDB 未填 OS 的主機只產生 Ping，其 CPU / Memory / Disk 會略過並列在檔案最後。比對結果顯示 OS 標籤，CSV 多一欄 OS。</li>
+          </ul>
+        </div>
+
+        <div class="changelog-card" style="background: var(--bg-card); padding: 18px 20px; border-radius: 12px; border: 1px solid var(--border-subtle);">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+            <span style="font-weight: 700; color: #22d3ee; font-size: 0.95rem;">v1.7.6 全域環境清單移至 Settings</span>
+            <span style="font-size: 0.75rem; background: rgba(34, 211, 238, 0.15); color: #22d3ee; padding: 2px 8px; border-radius: 10px;">CHANGE</span>
+          </div>
+          <ul style="margin: 0; padding-left: 18px; font-size: 0.85rem; color: var(--text-muted); line-height: 1.6;">
+            <li><strong>Settings &gt; Environments</strong>：環境的新增 / 編輯 / 刪除改在此集中管理（限 SuperAdmin，全程稽核）；IPAM 內的環境編輯已移除，改為「Manage environments →」連結。</li>
+            <li><strong>Usage 與串聯改名</strong>：可查看各畫面的引用數量，改名時可一併更新以名稱儲存的引用；仍被引用或無法確認引用的環境無法刪除。</li>
+            <li><strong>統一以環境 ID 儲存</strong>：CMDB / Server List、IPAM、SSL、Database、Kubernetes 改存環境 ID、名稱即時帶出（未知顯示 Unassigned）；新增 Production / Default 旗標取代寫死的 PRD / TRUST / Others；啟動時自動轉換舊資料，無法對應的值列於「Unmapped values」由 SuperAdmin 指定；Prometheus 與 Nutanix Clone VM 的環境欄位改為下拉選擇並驗證。HostMonitor Checker 預設略過 DEV / SIT。</li>
+            <li><strong>升級注意</strong>：部署後請以 SuperAdmin 至 Settings &gt; Environments 處理「Unmapped values」，並確認各環境的 Production 旗標（僅 PRD / PROD / Production 會自動勾選）。</li>
+          </ul>
+        </div>
+
+        <div class="changelog-card" style="background: var(--bg-card); padding: 18px 20px; border-radius: 12px; border: 1px solid var(--border-subtle);">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+            <span style="font-weight: 700; color: #fbbf24; font-size: 0.95rem;">v1.7.6 Settings &gt; File Services</span>
+            <span style="font-size: 0.75rem; background: rgba(251, 191, 36, 0.15); color: #fbbf24; padding: 2px 8px; border-radius: 10px;">SECURITY</span>
+          </div>
+          <ul style="margin: 0; padding-left: 18px; font-size: 0.85rem; color: var(--text-muted); line-height: 1.6;">
+            <li><strong>Settings &gt; File Services</strong>：原「SFTP Server」分類改為 <strong>File Services</strong>，下分 <strong>SFTP Servers</strong>（行為不變）與 <strong>NAS Devices</strong>（NAS 裝置新增 / 編輯 / 刪除 / 測試連線與全域 NAS 設定，限 SuperAdmin）；NAS Manager 改為只選擇裝置並管理共用資料夾與權限，並提供「Manage devices →」捷徑。NAS 密碼改以系統金鑰（<code>.system_key</code>，不再依賴 <code>JWT_SECRET</code>，輪替 JWT_SECRET 不影響 NAS）加密並以 <code>passwordEnc: v2</code> 明確標記儲存，舊資料自動一次性轉換（無法解密者標示為「需重新輸入密碼」），且絕不回傳前端；建立 / 刪除共用資料夾與設定權限為 Operator 以上（Viewer 為唯讀檢視）；裝置新增 / 修改 / 刪除與共用資料夾、權限異動皆寫入稽核（記錄操作者、裝置與共享名稱，不含密碼）。</li>
+            <li><strong>升級注意</strong>：部署後請至 NAS Devices 檢查是否有裝置顯示「Password needs to be re-entered」，並對每台 NAS 測試連線一次。</li>
+          </ul>
+        </div>
+
+        <div class="changelog-card" style="background: var(--bg-card); padding: 18px 20px; border-radius: 12px; border: 1px solid var(--border-subtle);">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+            <span style="font-weight: 700; color: #f472b6; font-size: 0.95rem;">v1.7.5 Server Inventory 全面改版</span>
+            <span style="font-size: 0.75rem; background: rgba(244, 114, 182, 0.15); color: #f472b6; padding: 2px 8px; border-radius: 10px;">MAJOR UPDATE</span>
+          </div>
+          <ul style="margin: 0; padding-left: 18px; font-size: 0.85rem; color: var(--text-muted); line-height: 1.6;">
+            <li><strong>安全性</strong>：修正網段設定的 PowerShell 注入、各端點 RBAC（寫入 / 掃描 / 刪除 / 連結僅 Operator 以上，憑證設定僅 SuperAdmin）、報告郵件 HTML 注入；WinRM 密碼不再寫入暫存檔、不再修改 TrustedHosts <code>*</code>；SSH 採首次信任的主機指紋釘選，指紋不符拒絕送出密碼。</li>
+            <li><strong>背景掃描與真正的排程</strong>：掃描只在 Worker 執行（Web 以 IPC 轉交，無 Worker 時回 503）；支援每日 / 每週 / cron、顯示下次執行時間與即時進度，Worker 啟動時補跑 6 小時內錯過的排程；可只重掃單一網段或 IP。<br><em>升級注意：若設定 ENABLE_EMBEDDED_WORKER=false，Server Inventory 掃描（手動與排程）將完全停用，請維持內建 Worker 啟用。</em></li>
+            <li><strong>逐筆儲存</strong>：主機資料改存 <code>inventory_hosts</code> 資料表，掃描期間的標籤編輯與同一 /24 的多個範圍不再互相覆蓋；舊資料自動遷移並保留原文件供回退。</li>
+            <li><strong>探測與離線保護</strong>：TCP 連接埠（22 / 3389 / 5985 / 5986）加 Ping，任一有回應即存活；連續未回應 N 次（預設 2）才離線；網段超過 50% 主機同時失聯時標為 DEGRADED、不改變狀態並只發一則通知；狀態變更通知每次掃描合併為一則。</li>
+            <li><strong>掃描歷史與新主機通知</strong>：每次掃描記錄摘要與變更明細（保留 180 天），單機可查異動；首次出現或不在 CMDB / IPAM 的主機每次掃描合併通知，並標示 NEW。</li>
+            <li><strong>各網段設定與憑證設定檔</strong>：網段可單獨設定並行數、探測埠、Prometheus 同步、時區偏移與憑證設定檔（加密儲存，SuperAdmin 管理）；掃描與遠端部署使用同一憑證來源。</li>
+            <li><strong>Export CSV</strong>：依目前篩選匯出，防公式注入。Prometheus 變更一律以原子更新（掃描新增於結束時一次套用）。</li>
+            <li><strong>行為變更</strong>：Inventory 刪除預設不再移除 Prometheus 目標（清理選項預設關閉）；Viewer 不可再產生安裝 Token；安裝連結最大使用次數上限為 100000。</li>
+          </ul>
+        </div>
+
+        <div class="changelog-card" style="background: var(--bg-card); padding: 18px 20px; border-radius: 12px; border: 1px solid var(--border-subtle);">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+            <span style="font-weight: 700; color: #38bdf8; font-size: 0.95rem;">v1.7.5 Server List 刪除流程重新設計</span>
+            <span style="font-size: 0.75rem; background: rgba(56, 189, 248, 0.15); color: #38bdf8; padding: 2px 8px; border-radius: 10px;">ENHANCEMENT</span>
+          </div>
+          <ul style="margin: 0; padding-left: 18px; font-size: 0.85rem; color: var(--text-muted); line-height: 1.6;">
+            <li><strong>刪除預覽</strong>：刪除前列出將影響的 Server List、Prometheus 目標、Scout 監控、規則綁定、維護時段與 IPAM / VIP，確認後才執行。</li>
+            <li><strong>可選清理，預設關閉</strong>：Prometheus、Scout 歷史、規則綁定需自行勾選；Server List 與 Inventory 共用同一刪除路徑。</li>
+            <li><strong>已刪除主機不再被重新註冊</strong>：掃描與遙測不會把已刪除主機加回 Server List 或 Prometheus，並可從 Deleted Servers 清單還原（Restore）；IP 被新機器重用時視為新主機。</li>
+            <li><strong>Inventory 刪除保護</strong>：預設僅能刪除離線超過 7 天的主機，SuperAdmin 可 Force（稽核）；提供批次刪除離線主機（先預覽）；IPAM 只釋放 used，reserved 與 VIP 保留。</li>
+          </ul>
+        </div>
+
+        <div class="changelog-card" style="background: var(--bg-card); padding: 18px 20px; border-radius: 12px; border: 1px solid var(--border-subtle);">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+            <span style="font-weight: 700; color: #a78bfa; font-size: 0.95rem;">v1.7.5 Server Provision 安全強化與背景作業</span>
+            <span style="font-size: 0.75rem; background: rgba(167, 139, 250, 0.15); color: #a78bfa; padding: 2px 8px; border-radius: 10px;">SECURITY</span>
+          </div>
+          <ul style="margin: 0; padding-left: 18px; font-size: 0.85rem; color: var(--text-muted); line-height: 1.6;">
+            <li><strong>安全修正</strong>：後端加上權限檢查（需 install 功能，執行限 Operator / SuperAdmin）；IP 嚴格驗證並防止 PowerShell 注入；密碼改以環境變數傳遞，不再寫入暫存檔或命令列；Linux 主機金鑰記憶（首次連線信任）與 sudo 經 stdin。</li>
+            <li><strong>只對已知主機安裝</strong>：目標須存在於 Server List（CMDB）或 Server Inventory；未知 IP 需 SuperAdmin 勾選「Allow unknown targets」並記入稽核。</li>
+            <li><strong>正確的結果判斷</strong>：每個套件依 exit code 判定（0 / 3010 / 1641 為成功，後兩者需重開機）；支援 .msi（msiexec）與含空白路徑的 .bat / .cmd；僅在全部套件成功時才重開機。</li>
+            <li><strong>背景作業與歷史</strong>：安裝改為背景工作（同時最多 4 台，可用 <code>PROVISION_HOST_CONCURRENCY</code> 調整）；可即時看進度、取消（已在執行的 Windows 主機會跑完目前作業）、只重跑失敗主機；安裝歷史保留 180 天；每個工作完成發一則 Telegram 摘要。</li>
+            <li><strong>安裝前預檢</strong>：檢查連線、帳密、X: 磁碟與剩餘空間、NAS 路徑與是否已有工作在執行，不做任何變更。</li>
+            <li><strong>不相容變更</strong>：<code>POST /api/install/execute</code> 改為回傳 202 <code>{ jobId }</code>，結果需以 <code>GET /api/install/jobs/:id</code> 查詢；安裝 log 僅 Operator 以上可見。</li>
+          </ul>
+        </div>
+
+        <div class="changelog-card" style="background: var(--bg-card); padding: 18px 20px; border-radius: 12px; border: 1px solid var(--border-subtle);">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+            <span style="font-weight: 700; color: #34d399; font-size: 0.95rem;">v1.7.5 版本來源與 JSON 鏡像檔</span>
+            <span style="font-size: 0.75rem; background: rgba(52, 211, 153, 0.15); color: #34d399; padding: 2px 8px; border-radius: 10px;">MAJOR FIX</span>
+          </div>
+          <ul style="margin: 0; padding-left: 18px; font-size: 0.85rem; color: var(--text-muted); line-height: 1.6;">
+            <li><strong>版本號來源修正</strong>：系統版本（<code>/api/health</code>、啟動通知、Open Scout API）一律由 <code>backend/package.json</code> 讀取（<code>lib/version.js</code>），不再依賴 .env 的 VERSION。</li>
+            <li><strong>不再寫入扁平 JSON 鏡像檔</strong>：資料僅存於資料庫；舊的鏡像檔可用 <code>scripts\Cleanup_Flat_Json.bat</code> 清除。</li>
+            <li><strong>升級注意</strong>：本版有後端與資料表變更，部署後服務會重啟；Server Inventory 首次掃描可能因新主機偵測而發出一則摘要通知。</li>
+          </ul>
+        </div>
+
+        <div class="changelog-card" style="background: var(--bg-card); padding: 18px 20px; border-radius: 12px; border: 1px solid var(--border-subtle);">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+            <span style="font-weight: 700; color: #f472b6; font-size: 0.95rem;">v1.7.4 啟動通知、立即備份與穩定性</span>
+            <span style="font-size: 0.75rem; background: rgba(244, 114, 182, 0.15); color: #f472b6; padding: 2px 8px; border-radius: 10px;">ENHANCEMENT</span>
+          </div>
+          <ul style="margin: 0; padding-left: 18px; font-size: 0.85rem; color: var(--text-muted); line-height: 1.6;">
+            <li><strong>服務啟動通知</strong>：每次啟動送出 <code>✅ SOMP Vanguard vX 已啟動</code>（稽核分類）；服務反覆重啟時 5 分鐘內只通知一次，並附上期間重啟次數。</li>
+            <li><strong>💾 Back Up Now</strong>：System Settings 一鍵立即完整備份（database.sqlite、scout.sqlite、系統金鑰、.env），由背景程序執行並即時顯示各項結果。</li>
+            <li><strong>自動備份對象</strong>：Enable Auto-Backup 改為下拉選單（Disabled / System only / Scout only / Both）；系統金鑰與 .env 一律備份。</li>
+            <li><strong>設定即時生效</strong>：System Settings 儲存後背景程序立即套用（備份、排程時間、Telegram 等）；背景程序只讀取設定，不再寫入 .env；.env 寫入改為原子化並具鎖定時的退回機制，服務啟動不受設定遷移失敗影響。</li>
+            <li><strong>修正 Telegram 重複監聽</strong>：儲存設定不再於網頁程序額外啟動第二個 Bot 監聽器（避免 409 衝突與指令遺失）；更換 Bot Token 時重設訊息位置。</li>
+            <li><strong>MariaDB / MySQL / MSSQL 相容性</strong>：SQL 欄位名稱引號依資料庫自動轉換（修正 <code>"key"</code> 在 MariaDB 被視為字串的問題）。</li>
+          </ul>
+        </div>
+
+        <div class="changelog-card" style="background: var(--bg-card); padding: 18px 20px; border-radius: 12px; border: 1px solid var(--border-subtle);">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+            <span style="font-weight: 700; color: #34d399; font-size: 0.95rem;">v1.7.3 告警品質 (Alert Quality)</span>
+            <span style="font-size: 0.75rem; background: rgba(52, 211, 153, 0.15); color: #34d399; padding: 2px 8px; border-radius: 10px;">MAJOR FIX</span>
+          </div>
+          <ul style="margin: 0; padding-left: 18px; font-size: 0.85rem; color: var(--text-muted); line-height: 1.6;">
+            <li><strong>修正告警評估</strong>：CPU / 記憶體 / 磁碟 / 服務 / 程序 / Windows 事件 / Linux 日誌規則過去未被評估（僅離線告警生效），自本版起正式生效；依標籤綁定的規則一併生效。</li>
+            <li><strong>Maintenance Windows</strong>：單次或每週固定時段，可依主機 / 標籤 / 環境指定；告警列 <code>🔕 Mute</code> 一鍵靜音 1 / 4 / 24 小時。期間告警照常記錄、不發通知，結束後仍異常者補發一次。</li>
+            <li><strong>防洪機制</strong>：每分鐘通知上限（預設 10 則，超過合併為 <code>📦 告警摘要</code>）、抖動 (Flapping) 偵測、冷卻時間持久化（重啟不歸零）、日誌告警重複命中改累計 <code>×N</code>。</li>
+            <li><strong>升級通知</strong>：規則可設「未處理 N 分鐘後升級」，目的地（Telegram 群組 / Email / Webhook）於 <code>Alerts &amp; Rules → ⚙️ Alert Settings</code> 設定；含告警評估緊急總開關。</li>
+            <li><strong>🔍 Preview Alerts</strong> 與 <code>scriptsAlert_Preview.bat</code>：唯讀預估目前會觸發的指標告警。</li>
+          </ul>
+        </div>
+        <div class="changelog-card" style="background: var(--bg-card); padding: 18px 20px; border-radius: 12px; border: 1px solid var(--border-subtle);">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+            <span style="font-weight: 700; color: #38bdf8; font-size: 0.95rem;">v1.7.3 備份、通知與文件</span>
+            <span style="font-size: 0.75rem; background: rgba(56, 189, 248, 0.15); color: #38bdf8; padding: 2px 8px; border-radius: 10px;">ENHANCEMENT</span>
+          </div>
+          <ul style="margin: 0; padding-left: 18px; font-size: 0.85rem; color: var(--text-muted); line-height: 1.6;">
+            <li><strong>完整系統備份</strong>：每日備份新增 <code>scout.sqlite</code>（設定、RBAC、Runbook、Workflow 等）、<code>.system_key</code> 與 <code>.env</code>；改用 SQLite 線上備份 API（含 WAL 中最新資料）並做完整性檢查；修正一天備份兩次與重啟重複備份。</li>
+            <li><strong>Prometheus 通知批量合併</strong>：CMDB 批量編輯、VIP 連結、Target 操作與健康掃描離線告警，短時間內合併為一則摘要。</li>
+            <li><strong>AI Ops Agent</strong>：AI 服務 429 / 503 自動重試；Agent 提問通知分類（預設關閉）。</li>
+            <li><strong>前端快取</strong>：<code>index.html</code> 改為 no-cache，部署後不再需要 Ctrl+F5。</li>
+            <li><strong>文件</strong>：SOP Runbook 增至 60 篇（含告警品質、AI Agent、主機 / 服務告警應變、平台維運）；API 文件新增 AI Ops Agent 與 Alert Quality 章節。</li>
+          </ul>
+        </div>
+        <div class="changelog-card" style="background: var(--bg-card); padding: 18px 20px; border-radius: 12px; border: 1px solid var(--border-subtle);">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+            <span style="font-weight: 700; color: #fbbf24; font-size: 0.95rem;">v1.7.3 部署注意事項</span>
+            <span style="font-size: 0.75rem; background: rgba(251, 191, 36, 0.15); color: #fbbf24; padding: 2px 8px; border-radius: 10px;">NOTICE</span>
+          </div>
+          <ul style="margin: 0; padding-left: 18px; font-size: 0.85rem; color: var(--text-muted); line-height: 1.6;">
+            <li>指標與日誌告警開始生效，上線初期告警量會增加；建議上線後先以 <code>🔍 Preview Alerts</code> 檢視並調整門檻，必要時可於 <code>⚙️ Alert Settings</code> 暫時關閉告警評估總開關。</li>
+            <li>已解決超過 7 天的告警將由背景作業分批清除（啟動約 2 分鐘後開始），請先備份 <code>scout.sqlite</code>。</li>
+            <li>儀表板即時回報更新改為每台主機每 15 秒一次。</li>
+            <li>僅設定 Email 的規則，超過每分鐘上限的通知會併入 Telegram / Webhook 的告警摘要。</li>
+          </ul>
+        </div>
+
+        <div class="changelog-card" style="background: var(--bg-card); padding: 18px 20px; border-radius: 12px; border: 1px solid var(--border-subtle);">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+            <span style="font-weight: 700; color: #38bdf8; font-size: 0.95rem;">Guacamole Web Remote 遠端閘道</span>
+            <span style="font-size: 0.75rem; background: rgba(56, 189, 248, 0.15); color: #38bdf8; padding: 2px 8px; border-radius: 10px;">MAJOR FEATURE</span>
+          </div>
+          <ul style="margin: 0; padding-left: 18px; font-size: 0.85rem; color: var(--text-muted); line-height: 1.6;">
+            <li><strong>零客戶端 Web 遠端閘道</strong>：純 HTML5 瀏覽器一鍵開啟 Windows Web-RDP (Port 3389) 與 Linux Web-SSH (Port 22)。</li>
+            <li><strong>6 大擬真經典與現代 OS 視窗風格</strong>：Win 7 Aero Glass、Win 3.1、Win 95、Win XP Luna、Win 11 Mica、macOS Aqua。</li>
+            <li><strong>專屬懸浮快速工具列</strong>：一鍵發送 <code>Ctrl+Alt+Del</code>、雙向文字剪貼簿同步彈窗、一鍵 PNG 畫面截圖、自適應縮放切換。</li>
+            <li><strong>AD 網域單一登入 (SSO)</strong>：Windows RDP 自動繼承登入帳號，特權密碼由後端內存透明注入；30 秒一次性 AES-256 加密 Token 鑑權。</li>
+          </ul>
+        </div>
+
+        <div class="changelog-card" style="background: var(--bg-card); padding: 18px 20px; border-radius: 12px; border: 1px solid var(--border-subtle);">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+            <span style="font-weight: 700; color: #a78bfa; font-size: 0.95rem;">底層多資料庫架構重構</span>
+            <span style="font-size: 0.75rem; background: rgba(167, 139, 250, 0.15); color: #a78bfa; padding: 2px 8px; border-radius: 10px;">ARCHITECTURE</span>
+          </div>
+          <ul style="margin: 0; padding-left: 18px; font-size: 0.85rem; color: var(--text-muted); line-height: 1.6;">
+            <li><strong>多引擎統一驅動層</strong>：支援 PostgreSQL (<code>pg</code>)、MariaDB/MySQL (<code>mysql2</code>)、SQL Server (<code>mssql</code>) 與 SQLite (<code>node:sqlite</code>)。</li>
+            <li><strong>方案 A 全庫整併</strong>：透過 <code>document_store</code> 實現零本地檔案依賴，微秒級 RAM Cache 讀取與異步雙寫持久化。</li>
+            <li><strong>40GB 雙庫無損串流遷移</strong>：游標分批讀取（每批 5000 筆，RAM &lt; 150MB），平滑遷移 CMDB 與 Scout 全歷史日誌。</li>
+          </ul>
+        </div>
+
+        <div class="changelog-card" style="background: var(--bg-card); padding: 18px 20px; border-radius: 12px; border: 1px solid var(--border-subtle);">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+            <span style="font-weight: 700; color: #34d399; font-size: 0.95rem;">Prometheus SD & CMDB 比對</span>
+            <span style="font-size: 0.75rem; background: rgba(52, 211, 153, 0.15); color: #34d399; padding: 2px 8px; border-radius: 10px;">ENHANCEMENT</span>
+          </div>
+          <ul style="margin: 0; padding-left: 18px; font-size: 0.85rem; color: var(--text-muted); line-height: 1.6;">
+            <li><strong>Prometheus HTTP Service Discovery</strong>：排程自動匯出 <code>targets.json</code>，支援 <code>/api/prometheus/targets</code> 供 Prometheus 服務動態拉取。</li>
+            <li><strong>CMDB Excel 變更比對 (Diff)</strong>：批次匯入前呈現逐列差異對照彈窗，支援欄位權限矩陣 (Field Authority)。</li>
+          </ul>
+        </div>
+
+        <div class="changelog-card" style="background: var(--bg-card); padding: 18px 20px; border-radius: 12px; border: 1px solid var(--border-subtle);">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+            <span style="font-weight: 700; color: #f59e0b; font-size: 0.95rem;">ELK 週期管理 & VIP 連動</span>
+            <span style="font-size: 0.75rem; background: rgba(245, 158, 11, 0.15); color: #f59e0b; padding: 2px 8px; border-radius: 10px;">RELIABILITY</span>
+          </div>
+          <ul style="margin: 0; padding-left: 18px; font-size: 0.85rem; color: var(--text-muted); line-height: 1.6;">
+            <li><strong>ELK 索引生命週期排程器</strong>：後端定時輪詢清理過期 Elasticsearch 索引，動態維護 Logstash Pipeline。</li>
+            <li><strong>VIP 虛擬 IP 雙向連動</strong>：自動關聯 Active / Standby 主機心跳探測，抑制備援節點誤報告警。</li>
+            <li><strong>舊式 /_setting 正式退役</strong>：後台系統設定全面移入主 SPA 側邊欄（限定 SuperAdmin），安全性與體驗大升級。</li>
+          </ul>
+        </div>
+
+        <div class="changelog-card" style="background: var(--bg-card); padding: 18px 20px; border-radius: 12px; border: 1px solid var(--border-subtle);">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+            <span style="font-weight: 700; color: #ec4899; font-size: 0.95rem;">高可用容錯強化與維運部署升級</span>
+            <span style="font-size: 0.75rem; background: rgba(236, 72, 153, 0.15); color: #ec4899; padding: 2px 8px; border-radius: 10px;">BUGFIX & OPS</span>
+          </div>
+          <ul style="margin: 0; padding-left: 18px; font-size: 0.85rem; color: var(--text-muted); line-height: 1.6;">
+            <li><strong>ServerInventory 掃描修復</strong>：修復 Worker 進程變數未定義與跨行程 WebSocket 事件廣播 (IPC) 機制。</li>
+            <li><strong>SIEM 排程報表記憶體溢位防護</strong>：針對巨量鑑識事件加入 <code>LIMIT 5000</code> 分批保護，徹底根除 <code>RangeError: Invalid string length</code>。</li>
+            <li><strong>Deploy_to_Prod.ps1 升級</strong>：同步生產環境前自動顯示變更檔案清單與確認提示（預設 Yes），部署更安心。</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- =========================================================================
+       VIEW 2: System User Manual & Guide (超完整詳細使用手冊)
+       ========================================================================= -->
+  <div id="docs-view" class="view-container docs-layout">
+
+    <!-- Sidebar Navigation -->
+    <aside class="docs-sidebar">
+      <div class="sidebar-search-box">
+        <div class="sidebar-search-wrapper">
+          <svg class="sidebar-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="2">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+          <input type="text" id="sidebarSearchInput" class="sidebar-search-input" placeholder="過濾手冊章節...">
+        </div>
+      </div>
+
+      <!-- Navigation Groups -->
+      <div class="nav-group">
+        <div class="nav-group-title">系統核心與安全</div>
+        <ul class="nav-group-links">
+          <li><a href="#chapter-1" class="nav-link active"><span>1. 登入安全與 RBAC 權限矩陣</span></a></li>
+        </ul>
+      </div>
+
+      <div class="nav-group">
+        <div class="nav-group-title">伺服器維運 (Server Operation)</div>
+        <ul class="nav-group-links">
+          <li><a href="#chapter-2" class="nav-link"><span>2. Server Operation 總覽</span></a></li>
+          <li><a href="#chapter-2-serverlist" class="nav-link"><span>&emsp;├ 2.1 Server List (Simplified
+                CMDB)</span></a></li>
+          <li><a href="#chapter-2-drift" class="nav-link"><span>&emsp;├ 2.2 硬體漂移偵測與一鍵校準</span></a></li>
+          <li><a href="#chapter-2-inventory" class="nav-link"><span>&emsp;├ 2.3 Server Inventory 資產盤點</span></a></li>
+          <li><a href="#chapter-2-remote" class="nav-link"><span>&emsp;├ 2.4 Remote Command 遠端指令中樞</span></a></li>
+          <li><a href="#chapter-2-scheduler" class="nav-link"><span>&emsp;├ 2.5 Task Scheduler 原生時間輪排程</span></a></li>
+          <li><a href="#chapter-2-workflow" class="nav-link"><span>&emsp;├ 2.6 Workflow Editor 工作流設計器</span></a></li>
+          <li><a href="#chapter-2-check" class="nav-link"><span>&emsp;├ 2.7 Server Check 跨主機健康巡檢</span></a></li>
+          <li><a href="#chapter-2-provision" class="nav-link"><span>&emsp;├ 2.8 Server Provision 無人值守部署</span></a></li>
+          <li><a href="#chapter-2-nutanix" class="nav-link"><span>&emsp;├ 2.9 Nutanix Prism 虛擬化與克隆</span></a></li>
+          <li><a href="#chapter-2-guacamole" class="nav-link"><span>&emsp;└ 2.10 Apache Guacamole 零客戶端 Web
+                遠端桌面與安全審計</span></a></li>
+        </ul>
+      </div>
+
+      <div class="nav-group">
+        <div class="nav-group-title">智慧監控與自癒 (Scout Monitor)</div>
+        <ul class="nav-group-links">
+          <li><a href="#chapter-3" class="nav-link"><span>3. Scout Monitor 監控中心</span></a></li>
+          <li><a href="#chapter-3-deploy" class="nav-link"><span>&emsp;├ 3.1 DEB / RPM / Win 原生部署</span></a></li>
+          <li><a href="#chapter-3-healing" class="nav-link"><span>&emsp;├ 3.2 自癒機制 (Self-Healing)</span></a></li>
+          <li><a href="#chapter-3-openapi" class="nav-link"><span>&emsp;├ 3.3 Scout Open API 介接</span></a></li>
+          <li><a href="#chapter-3-winevent" class="nav-link"><span>&emsp;├ 3.4 Live Event Viewer 即時日誌串流</span></a></li>
+          <li><a href="#chapter-3-alerts" class="nav-link"><span>&emsp;├ 3.5 告警規則與 6 大 Webhook 推送</span></a></li>
+          <li><a href="#chapter-3-agents" class="nav-link"><span>&emsp;└ 3.6 API Keys &amp; Agent 機隊管理</span></a></li>
+        </ul>
+      </div>
+
+      <div class="nav-group">
+        <div class="nav-group-title">實體設施與資料中心 (Data Center)</div>
+        <ul class="nav-group-links">
+          <li><a href="#chapter-4" class="nav-link"><span>4. Data Center 與實體架構</span></a></li>
+          <li><a href="#chapter-4-dc" class="nav-link"><span>&emsp;├ 4.1 2D 機房平面圖與方向控制</span></a></li>
+          <li><a href="#chapter-4-chassis" class="nav-link"><span>&emsp;├ 4.2 42U/48U 機櫃與刀鋒 Chassis</span></a></li>
+          <li><a href="#chapter-4-topo" class="nav-link"><span>&emsp;├ 4.3 Topology Map 雙向拓撲</span></a></li>
+          <li><a href="#chapter-4-spare" class="nav-link"><span>&emsp;├ 4.4 備用耗材零件與低水位預警</span></a></li>
+          <li><a href="#chapter-4-contracts" class="nav-link"><span>&emsp;├ 4.5 原廠保固合約到期追蹤</span></a></li>
+          <li><a href="#chapter-4-issues" class="nav-link"><span>&emsp;└ 4.6 硬體故障維修生命週期工單</span></a></li>
+        </ul>
+      </div>
+
+      <div class="nav-group">
+        <div class="nav-group-title">網域目錄治理 (AD Control)</div>
+        <ul class="nav-group-links">
+          <li><a href="#chapter-5" class="nav-link"><span>5. AD Control 網域目錄中樞</span></a></li>
+          <li><a href="#chapter-5-browse" class="nav-link"><span>&emsp;├ 5.1 OU 組織樹狀目錄導覽</span></a></li>
+          <li><a href="#chapter-5-search" class="nav-link"><span>&emsp;├ 5.2 全域物件快速檢索</span></a></li>
+          <li><a href="#chapter-5-user" class="nav-link"><span>&emsp;├ 5.3 帳號解鎖、改密與成員維護</span></a></li>
+          <li><a href="#chapter-5-gpo" class="nav-link"><span>&emsp;└ 5.4 GPO 原則連結分析與備份</span></a></li>
+        </ul>
+      </div>
+
+      <div class="nav-group">
+        <div class="nav-group-title">資安防護與鑑識 (SIEM &amp; Audit)</div>
+        <ul class="nav-group-links">
+          <li><a href="#chapter-6" class="nav-link"><span>6. SIEM 日誌與安全鑑識</span></a></li>
+          <li><a href="#chapter-6-forensics" class="nav-link"><span>&emsp;├ 6.1 Event ID 關鍵安全鑑識</span></a></li>
+          <li><a href="#chapter-6-dashboard" class="nav-link"><span>&emsp;├ 6.2 SIEM 態勢看板與隨選取證</span></a></li>
+          <li><a href="#chapter-6-audit" class="nav-link"><span>&emsp;└ 6.3 Audit Log 全域不可篡改審計</span></a></li>
+        </ul>
+      </div>
+
+      <div class="nav-group">
+        <div class="nav-group-title">網路服務治理 (Network Service)</div>
+        <ul class="nav-group-links">
+          <li><a href="#chapter-7" class="nav-link"><span>7. Network Service 網路服務管理</span></a></li>
+          <li><a href="#chapter-7-proxy" class="nav-link"><span>&emsp;├ 7.1 FortiProxy &amp; Squid 代理治理</span></a></li>
+          <li><a href="#chapter-7-netdev" class="nav-link"><span>&emsp;├ 7.2 Network Device SNMP 設備監控</span></a></li>
+          <li><a href="#chapter-7-netsearch" class="nav-link"><span>&emsp;├ 7.3 NetSearch 跨設備設定全文檢索</span></a></li>
+          <li><a href="#chapter-7-ssl" class="nav-link"><span>&emsp;├ 7.4 SSL Certificate 憑證安全中心</span></a></li>
+          <li><a href="#chapter-7-ipam" class="nav-link"><span>&emsp;└ 7.5 IPAM 位址治理與衝突排查</span></a></li>
+        </ul>
+      </div>
+
+      <div class="nav-group">
+        <div class="nav-group-title">企業核心平台 (Service Platform)</div>
+        <ul class="nav-group-links">
+          <li><a href="#chapter-8" class="nav-link"><span>8. Service Platform 企業核心平台</span></a></li>
+          <li><a href="#chapter-8-k8s" class="nav-link"><span>&emsp;├ 8.1 Kubernetes (🤖 AI Pod 診斷)</span></a></li>
+          <li><a href="#chapter-8-mail" class="nav-link"><span>&emsp;├ 8.2 Mail Relay (🤖 AI NDR 塞車分析)</span></a></li>
+          <li><a href="#chapter-8-elk" class="nav-link"><span>&emsp;├ 8.3 ELK Platform 叢集與 Pipeline</span></a></li>
+          <li><a href="#chapter-8-nas" class="nav-link"><span>&emsp;├ 8.4 Unified NAS 企業儲存池與配額</span></a></li>
+          <li><a href="#chapter-8-sftp" class="nav-link"><span>&emsp;├ 8.5 SFTP Manager 內建安全伺服器</span></a></li>
+          <li><a href="#chapter-8-redis" class="nav-link"><span>&emsp;├ 8.6 Redis Control 快取維運中心</span></a></li>
+          <li><a href="#chapter-8-prom" class="nav-link"><span>&emsp;├ 8.7 Prometheus Targets 端點治理</span></a></li>
+          <li><a href="#chapter-8-dns" class="nav-link"><span>&emsp;└ 8.8 DNS Hub AD 網域紀錄與探測</span></a></li>
+        </ul>
+      </div>
+
+      <div class="nav-group">
+        <div class="nav-group-title">資料庫治理 (Database Service)</div>
+        <ul class="nav-group-links">
+          <li><a href="#chapter-9" class="nav-link"><span>9. Database 企業資料庫治理中樞</span></a></li>
+          <li><a href="#chapter-9-inventory" class="nav-link"><span>&emsp;├ 9.1 DB Connection Hub 多庫納管</span></a></li>
+          <li><a href="#chapter-9-performance" class="nav-link"><span>&emsp;├ 9.2 效能看板、長事務與 Kill Query</span></a></li>
+          <li><a href="#chapter-9-ai-sql" class="nav-link"><span>&emsp;├ 9.3 🤖 AI SQL Advisor 慢查詢優化</span></a></li>
+          <li><a href="#chapter-9-masking" class="nav-link"><span>&emsp;├ 9.4 動態敏感資料遮罩 (Masking)</span></a></li>
+          <li><a href="#chapter-9-schema" class="nav-link"><span>&emsp;├ 9.5 Schema Explorer 與 Diff 結構遷移</span></a></li>
+          <li><a href="#chapter-9-terminal" class="nav-link"><span>&emsp;├ 9.6 Web SQL Terminal 線上查詢終端</span></a></li>
+          <li><a href="#chapter-9-multi-db" class="nav-link"><span>&emsp;└ 9.7 系統底層多資料庫架構 (PostgreSQL/MariaDB/MSSQL)
+                與雙庫串流遷移</span></a></li>
+        </ul>
+      </div>
+
+      <div class="nav-group">
+        <div class="nav-group-title">維運知識庫與後台配置</div>
+        <ul class="nav-group-links">
+          <li><a href="#chapter-10" class="nav-link"><span>10. 27 篇 SOP Runbook 手冊庫</span></a></li>
+          <li><a href="#chapter-11" class="nav-link"><span>11. Settings 系統設定中樞</span></a></li>
+          <li><a href="#chapter-11-sys" class="nav-link"><span>&emsp;├ 11.1 全域系統設定 (Feature Flags)</span></a></li>
+          <li><a href="#chapter-11-rbac" class="nav-link"><span>&emsp;├ 11.2 RBAC 角色與網域群組對應</span></a></li>
+          <li><a href="#chapter-11-env" class="nav-link"><span>&emsp;├ 11.2a Environments 全域環境清單</span></a></li>
+          <li><a href="#chapter-11-devtools" class="nav-link"><span>&emsp;├ 11.3 Dev Tools 開發者工具箱</span></a></li>
+          <li><a href="#chapter-11-audit" class="nav-link"><span>&emsp;├ 11.4 全域不可篡改操作審計日誌</span></a></li>
+          <li><a href="#chapter-11-themes" class="nav-link"><span>&emsp;└ 11.5 賽博動態個人化主題引擎</span></a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <article class="docs-main-content doc-article">
+
+      <!-- CHAPTER 1: Security & RBAC -->
+      <section id="chapter-1" class="doc-chapter">
+        <div class="doc-chapter-header">
+          <span class="doc-chapter-tag">Chapter 01</span>
+          <h2 class="doc-chapter-title">系統架構、登入安全與 RBAC 角色權限</h2>
+        </div>
+        <p>
+          <strong>SOMP Vanguard</strong> 專為 Windows Server 2016+ 高安全營運環境設計。系統採用雙軌身份驗證機制，並於底層透過
+          <strong>AES-256-CBC</strong> 強制加密權限設定檔，具備高度容錯與防篡改能力。
+        </p>
+
+        <div class="callout callout-info">
+          <div class="callout-title">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="12" y1="16" x2="12" y2="12"></line>
+              <line x1="12" y1="8" x2="12.01" y2="8"></line>
+            </svg>
+            雙軌登入架構說明
+          </div>
+          <p style="margin:0;">
+            1. <strong>本地管理員 (Local Admin)</strong>：帳號 <code>admin@local</code>，密碼於環境變數 <code>LOCAL_ADMIN_PWD</code>
+            加密保存。用於系統初始化、AD 離線緊急排錯。<br>
+            2. <strong>AD 網域驗證 (Active Directory)</strong>：支援 <code>username@yourdomain.com</code>，後台可限制僅允許指定
+            Organizational Unit (OU) 內的成員登入，並依 AD 群組動態對應系統角色。
+          </p>
+        </div>
+
+        <div id="chapter-1-rbac" class="doc-section">
+          <h3 class="doc-section-title">🛡️ 全模組角色權限控管矩陣 (RBAC Matrix)</h3>
+          <p>
+            系統內建三層權限模型（Viewer、Operator、SuperAdmin）。底層權限設定檔 <code>rbac.json</code> 採用系統密鑰簽名與 AES-256
+            加密。若嘗試在伺服器本機繞過介面覆寫明文，系統會偵測到簽名失效並自動退回最嚴格的安全防護狀態。
+          </p>
+          <div class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>功能模組 / 功能名稱</th>
+                  <th>Viewer (唯讀人員)</th>
+                  <th>Operator (維運人員 - 預設)</th>
+                  <th>SuperAdmin (超級管理員)</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>System Settings (後台全域設定)</strong></td>
+                  <td>❌ 無法存取</td>
+                  <td>❌ 無法存取</td>
+                  <td>✅ 完整存取、RBAC 指派與 Feature Flags 開關</td>
+                </tr>
+                <tr>
+                  <td><strong>Dev Tools &amp; API Console</strong></td>
+                  <td>❌ 無法存取</td>
+                  <td>❌ 無法存取</td>
+                  <td>✅ 生成測試 JWT Token、執行原生 API 調試</td>
+                </tr>
+                <tr>
+                  <td><strong>Audit Log Viewer (安全審計日誌)</strong></td>
+                  <td>❌ 無法存取</td>
+                  <td>❌ 無法存取</td>
+                  <td>✅ 檢索、過濾與匯出全系統人員操作歷程</td>
+                </tr>
+                <tr>
+                  <td><strong>Server List (Simplified CMDB)</strong></td>
+                  <td>👁️ 僅檢視資產</td>
+                  <td>✅ 編輯主機/關聯 IP/校準漂移/執行同步</td>
+                  <td>✅ 完整管理與主機大量刪除</td>
+                </tr>
+                <tr>
+                  <td><strong>Server Check &amp; Provision</strong></td>
+                  <td>👁️ 僅檢視狀態</td>
+                  <td>✅ 執行跨主機健康巡檢 / 發起遠端安裝</td>
+                  <td>✅ 完整伺服器佈建配置與安裝範本維護</td>
+                </tr>
+                <tr>
+                  <td><strong>Task Scheduler &amp; Remote Command</strong></td>
+                  <td>❌ 無法執行指令</td>
+                  <td>✅ 建立與執行排程工作、執行遠端指令</td>
+                  <td>✅ 完整排程與底層特權指令審批</td>
+                </tr>
+                <tr>
+                  <td><strong>Scout Monitor &amp; 自癒規則</strong></td>
+                  <td>👁️ 僅檢視指標</td>
+                  <td>✅ 派送 Agent / 調整自癒規則 / 檢視日誌</td>
+                  <td>✅ 完整監控治理、生成 API 金鑰與輪替</td>
+                </tr>
+                <tr>
+                  <td><strong>AD Control Hub (網域目錄治理)</strong></td>
+                  <td>👁️ 檢視樹狀與物件</td>
+                  <td>✅ 解鎖帳號 / 重設密碼 / 調整群組成員</td>
+                  <td>✅ GPO 連結原則備份與敏感目錄結構維護</td>
+                </tr>
+                <tr>
+                  <td><strong>Data Centers &amp; Server Rack</strong></td>
+                  <td>👁️ 僅檢視 2D 機房</td>
+                  <td>✅ 編輯機櫃槽位、備品登記、報修維護</td>
+                  <td>✅ 建立新機房 / 變更機房視角方向 (Orientation)</td>
+                </tr>
+                <tr>
+                  <td><strong>Kubernetes 容器平台 &amp; AI 診斷</strong></td>
+                  <td>👁️ 檢視 Pods/Logs</td>
+                  <td>✅ 執行 🤖 AI 事故診斷 / Pod 重啟 / Web Exec</td>
+                  <td>✅ 增刪叢集連線憑證 / 刪除 Pod 資源</td>
+                </tr>
+                <tr>
+                  <td><strong>Mail Relay 叢集 &amp; AI NDR 分析</strong></td>
+                  <td>👁️ 檢視轉發節點</td>
+                  <td>✅ 執行 🤖 AI NDR 診斷 / 佇列 Flush / 軌跡檢索</td>
+                  <td>✅ 修改 Access 白名單 / 部署配置 / 清空佇列</td>
+                </tr>
+                <tr>
+                  <td><strong>Database Service &amp; SQL Terminal</strong></td>
+                  <td>👁️ 僅檢視綱要</td>
+                  <td>✅ 執行唯讀查詢 (強制遮罩) / AI SQL 優化</td>
+                  <td>✅ 執行 DDL 遷移 / 連線擊殺 (Kill Query) / 脫敏解鎖</td>
+                </tr>
+                <tr>
+                  <td><strong>SFTP Manager (內建安全伺服器)</strong></td>
+                  <td>👁️ 檢視使用者清單</td>
+                  <td>✅ 建立 SFTP 帳號 / 重設密碼 / 配置 Chroot</td>
+                  <td>✅ 啟動/停止 SFTP 服務 / 頻寬與連接埠限制</td>
+                </tr>
+                <tr>
+                  <td><strong>Network Device &amp; NetSearch</strong></td>
+                  <td>👁️ 檢視介面與搜尋</td>
+                  <td>✅ 觸發 SNMP 輪詢 / 檢索設備設定檔</td>
+                  <td>✅ 增刪實體設備 / 備份設備配置快照</td>
+                </tr>
+                <tr>
+                  <td><strong>SSL Certificate 生命週期中心</strong></td>
+                  <td>👁️ 僅檢視過期狀態</td>
+                  <td>✅ 上傳憑證、遠端探測、檢視 30 天預警</td>
+                  <td>✅ 解密檢視私鑰、覆蓋證書金鑰庫</td>
+                </tr>
+                <tr>
+                  <td><strong>ELK Platform &amp; NAS Manager</strong></td>
+                  <td>👁️ 檢視叢集與配額</td>
+                  <td>✅ 檢視 Shard 分佈 / 檢視 NAS 共用資料夾</td>
+                  <td>✅ 執行 ES 索引生命週期調整 / NAS 權限配置</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- CHAPTER 2: Server Operation -->
+      <section id="chapter-2" class="doc-chapter">
+        <div class="doc-chapter-header">
+          <span class="doc-chapter-tag">Chapter 02</span>
+          <h2 class="doc-chapter-title">伺服器維運與資產管理 (Server Operation)</h2>
+        </div>
+        <p>
+          <strong>Server Operation</strong> 是 SOMP Vanguard 最龐大且核心的運維子系統，整合簡化版配置管理庫 (Simplified
+          CMDB)、全網段資產自動盤點、遠端指令庫中樞、原生本地時間輪排程引擎、視覺化 DAG 工作流程、多主機健康巡檢、Windows 遠端無人值守部署以及 Nutanix Prism 超融合管理。
+        </p>
+
+        <!-- 2.1 Server List (Simplified CMDB) -->
+        <div id="chapter-2-serverlist" class="doc-section">
+          <h3 class="doc-section-title">🖥️ 2.1 Server List (Simplified CMDB 核心資料庫)</h3>
+          <p>
+            作為全系統的<strong>資產唯一事實來源 (Single Source of Truth)</strong>，自動關聯 Scout Agent 即時遙測、Prometheus Targets、IPAM 網段以及
+            Data Center Server Rack 機櫃空間。
+          </p>
+          <ul>
+            <li><strong>雙模式切換瀏覽</strong>：
+              <ul>
+                <li><strong>Matrix Card View (卡片矩陣視圖)</strong>：以視覺化卡片呈現主機在線健康狀態、OS 圖示、即時 CPU/RAM 負載條與主要 IP。</li>
+                <li><strong>Table View (詳細表格視圖)</strong>：提供全欄位即時多欄排序、多關鍵字過濾、批次操作與硬體漂移警示器。</li>
+              </ul>
+            </li>
+            <li><strong>360° CMDB 側邊抽屜 (Drawer)</strong>：點擊任一主機即可展開右側抽屜，集中維護：主機名稱、OS 類型、主機序號 (SN)、iLO / iDRAC 管理 IP、CVM
+              IP、機房位置 (Data Center / Rack / U 數)、群組標籤 (Tags) 與維運備註。</li>
+            <li><strong>Dual-NIC / VIP 虛擬 IP 關聯</strong>：支援單一主機綁定次要 IP (VIP, Management IP, iLO IP)，並支援一鍵 Unlink 解除綁定。
+            </li>
+            <li><strong>全域自動同步 (Global Auto-Sync)</strong>：於 Edit Mode 點擊 <strong>Global Auto-Sync</strong>，系統將平行自動探測：
+              <ol>
+                <li>IPAM 線上子網路 Active IP。</li>
+                <li>Prometheus 作用中 Targets 與標籤。</li>
+                <li><strong>Server Rack 機櫃 Compute 資源</strong>（包含獨立 Server、Nutanix 節點、Blade Chassis 刀鋒節點之 SN 與機櫃槽位）。
+                </li>
+              </ol>
+            </li>
+          </ul>
+        </div>
+
+        <!-- 2.2 Hardware Drift -->
+        <div id="chapter-2-drift" class="doc-section">
+          <h3 class="doc-section-title">⚠️ 2.2 硬體規格漂移偵測與一鍵校準 (Hardware Drift)</h3>
+          <p>
+            當虛擬化環境動態擴容（如 vSphere 或 Nutanix 熱插拔增加 CPU 核心或 RAM），或實體主機更換硬體零件時，CMDB 歷史規格將與即時遙測產生不一致。
+          </p>
+          <div class="callout callout-warning">
+            <div class="callout-title">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z">
+                </path>
+                <line x1="12" y1="9" x2="12" y2="13"></line>
+                <line x1="12" y1="17" x2="12.01" y2="17"></line>
+              </svg>
+              漂移告警與一鍵校準流程
+            </div>
+            <p style="margin:0;">
+              1. <strong>自動比對</strong>：系統自動比對 CMDB 記錄規格與 Live Agent / Prometheus 即時採集規格。<br>
+              2. <strong>告警呈現</strong>：不一致時在卡片與表格上高亮 ⚠️ <strong>Drift Detected</strong> 警示標籤。<br>
+              3. <strong>差異對照表</strong>：展開 360° CMDB 抽屜檢視 <code>CPU Cores (CMDB vs Live)</code> 與
+              <code>Memory GB (CMDB vs Live)</code> 差異。<br>
+              4. <strong>一鍵校準</strong>：點擊 <strong>「Sync Specs from Live Agent」</strong> 按鈕，系統立即將當前即時硬體規格校準回
+              CMDB，自動消除告警並寫入審計日誌。
+            </p>
+          </div>
+        </div>
+
+        <!-- 2.3 Server Inventory -->
+        <div id="chapter-2-inventory" class="doc-section">
+          <h3 class="doc-section-title">🔍 2.3 Server Inventory (伺服器資產盤點與時區合規)</h3>
+          <ul>
+            <li><strong>多網段並行掃描</strong>：支援輸入多組 CIDR 網段（例如 <code>192.0.2.0/24, 198.51.100.0/24</code>），平行發起 ICMP、WinRM 與
+              SSH 探測。</li>
+            <li><strong>深層規格採集</strong>：自動解析作業系統發行版、Kernel 核心版本、CPU 型號/核數、記憶體插槽使用量、磁碟分區容量與開機時間 (Uptime)。</li>
+            <li><strong>時區合規性檢查 (Timezone Compliance Check)</strong>：依據主機回傳之 UTC Offset 與系統標準時區進行比對，偵測時鐘漂移或時區設定錯誤。</li>
+            <li><strong>自動化 HTML 郵件報表</strong>：支援一鍵產出格式精美的盤點報告，並經由內建 Mail Relay 定時或手動發送至維運人員信箱。</li>
+          </ul>
+        </div>
+
+        <!-- 2.4 Remote Command -->
+        <div id="chapter-2-remote" class="doc-section">
+          <h3 class="doc-section-title">⌨️ 2.4 Remote Command (遠端指令庫與串流執行中樞)</h3>
+          <p>
+            支援在單一介面中對多台 Windows 與 Linux 主機執行遠端命令，具備高安全性與實時回饋能力：
+          </p>
+          <ul>
+            <li><strong>雙軌執行引擎</strong>：Windows 主機透過 WinRM / WMI 執行原生 PowerShell 腳本；Linux 主機透過 SSH 密鑰連線執行 Bash 腳本。</li>
+            <li><strong>指令庫 (Command Library / Snippets)</strong>：預置常用系統維護、服務重啟、磁碟快取清理、網路診斷與日誌收集指令模版。</li>
+            <li><strong>執行逾時保護 (Timeout Control)</strong>：可自訂指令執行逾時秒數，防止死鎖或長時間卡住。</li>
+            <li><strong>即時 NDJSON 串流輸出</strong>：秒級在終端視窗呈現遠端即時 Output，支援隨時中斷終止。</li>
+            <li><strong>資安審計追蹤</strong>：所有執行的指令、操作人員、目標主機 IP、執行時間與 Exit Code 均完整寫入安全稽核日誌。</li>
+          </ul>
+        </div>
+
+        <!-- 2.5 Task Scheduler -->
+        <div id="chapter-2-scheduler" class="doc-section">
+          <h3 class="doc-section-title">⏱️ 2.5 Task Scheduler (原生時間輪任務排程中心)</h3>
+          <div class="callout callout-info">
+            <div class="callout-title">原生本地時間輪詢引擎架構規範</div>
+            <p style="margin:0;">
+              後端排程引擎嚴格採用 <strong>「原生本地時間輪詢引擎」</strong> 執行，以 Windows OS 本地時間（<code>Date</code> 物件）配合
+              <code>setInterval</code> 進行輪詢比對。徹底杜絕了第三方 Cron 套件在 Windows Server 上因 UTC 跨日時差或夏令時計算錯誤導致的任務漏跑或重複觸發問題。
+            </p>
+          </div>
+          <p>支援 Local PowerShell、Remote SSH、Remote WinRM 與智慧 OS 自動路由四種執行管道，滿足混合雲跨平台維運需求。</p>
+        </div>
+
+        <!-- 2.6 Workflow Editor -->
+        <div id="chapter-2-workflow" class="doc-section">
+          <h3 class="doc-section-title">📋 2.6 Workflow Editor (視覺化 DAG 工作流程設計器)</h3>
+          <p>
+            提供直觀的 DAG (有向無環圖) 畫布，維運人員可將多個獨立維運步驟（SSH 節點、PowerShell 節點、HTTP API 節點、Delay 延時、Branch
+            條件判斷）串聯為全自動化管線，支援變數傳遞與失敗自動重試。
+          </p>
+        </div>
+
+        <!-- 2.7 Server Check (NEW) -->
+        <div id="chapter-2-check" class="doc-section">
+          <h3 class="doc-section-title">🔍 2.7 Server Check (跨主機批次健康巡檢與多埠連線診斷)</h3>
+          <p>
+            針對大型機房每日晨檢或重大維護前後的全面健康確認，提供高速平行多埠診斷能力：
+          </p>
+          <ul>
+            <li><strong>多協定平行探測</strong>：同步檢測 ICMP Ping 延遲、RDP (Port 3389)、WinRM (Port 5985/5986)、SSH (Port 22) 與自訂業務埠
+              (如 80, 443, 8080, 1433)。</li>
+            <li><strong>主機即時資源速查</strong>：巡檢過程中平行抓取主機 CPU 負載、實體記憶體可用率與 C: / Root 磁碟可用空間。</li>
+            <li><strong>批次篩選與異常匯出</strong>：支援一鍵篩選出所有連線超時、埠關閉或資源告急的主機，並可將巡檢報表匯出為標準 CSV / Excel 文件供交接使用。</li>
+          </ul>
+        </div>
+
+        <!-- 2.8 Server Provision -->
+        <div id="chapter-2-provision" class="doc-section">
+          <h3 class="doc-section-title">🚀 2.8 Server Provision (遠端軟體部署中心：背景工作、預檢與歷史)</h3>
+          <p>
+            對已存在的 Windows / Linux 主機，依「業務單位 (BU) 範本」從 NAS 軟體庫遠端部署軟體（Windows 透過 WinRM、Linux 透過 SSH）。部署以<strong>背景工作 (Job)</strong>
+            執行，關閉瀏覽器不會中斷；進度、結果與記錄會保存於 Scout 資料庫，可隨時回頭查詢。
+          </p>
+          <ul>
+            <li><strong>目標選擇器 (Target Picker)</strong>：可搜尋 CMDB / Server Inventory 的主機（IP 或主機名稱）後多選，也可手動輸入 IP。</li>
+            <li><strong>已知目標規則 (Known-target rule)</strong>：為避免把已儲存的憑證送到任意 IP，只有「已知」的主機可以部署。已知 = 存在於 CMDB（且未被刪除），<strong>或</strong>存在於
+              Server Inventory（掃描探索到的 IP 也算已知，所以被盤點掃描過的網段內所有已記錄的 IP 皆視為已知）。未知 IP 會被拒絕（HTTP 400 並列出清單）。僅
+              <strong>SuperAdmin</strong> 可勾選「Allow unknown targets」覆寫，此動作會寫入稽核紀錄並記錄在工作內容中。</li>
+            <li><strong>預檢 (Pre-check)</strong>：按下 Pre-check 唯讀檢查每台主機：已知目標、連線埠（WinRM 5985 / SSH 22，1.5 秒）、登入驗證、資料碟 X: 剩餘空間
+              （預設至少 5 GB；X: 不存在視為不通過）、已安裝套件（資訊列，不影響通過與否）、NAS 路徑（整批只檢查一次）、是否已有其他工作正在處理該 IP。預檢不會安裝或變更任何東西，結果不會儲存。
+              Install 按鈕不會被鎖住，但預檢失敗或未執行時會出現警告。Linux 預檢首次連線時會釘選 SSH 主機指紋 (TOFU：首次信任)，之後指紋改變會被拒絕。</li>
+            <li><strong>背景工作與平行度</strong>：按下 Execute 立即建立工作並回傳工作編號。同時處理的主機數有上限（<code>PROVISION_HOST_CONCURRENCY</code>，預設 4，最大 10，同一個執行程序內所有工作合計）。
+              同一 IP 若已在另一個排隊 / 執行中的工作，該主機會被標示為 <em>skipped</em>（附上佔用它的工作編號）。</li>
+            <li><strong>由哪個程序執行 (Runner)</strong>：工作優先交給背景 Worker 執行（Web 只寫入資料庫並以 IPC 傳送工作編號，<strong>密碼不經過 IPC 也不會儲存</strong>，Worker 自行從設定讀取憑證）。
+              Worker 未啟動、傳送失敗或 5 秒內未回應時，改由 Web 自行執行（後援）。工作檢視會顯示「runs in: Background worker」或「Web server (fallback)」。
+              每個工作在資料庫中以單一原子操作認領，<strong>同一工作永遠只會在一個程序中執行</strong>。
+              <ul>
+                <li><strong>執行帳號（行為變更）</strong>：Windows 安裝以 Settings 的服務帳號 <code>AD_ADMIN_USER</code> / <code>AD_ADMIN_PWD</code> 執行（與 Server Inventory 掃描、部署 Agent 使用同一個預設憑證來源；未含網域的帳號會加上 <code>ALLOWED_AD_DOMAIN</code>），<strong>不再以登入者本人的帳密執行</strong>；Linux 以 <code>LINUX_ADMIN_*</code> 執行。
+                  觸發的使用者記錄在工作的「Triggered by」、SOMP 稽核紀錄與安裝歷史；工作檢視另顯示「Run as: 服務帳號」（只顯示帳號名稱）。目標主機上的 Windows 事件記錄會看到服務帳號，而非觸發者。</li>
+                <li><strong>必須設定服務帳號</strong>：<code>AD_ADMIN_USER</code> / <code>AD_ADMIN_PWD</code> 未設定或無法解密時，Execute、Pre-check 與 Retry failed hosts 直接回 400「Server Provision requires the service account in Settings (AD_ADMIN_USER / AD_ADMIN_PWD)」，不會改用登入者密碼。</li>
+                <li>每個執行程序自行從設定讀取憑證，因此所有工作都可交給 Worker，也都可在重啟後續跑。</li>
+                <li>平行度上限在每個執行程序各自計算；正常情況工作都在 Worker，等同全域上限。若部分工作在 Web 後援執行，Web 與 Worker 各有一組同樣大小的名額（最多為設定值的兩倍）。</li>
+              </ul></li>
+            <li><strong>工作檢視</strong>：每台主機一列，顯示狀態、各套件結束代碼 (exit code)、是否需要重新開機，並可展開記錄；執行中每 2 秒更新（分頁隱藏時暫停）。
+              記錄與較長的套件訊息僅 Operator / SuperAdmin 可見，Viewer 看到「Log visible to Operators only」。</li>
+            <li><strong>取消 (Cancel)</strong>：取消後不會再啟動新的主機或套件，排隊中的主機標示為 cancelled。<strong>已經在執行的 Windows 主機不會被中斷</strong>
+              （每台主機是一支完整的 PowerShell 腳本，會跑完其剩餘套件）；Linux 則會在目前套件結束後停止。
+              取消會在資料庫寫入取消旗標並通知執行程序；執行程序在每台主機 / 每個套件開始前與每 15 秒都會檢查旗標，所以即使 IPC 中斷也一定生效。</li>
+            <li><strong>歷史 (History) 與重試失敗主機 (Retry failed hosts)</strong>：History 分頁分頁列出過去的工作，可開啟查看。重試會建立一個新工作，只包含 failed / interrupted / skipped 的主機，沿用原本的範本與選項；
+              重新檢查目標是否仍為已知，不會繼承 SuperAdmin 覆寫，若有未知主機會被拒絕並列出，SuperAdmin 可明確按「Retry allowing unknown targets」。</li>
+            <li><strong>服務 / Worker 重啟後續跑 (Resume)</strong>：執行中的程序每 15 秒更新心跳。執行程序結束（服務重啟、Worker 異常結束後 5 秒自動重啟）或心跳超過 60 秒未更新時，由接手的程序處理該工作：
+              <ul>
+                <li>尚未開始的主機 (queued)：<strong>自動續跑一次</strong>，沿用原本的範本與選項、重新讀取憑證，並重新檢查目標是否仍為已知主機及 IP 是否被其他工作佔用（不符者標示為 skipped 並附原因）。工作顯示「Resumed after restart」標記與備註，Telegram 完成摘要也會註明。</li>
+                <li>執行到一半的主機 (running)：標示為 <em>interrupted</em>，<strong>不會自動重跑</strong>（目標主機可能安裝到一半，請先確認後用 Retry failed hosts）。</li>
+                <li>已要求取消的工作：直接結束為 cancelled，不續跑。已續跑過一次的工作再次中斷時，剩餘主機標示為 interrupted（避免重啟迴圈）。</li>
+                <li>續跑時以當下 Settings 的服務帳號執行（升級前建立、原本以登入者帳密執行的工作也一樣）；服務帳號已不存在或無法解密時，剩餘主機標示為 interrupted 並附原因。</li>
+                <li>Worker 的工作由 Worker 啟動時接手；Worker 異常結束時由 Web 立即接手並在 Web 續跑。Web 的工作（含升級前留下的舊工作）由 Web 啟動時接手。同一工作只會被一個程序接手。</li>
+              </ul>
+              若某工作卡在執行中而執行程序已不存在，Operator 可按 Cancel 將其標示為 interrupted 並釋放 IP 鎖。</li>
+            <li><strong>重新開機規則</strong>：勾選 Reboot 時，只有「該主機所有套件都成功」且「至少有一個套件實際安裝」才會重新開機；任一套件失敗或全部被略過則略過重開機。結束代碼 3010 / 1641 視為成功但需要重新開機。</li>
+            <li><strong>資料碟 X:</strong>：Server Provision 不再有 Disk Setup（不再格式化磁碟、更名網卡或停用 IPv6）；X: 資料碟由 Nutanix Clone VM 建立。X: 不存在時預檢失敗，套件會以「Drive X: not found」失敗。舊請求 / 舊工作中的 <code>setDisk</code> 欄位會被忽略，不影響重試。</li>
+            <li><strong>已安裝偵測 (detect 規則)</strong>：在軟體主清單（<code>REMOTE_INSTALL_SOFTWARE_MASTER</code> / <code>REMOTE_INSTALL_LINUX_SOFTWARE_MASTER</code>）每一行最後可加上選填的 <code>|@detect:類型:值</code>；沒有此欄的行行為與過去完全相同。
+              <ul>
+                <li>Windows：<code>名稱|NAS路徑|參數|@detect:reg:顯示名稱樣式[&gt;=最低版本]</code>，在 HKLM 的 Uninstall（64 位元與 WOW6432Node）以 PowerShell <code>-like</code> 比對 DisplayName（不分大小寫，可用 <code>*</code> <code>?</code>；要子字串請寫 <code>*Chrome*</code>），可加 <code>&gt;=120.0</code> 要求 DisplayVersion 不低於該版本；
+                  或 <code>@detect:file:C:\Program Files\App\app.exe</code>（絕對路徑存在即視為已安裝）。參數欄為空時寫 <code>名稱|路徑||@detect:...</code>。</li>
+                <li>Linux：<code>名稱|指令|@detect:rpm:套件名</code>（<code>rpm -q</code>）、<code>@detect:dpkg:套件名</code>（<code>dpkg-query</code>，狀態須為 install ok installed）、<code>@detect:cmd:指令</code>（結束代碼 0 視為已安裝，指令內可含 <code>|</code>）。Linux 不支援最低版本。<code>rpm</code> / <code>dpkg</code> 查詢不使用 sudo；<code>cmd</code> 規則與安裝指令一樣經 sudo 執行，<strong>必須沒有副作用</strong>，且<strong>預檢不會執行 cmd 規則</strong>（預檢顯示「cmd rule not evaluated in pre-check」）。</li>
+                <li>注意：Windows <code>reg</code> 只檢查 HKLM（64 位元與 WOW6432Node），每位使用者（HKCU）安裝的軟體不會被偵測；DisplayName 樣式中的 <code>[</code> <code>]</code> 視為一般字元，只有 <code>*</code> <code>?</code> 是萬用字元；版本比較補齊為 4 段（1.2 等於 1.2.0）。偵測發生錯誤或超過 30 秒視為「未安裝」並繼續安裝（記錄警告），不會讓主機失敗。多個版本同時存在時以「, 」連接顯示。</li>
+                <li>範例：<code>Chrome|chrome\setup.msi|/qn|@detect:reg:Google Chrome*&gt;=120.0</code>、<code>Agent|agent\a.exe||@detect:file:C:\Program Files\Agent\a.exe</code>、<code>ntp|yum install -y ntp|@detect:rpm:ntp</code>。</li>
+                <li>儲存格式：Settings 畫面把換行存成三個字元 <code>\\n</code>；解析時依欄位判斷（Windows 的路徑欄開頭 <code>\\n</code> 是 UNC 路徑如 <code>\\nas01\soft</code>，其餘位置為換行）。Linux 指令或規則中不可含反斜線加 n（儲存時會被拒絕）。</li>
+                <li>規則會在儲存設定時驗證（未知類型、空值、版本格式、套件名稱含特殊字元、OS 不符皆會被拒絕）；所有值以 PowerShell 單引號字面值 / shell 引號傳遞，不會被當成程式碼執行。無效的規則在手動編輯設定檔時，執行與預檢會回 400。</li>
+                <li>已安裝的套件結果為 <code>{ ok: true, skipped: true, exitCode: null, message: "Already installed (版本)" }</code>，不複製、不安裝；工作選項 <code>forceReinstall</code>（畫面上的「Force reinstall」，預設關）可忽略所有規則。</li>
+              </ul></li>
+            <li><strong>部署後清理</strong>：Windows 每個工作在客體上使用 <code>X:\SOMP_Provision\&lt;工作編號&gt;\</code>（每個套件一個編號子資料夾）；一台主機的套件處理完（成功或失敗）後，先把其中 <code>install_*.log</code> 的內容（每檔最後 1500 字、最多 5 檔）寫入工作記錄，再只刪除該工作資料夾（路徑必須位於 <code>X:\SOMP_Provision</code> 之下，不使用萬用字元；根資料夾僅在為空時才移除）。
+              <strong>腳本套件（.bat / .cmd / .ps1 所在資料夾）維持原本位置 <code>X:\&lt;資料夾名&gt;</code> 且不會被刪除</strong>（腳本可能安裝服務或排程並從該處執行），只有單一安裝檔（.exe / .msi）與其 install_*.log 放在工作資料夾並被清理；僅複製資料夾（無安裝檔）的套件屬於交付物，同樣不清理。安裝參數若把記錄寫到絕對路徑（例如 <code>/l*v X:\x.log</code>）不會被擷取或清理，請用相對路徑（安裝程式的工作目錄就是該套件資料夾）。每台主機開始時會順便清除 <code>X:\SOMP_Provision</code> 下超過 7 天、名稱符合工作編號格式且非本工作的殘留資料夾。清理失敗只在主機記錄顯示警告，不影響結果；選項 <code>keepInstallers</code>（「Keep installers」，預設關）保留資料夾並在記錄寫出位置。若工作逾時被強制終止，資料夾可能殘留。Linux 指令不會複製任何檔案，因此無需清理。</li>
+            <li><strong>通知 (Telegram)</strong>：每個工作最多三類訊息——開始的稽核訊息、各主機結果（合併批次訊息）、以及工作結束時<strong>一則</strong>「Provision」摘要（工作編號、操作者、BU、成功 / 失敗 / 需重開機數與前幾台失敗主機）。
+              摘要與其他安裝稽核紀錄受同一個「Remote Install」稽核開關控制。</li>
+            <li><strong>設定值 (環境設定 / Settings)</strong>：<code>PROVISION_HOST_CONCURRENCY</code>（預設 4，1–10）、<code>PROVISION_HISTORY_RETENTION_DAYS</code>（預設 180，30–730，過期工作每日清理）、
+              <code>PROVISION_MIN_FREE_GB</code>（預設 5，1–500，預檢 X: 最低剩餘空間；原本設為 0 的舊值執行時視為 1，儲存其他設定時只驗證本次有變更的欄位）。可在 Settings 的 Remote Install 分頁編輯（僅 SuperAdmin），儲存時伺服器端驗證範圍，不需重啟即生效。</li>
+            <li><strong>權限 (RBAC)</strong>：檢視工作與歷史需具 <code>install</code> 功能；執行、預檢、取消、重試、目標搜尋僅限 Operator 與 SuperAdmin；未知目標覆寫僅限 SuperAdmin。安裝參數（可能含授權碼）對 Viewer 以遮罩顯示。</li>
+            <li><strong>憑證安全</strong>：Windows 使用操作者登入的 AD 帳密、Linux 使用 <code>LINUX_ADMIN_*</code>，僅存在於記憶體 / 子行程環境變數，不會寫入資料庫、記錄、稽核或通知。</li>
+          </ul>
+          <p>
+            <strong>API 重大變更</strong>：<code>POST /api/install/execute</code> 現在回傳 <code>202 { "jobId": "..." }</code>，不再同步回傳各主機結果；請改以 <code>GET /api/install/jobs/:id</code> 輪詢。
+            使用舊回傳格式的腳本需要調整，詳見 API 文件第 29 章。
+          </p>
+        </div>
+
+        <!-- 2.9 Nutanix Prism -->
+        <div id="chapter-2-nutanix" class="doc-section">
+          <h3 class="doc-section-title">🏢 2.9 Nutanix Prism (超融合虛擬機生命週期與快速克隆)</h3>
+          <p>
+            透過 Nutanix Prism REST API 深度整合企業超融合 (HCI) 虛擬化平台：
+          </p>
+          <ul>
+            <li><strong>叢集容量與健康度即時儀表</strong>：即時採集 Nutanix 叢集 CPU、RAM 消耗比率、Storage Pool 儲存池剩餘容量與節點狀態。</li>
+            <li><strong>虛擬機完整電源操作</strong>：支援 <code>Power On</code>、<code>Power Off</code>、透過 Nutanix Guest Tools (NGT)
+              執行優雅安全關機 <code>Guest Shutdown</code> 與硬體重啟 <code>Reset VM</code>。</li>
+            <li><strong>VM Clone 模板一鍵克隆</strong>：預先定義黃金映象檔 (Golden Templates) 與各業務部門 (BU)
+              網段對應表，輸入目標名稱與規格後即可在數十秒內完成新虛擬機部署。</li>
+          </ul>
+        </div>
+
+        <!-- 2.10 Apache Guacamole Web Remote Desktop & Audit -->
+        <div id="chapter-2-guacamole" class="doc-section">
+          <h3 class="doc-section-title">🖥️ 2.10 Apache Guacamole 純瀏覽器 Web 遠端桌面 (Web-RDP &amp; Web-SSH) 與安全審計中樞</h3>
+          <p>
+            為解決傳統維運高度依賴終端工程師本機安裝 RDP 用戶端 (mstsc)、SSH (PuTTY / Xshell / SecureCRT) 或 VNC 工具所帶來的<strong>特權密碼外洩風險、缺乏集中連線稽核留痕、以及跨作業系統（Mac / iPad / Linux）終端相容性痛點</strong>，SOMP Vanguard 深度內嵌 <strong>Apache Guacamole (guacd)</strong> 企業級零客戶端 (Clientless) 遠端閘道架構。維運人員無需安裝任何用戶端軟體或外掛，直接於現代標準 HTML5 瀏覽器中一鍵秒開 Windows 圖形桌面與 Linux 指令終端：
+          </p>
+
+          <div class="table-wrapper" style="margin: 16px 0;">
+            <table class="doc-table">
+              <thead>
+                <tr>
+                  <th style="width: 20%;">比較維度</th>
+                  <th style="width: 40%;">傳統本機遠端工具 (mstsc / PuTTY)</th>
+                  <th style="width: 40%;">SOMP Vanguard Web-Remote (零信任閘道)</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>客戶端相容性</strong></td>
+                  <td>需本機安裝專用軟體，跨平台 (macOS/iOS/ChromeOS) 體驗破碎且設定繁瑣</td>
+                  <td><strong>純 HTML5 瀏覽器秒開</strong>，支援 Chrome / Edge / Firefox / Safari，支援觸控與行動裝置</td>
+                </tr>
+                <tr>
+                  <td><strong>伺服器密碼防護</strong></td>
+                  <td>維運人員需知悉主機真實本機 Administrator 密碼，憑證極易外流散落</td>
+                  <td><strong>密碼透明注入 (Credential Masking)</strong>：特權密碼以 <code>enc:</code> (AES-256) 存放後端，操作者全程接觸不到明文密碼</td>
+                </tr>
+                <tr>
+                  <td><strong>身份鑑權與防護</strong></td>
+                  <td>目標主機必須對辦公室網段大開 3389 / 22 埠號，缺乏統一跳板與身份校驗</td>
+                  <td><strong>短效加密 Token (30s 有效)</strong>：透過 <code>POST /api/remote/token</code> 簽發 AES-256 短效 Token，單次連線即刻作廢</td>
+                </tr>
+                <tr>
+                  <td><strong>操作軌跡與留痕</strong></td>
+                  <td>❌ 無即時連線會話紀錄，事後難以追溯誰在何時連入哪台伺服器</td>
+                  <td><strong>全時段不可篡改操作審計 (Audit Log)</strong>：連線發起、斷開、時長與特殊按鍵操作均寫入安全日誌</td>
+                </tr>
+                <tr>
+                  <td><strong>存取控制 (RBAC)</strong></td>
+                  <td>難以集中限制特定工程師僅能連線特定機器，無權限分級隔離</td>
+                  <td><strong>RBAC 嚴格防護</strong>：僅限 <strong>Operator</strong> 與 <strong>SuperAdmin</strong> 角色發起連線，Viewer 角色全面禁止</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h4 class="doc-subsection-title">🎨 6 款經典擬真與現代作業系統視窗風格 (Authentic Retro &amp; Modern OS Themes)</h4>
+          <p>
+            為提供維運工程師極致沉浸與個人化操作體驗，<code>WebRemoteModal.jsx</code> 內建 <strong>6 大擬真作業系統視窗風格</strong>。使用者可於視窗標題列一鍵切換，視窗具備完整拖曳 (Draggable)、邊框縮放 (Resizable)、最大化/還原與最小化控制：
+          </p>
+
+          <div class="table-wrapper" style="margin: 16px 0;">
+            <table class="doc-table">
+              <thead>
+                <tr>
+                  <th>主題名稱</th>
+                  <th>設計風格識別</th>
+                  <th>視窗外觀特徵</th>
+                  <th>字型與色彩體系</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong style="color: #38bdf8;">Windows 7</strong></td>
+                  <td><span class="badge badge-info">Aero Glass</span></td>
+                  <td>磨砂毛玻璃半透明窗框 (Backdrop Blur 25px)、高光反射標題列、發光關閉按鈕</td>
+                  <td>Segoe UI, 半透明深藍 (<code>rgba(15, 23, 42, 0.94)</code>), 天藍重音色</td>
+                </tr>
+                <tr>
+                  <td><strong style="color: #94a3b8;">Windows 3.1</strong></td>
+                  <td><span class="badge badge-secondary">16-bit Classic</span></td>
+                  <td>灰階 3px 實心立體黑邊框、無圓角幾何窗型、海軍藍經典標題列</td>
+                  <td>Courier New / Fixedsys, 經典海軍藍 (<code>#000080</code>), 復古灰階面板</td>
+                </tr>
+                <tr>
+                  <td><strong style="color: #60a5fa;">Windows 95</strong></td>
+                  <td><span class="badge badge-secondary">32-bit Classic</span></td>
+                  <td>經典雙重外凹凸立體邊框 (2px Outset)、藍色漸層標題列、經典方塊控制鈕</td>
+                  <td>Tahoma / MS Sans Serif, 漸層深藍 (<code>#000080 ➔ #1084d0</code>), 灰底工具列</td>
+                </tr>
+                <tr>
+                  <td><strong style="color: #3b82f6;">Windows XP</strong></td>
+                  <td><span class="badge badge-primary">Luna Blue</span></td>
+                  <td>標誌性天藍色弧形圓角標題列 (Luna Blue)、金屬質感邊框、鮮紅高光關閉鈕</td>
+                  <td>Trebuchet MS / Tahoma, 天藍漸層 (<code>#0058ee ➔ #004dd0</code>), 橄欖沙色面板</td>
+                </tr>
+                <tr>
+                  <td><strong style="color: #67e8f9;">Windows 11</strong></td>
+                  <td><span class="badge badge-info">Mica Fluent</span></td>
+                  <td>現代雲母暗黑玻璃 (Mica Material)、40px 超深高斯模糊、10px 精緻圓角、極簡窗線</td>
+                  <td>Segoe UI Variable, 深度暗黑 (<code>rgba(32, 32, 32, 0.94)</code>), Fluent 霓虹藍</td>
+                </tr>
+                <tr>
+                  <td><strong style="color: #a78bfa;">macOS</strong></td>
+                  <td><span class="badge badge-warning">Aqua / Metal</span></td>
+                  <td>拉絲深黑金屬質感、35px 毛玻璃、紅黃綠三色交通燈 (Traffic Lights) 窗控按鈕</td>
+                  <td>SF Pro Display / -apple-system, 頂級深灰黑 (<code>rgba(30, 30, 30, 0.95)</code>)</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h4 class="doc-subsection-title">🛠️ 專屬懸浮快速操作列 (Quick Action Toolbar)</h4>
+          <p>
+            在遠端作業視窗頂部常駐專屬快捷工具列，徹底解決純瀏覽器鍵盤攔截問題與操作效率痛點：
+          </p>
+          <ul>
+            <li><strong>🖥️ 特殊鍵注入 (<code>Ctrl + Alt + Del</code>)</strong>：發送 Windows 安全告示序列 (SAS)，直接喚出 Windows 登入/解鎖畫面或工作管理員，完美繞過本機瀏覽器快捷鍵攔截。</li>
+            <li><strong>📋 雙向文字剪貼簿同步彈窗 (Clipboard Bridge)</strong>：提供專屬文字傳輸介面。維運人員於本機貼入複雜 SQL、指令或密碼後，一鍵即時推播至遠端 OS 剪貼簿快取，亦可雙向讀取遠端主機複製文字。</li>
+            <li><strong>📸 一鍵高清畫面截圖 (Instant Screenshot)</strong>：直接自 HTML5 Canvas 視訊串流截取原始解析度影像，自動產生帶時間戳記與主機名稱的 <code>.png</code> 高畫質圖檔下載留存。</li>
+            <li><strong>🔍 顯示縮放模式切換 (Fit Screen vs 1:1 Pixel Match)</strong>：支援自適應視窗縮放 (動態依照視窗大小計算 <code>display-update</code>) 或原寸像素點對點等比檢視。</li>
+            <li><strong>⛶ HTML5 沉浸式全螢幕 (Fullscreen Mode)</strong>：支援一鍵進入全螢幕作業，按 <code>Esc</code> 即可優雅退回視窗模式。</li>
+            <li><strong>⌨️ 螢幕輔助鍵盤 (On-Screen Keys)</strong>：提供 <code>Tab</code>、<code>Esc</code>、<code>WinKey (徽標鍵)</code> 快速下發按鈕。</li>
+            <li><strong>🔌 連線狀態監控與中斷重連 (Disconnect &amp; Reconnect)</strong>：即時顯示連線品質與封包往返延遲，支援安全中斷與一鍵重新連線。</li>
+          </ul>
+
+          <h4 class="doc-subsection-title">🔒 雙協定深度優化與 AD 網域單一登入 (SSO)</h4>
+          <div class="table-wrapper" style="margin: 16px 0;">
+            <table class="doc-table">
+              <thead>
+                <tr>
+                  <th style="width: 25%;">協定類型</th>
+                  <th style="width: 35%;">連線規格與優化參數</th>
+                  <th style="width: 40%;">認證機制與特權帳號處理</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Windows Web-RDP<br>(Port 3389)</strong></td>
+                  <td>
+                    • 支援 CredSSP 與 NLA (網路層驗證)<br>
+                    • <code>ignore-cert: true</code> 自動相容內部憑證<br>
+                    • <code>enable-font-smoothing: true</code> ClearType 字型平滑<br>
+                    • <code>enable-wallpaper: true</code> 桌面背景載入<br>
+                    • <code>resize-method: display-update</code> 解析度熱調整
+                  </td>
+                  <td>
+                    <strong>AD 網域單一登入 (SSO) 自動繼承</strong>：<br>
+                    自動解析目前登入 Vanguard 之 AD 帳號與網域 (<code>username@domain</code> 或 <code>DOMAIN\username</code>)。若維運人員未手動輸入密碼，系統自動比對 <code>AD_ADMIN_USER</code> 並自環境變數解密 <code>AD_ADMIN_PWD</code> 安全注入，操作者無從知曉主機密碼。
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Linux Web-SSH<br>(Port 22)</strong></td>
+                  <td>
+                    • 灰黑高對比 ANSI 終端配色 (<code>gray-black</code>)<br>
+                    • <code>Consolas, Courier New</code> 等寬程式碼字型 (14px)<br>
+                    • <code>server-alive-interval: 10</code> 秒心跳防斷線<br>
+                    • 完整支援 VT100 / Xterm 終端轉義碼、色彩與 <code>top/htop/vim</code>
+                  </td>
+                  <td>
+                    <strong>安全無帳密預留原則</strong>：<br>
+                    Linux SSH 預設將帳號與密碼保持空白，開啟終端後由操作員在黑色終端提示字元下自行鍵入目標帳密或使用堡壘機 SSH Key，避免共通特權帳號誤操作。
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h4 class="doc-subsection-title">🛡️ 三層分離架構、短效 Token 鑑權與高容錯隔離</h4>
+          <p>
+            系統採用高安全性隔離設計，瀏覽器終端絕不與目標主機進行直接 TCP Socket 通訊：
+          </p>
+          <ol>
+            <li><strong>Frontend Web Client (HTML5 Canvas)</strong>：載入輕量 <code>guacamole-common-js</code> 渲染器，接收 WebSocket 向量繪圖指令與音訊串流，提供極致流暢之互動體驗。</li>
+            <li><strong>Backend WebSocket Proxy (Node.js Gateway)</strong>：
+              <ul>
+                <li><strong>30 秒一次性加密 Token</strong>：前端呼叫 <code>POST /api/remote/token</code> 經由 RBAC 驗證後，後端透過 AES-256-CBC 簽發包含連線參數的加密 Token，時效僅 30 秒，逾時自動失效。</li>
+                <li><strong>WebSocket 專屬轉發通道</strong>：前端帶入 Token 連線至 <code>/ws/remote?token={token}</code>，Node.js 閘道驗證 Token 後以本機 TCP Socket (Port 4822) 轉發至 <code>guacd</code>。</li>
+                <li><strong>非致命錯誤安全遏止 (Crash Containment)</strong>：針對 Windows Server 2016 運維環境，後端對 WebSocket 異常中斷、網路斷線 (<code>ECONNRESET</code>, <code>EPIPE</code>) 與 <code>guacd</code> 逾時進行全域隔離，確保遠端桌面中斷絕不波及 Vanguard 主服務。</li>
+              </ul>
+            </li>
+            <li><strong>Guacamole Server Daemon (<code>guacd</code>)</strong>：原生常駐守護行程，負責將 Guacamole 指令流與目標伺服器的 <strong>RDP (3389)</strong> 與 <strong>SSH (22)</strong> 協定進行高效解碼轉換。</li>
+          </ol>
+
+          <h4 class="doc-subsection-title">🎯 全系統 6 大業務模組一鍵連線整合矩陣 (Launch Matrix)</h4>
+          <p>
+            Web 遠端連線功能已全面嵌入 SOMP Vanguard 全系統關鍵作業頁面中：
+          </p>
+          <div class="table-wrapper">
+            <table class="doc-table">
+              <thead>
+                <tr>
+                  <th>整合模組 / 元件</th>
+                  <th>目標設備類型</th>
+                  <th>連線入口位置</th>
+                  <th>支援協定</th>
+                  <th>典型維運場景</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>ServerList.jsx</strong></td>
+                  <td>Windows / Linux 主機</td>
+                  <td>主機清單卡片、表格列 Quick Actions、360° 側邊抽屜</td>
+                  <td><strong>Web-RDP / Web-SSH</strong></td>
+                  <td>日常資產巡檢一鍵直通遠端，免開本機外部軟體。</td>
+                </tr>
+                <tr>
+                  <td><strong>HostDetailModal.jsx</strong></td>
+                  <td>資產 / 監控全域主機</td>
+                  <td>主機詳情彈窗頂部 Header 標題旁及底部快捷按鈕</td>
+                  <td><strong>Web-RDP / Web-SSH</strong></td>
+                  <td>檢視主機 CPU/RAM 及硬體詳情時，隨選一鍵直通主機作業系統。</td>
+                </tr>
+                <tr>
+                  <td><strong>NutanixManager.jsx</strong></td>
+                  <td>Nutanix Prism 虛擬機</td>
+                  <td>虛擬機清單每一列展開區 <code>[🖥️ Remote Control]</code></td>
+                  <td><strong>Web-RDP / Web-SSH</strong></td>
+                  <td>虛擬機清單一鍵開啟 Web 控制台，取代傳統呼叫 mstsc。</td>
+                </tr>
+                <tr>
+                  <td><strong>ServerCheck.jsx</strong></td>
+                  <td>全網健康巡檢異常主機</td>
+                  <td>巡檢結果列表中異常主機 (Status: Error) 行內</td>
+                  <td><strong>Web-RDP / Web-SSH</strong></td>
+                  <td>當探測發現 CPU 飆高或關鍵服務停止時，直接行內點擊緊急連入修復。</td>
+                </tr>
+                <tr>
+                  <td><strong>ScoutMonitor.jsx</strong></td>
+                  <td>智慧監控機隊主機</td>
+                  <td>告警主機卡片、即時效能圖表頂部診斷選單</td>
+                  <td><strong>Web-RDP / Web-SSH</strong></td>
+                  <td>監控指標超標時，一秒進入遠端控制台診斷系統資源佔用。</td>
+                </tr>
+                <tr>
+                  <td><strong>IPAM.jsx</strong></td>
+                  <td>網段已分配主機節點</td>
+                  <td>IP 位址網格詳情卡片與主機對應抽屜</td>
+                  <td><strong>Web-RDP / Web-SSH</strong></td>
+                  <td>網段資產清查時快速驗證主機可達性與在線登入狀態。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- CHAPTER 3: Scout Monitor -->
+      <section id="chapter-3" class="doc-chapter">
+        <div class="doc-chapter-header">
+          <span class="doc-chapter-tag">Chapter 03</span>
+          <h2 class="doc-chapter-title">智慧監控中心與 Scout 代理程式 (Scout Monitor)</h2>
+        </div>
+        <p>
+          <strong>Scout Monitor</strong> 是新一代輕量級、高效能的主機監控引擎，提供秒級 CPU、Memory、Disk 分區使用率、Network I/O 頻寬、TCP 網路延遲、Windows
+          Services / Linux 守護程序狀態與資源佔用 Top 10 行程遙測。
+        </p>
+
+        <div id="chapter-3-deploy" class="doc-section">
+          <h3 class="doc-section-title">🚀 3.1 Scout Agent 跨平台原生自動部署</h3>
+          <p>
+            系統全面適配三大主流伺服器作業系統家族，杜絕跨 Linux 發行版套件相依性問題：
+          </p>
+          <ul>
+            <li><strong>Debian / Ubuntu 家族</strong>：一鍵下載原生 <code>.deb</code> 套件（如 <code>scout-*-amd64.deb</code>），透過
+              <code>dpkg -i</code> 自動安裝並註冊為 systemd 守護程序。</li>
+            <li><strong>RHEL / CentOS / Rocky Linux / AlmaLinux</strong>：一鍵下載原生 <code>.rpm</code> 套件安裝。</li>
+            <li><strong>Windows Server (2012R2 / 2016 / 2019 / 2022)</strong>：自動註冊為高效能背景排程任務
+              <code>ScoutMonitorAgent</code>。</li>
+          </ul>
+
+          <div class="code-block-wrapper">
+            <div class="code-header">
+              <span>LINUX ONE-LINER INSTALL SCRIPT</span>
+              <button class="btn-copy-code"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+                  stroke="currentColor" stroke-width="2">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                </svg> 複製</button>
+            </div>
+            <pre><code>curl -sSL http://somp.internal:8080/scout/install.sh | bash -s -- --server http://somp.internal:8080 --key YOUR_ENCRYPTED_AGENT_KEY</code></pre>
+          </div>
+
+          <div class="code-block-wrapper">
+            <div class="code-header">
+              <span>WINDOWS POWERSHELL INSTALL SCRIPT</span>
+              <button class="btn-copy-code"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+                  stroke="currentColor" stroke-width="2">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                </svg> 複製</button>
+            </div>
+            <pre><code>iwr -useb http://somp.internal:8080/scout/install.ps1 | iex; Install-ScoutAgent -Server "http://somp.internal:8080" -AgentKey "YOUR_ENCRYPTED_AGENT_KEY"</code></pre>
+          </div>
+        </div>
+
+        <div id="chapter-3-healing" class="doc-section">
+          <h3 class="doc-section-title">🛠️ 3.2 自動自癒機制 (Self-Healing Remediation)</h3>
+          <p>
+            管理員可針對關鍵服務配置自癒原則。例如當偵測到 <code>nginx</code>、<code>spooler</code> 或 <code>mssql</code> 服務停止時，Agent
+            本地將自動觸發修復腳本，並在 <strong>Remediation Logs</strong> 記錄執行過程與返回代碼。
+          </p>
+        </div>
+
+        <div id="chapter-3-openapi" class="doc-section">
+          <h3 class="doc-section-title">🌐 3.3 Scout Open API 企業整合</h3>
+          <p>
+            提供標準 RESTful JSON 與 Prometheus Metrics 端點，支援第三方程式、Grafana 與外部系統串接。啟用了嚴格的參數白名單校驗（如
+            <code>?ip=...</code>、<code>?host=...</code>、<code>?os=...</code>）。
+          </p>
+        </div>
+
+        <!-- 3.4 Live Event Viewer (NEW) -->
+        <div id="chapter-3-winevent" class="doc-section">
+          <h3 class="doc-section-title">📺 3.4 Live Event Viewer (即時 Windows Event Log 串流與分析)</h3>
+          <p>
+            透過 WebSocket 即時串流推送各 Windows 伺服器之事件日誌：
+          </p>
+          <ul>
+            <li><strong>通道涵蓋</strong>：包含 System (系統核心/驅動)、Application (應用程式/資料庫) 與 Security (安全審核/登入)。</li>
+            <li><strong>實時日誌高亮過濾</strong>：支援以 Event ID (例如 4625 登入失敗、7045 服務建立)、事件等級 (Critical / Error / Warning)
+              及來源關鍵字即時篩選。</li>
+            <li><strong>日誌凍結與封存分析</strong>：點擊「暫停捲動」可在發生事故時鎖定當下日誌窗口，避免大量日誌刷新沖掉關鍵證據。</li>
+          </ul>
+        </div>
+
+        <!-- 3.5 Alerts & Rules (NEW) -->
+        <div id="chapter-3-alerts" class="doc-section">
+          <h3 class="doc-section-title">🔔 3.5 告警規則與 6 大 Webhook 即時通知</h3>
+          <p>
+            提供多維度靈活閾值設定，支援 CPU (85%+)、RAM (90%+)、磁碟剩餘空間 (&lt;10%)、主機離線探測與特定服務停止告警。系統深度整合 <strong>6 大外送通知管道</strong>：
+          </p>
+          <div class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>通知管道</th>
+                  <th>通訊協定</th>
+                  <th>通知格式與特性</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Microsoft Teams</strong></td>
+                  <td>Incoming Webhook</td>
+                  <td>Adaptive Cards 富文字卡片、高亮警示色彩與主機跳轉按鈕</td>
+                </tr>
+                <tr>
+                  <td><strong>Slack</strong></td>
+                  <td>Slack Webhook</td>
+                  <td>Slack Blocks 結構化告警、即時通知 #ops-alert 頻道</td>
+                </tr>
+                <tr>
+                  <td><strong>Discord</strong></td>
+                  <td>Discord Webhook</td>
+                  <td>Embeds 彩色卡片通知，適合技術維運團隊群組</td>
+                </tr>
+                <tr>
+                  <td><strong>Telegram Bot</strong></td>
+                  <td>Telegram Bot API</td>
+                  <td>MarkdownV2 即時推播至管理員手機與維運群組</td>
+                </tr>
+                <tr>
+                  <td><strong>Email (SMTP)</strong></td>
+                  <td>內建 Mail Relay</td>
+                  <td>自動套用美觀 HTML 電子郵件模板，包含故障指標明細</td>
+                </tr>
+                <tr>
+                  <td><strong>Custom Webhook</strong></td>
+                  <td>HTTP POST</td>
+                  <td>自訂 JSON Payload 回呼外部 ITSM 或工單管理系統</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h4 id="chapter-3-alerts-exclusions" style="margin-top: 24px;">🚫 排除主機（Excluded Hosts）</h4>
+          <p>
+            規則以環境、Tag 或 API Key 套用時，可讓少數主機完全不套用該規則。位置：Scout Monitor / Alerts &amp; Rules / Agents 的規則頁籤，「🔗 Rule Assignments」下方的 <code>🚫 Excluded Hosts</code> 區塊（Operator / SuperAdmin 可新增與移除，Viewer 唯讀）。
+          </p>
+          <ul>
+            <li><strong>新增</strong>：<code>Exclude host…</code> → 選擇規則 → 依「Hosts」（可搜尋名稱 / IP / Tag、多選）或「Tag」（1–64 字元）排除 → 選填原因（最多 500 字）。</li>
+            <li><strong>完全不評估</strong>：被排除的主機不產生告警、不發通知、不記錄抑制、不計入抖動與升級；Agent 也不再收到該規則的監看目標與自我修復腳本。適用指標、離線 / 連線、Windows 事件與 Linux 日誌規則（含未綁定的全域日誌規則）。</li>
+            <li><strong>排除優先</strong>：即使主機另有直接綁定同一規則，仍以排除為準（新增時畫面警告）。</li>
+            <li><strong>既有告警</strong>：新增排除時、或主機之後才加上被排除的 Tag 時（畫面編輯或批次更新），該規則在這些主機上未處理的告警自動結束並標示 <code>🚫 Excluded</code>，不送「已恢復」通知；Worker 每分鐘另做一次檢查（含從其他途徑變更的 Tag），並保證被排除的組合不升級、不送維護結束補通知或抖動恢復通知。已排入 <code>📦 告警摘要</code> 的訊息仍會隨下一則摘要送出一次。</li>
+            <li><strong>離線規則</strong>：主機被排除其離線規則時不發離線告警，Dashboard 的離線判定改用預設門檻（5 分鐘或 3 倍回報間隔取大者）。同一主機適用多條離線 / 連線規則時，以最明確的綁定為準：直接指定主機 &gt; API Key &gt; Tag &gt; 環境。</li>
+            <li><strong>可視性</strong>：每條規則列出被排除的主機 / Tag、原因、建立者與日期；主機明細的 Rules 分頁顯示「Excluded from: 規則名稱」；<code>🔍 Preview Alerts</code> 與 <code>scripts\Alert_Preview.bat</code> 同樣排除。</li>
+            <li><strong>清理與稽核</strong>：刪除規則會刪除其排除；刪除 Scout 主機或在 Server List 刪除主機時，一律刪除該主機的排除（Tag 排除保留）；每次新增 / 移除均寫入稽核。維護時段行為不變。</li>
+          </ul>
+        </div>
+
+        <!-- 3.6 API Keys & Agents (NEW) -->
+        <div id="chapter-3-agents" class="doc-section">
+          <h3 class="doc-section-title">🤖 3.6 API Keys &amp; Agent 機隊生命週期管理</h3>
+          <p>
+            集中控管全網 Scout 代理程式之連線金鑰與運行狀態：
+          </p>
+          <ul>
+            <li><strong>AES 金鑰簽發與輪替</strong>：一鍵生成加密傳輸金鑰，可依業務部門或機房環境分配專屬 Key。</li>
+            <li><strong>機隊健康度即時看板</strong>：即時監控各 Agent 之連線心跳、最後上報時間、已採集指標計數與 Agent 版本分佈。</li>
+            <li><strong>離線失聯自動警報</strong>：超過設定心跳時間（如 3 分鐘）未回傳遙測時，自動標記為 Offline 並觸發主機失聯警報。</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- CHAPTER 4: Data Center -->
+      <section id="chapter-4" class="doc-chapter">
+        <div class="doc-chapter-header">
+          <span class="doc-chapter-tag">Chapter 04</span>
+          <h2 class="doc-chapter-title">資料中心、機櫃空間與實體架構 (Data Center)</h2>
+        </div>
+        <p>
+          提供直觀的機房實體空間數位孿生管理，打破傳統純文字資產表的限制，將 2D 平面導航、42U/48U 機櫃槽位、Chassis 刀鋒節點、拓撲網路、備用耗材、保固合約與報修工單完全數位化。
+        </p>
+
+        <div id="chapter-4-dc" class="doc-section">
+          <h3 class="doc-section-title">🏢 4.1 2D 機房平面圖與視角方向控制</h3>
+          <p>
+            管理員可透過 2D Top-Down 平面圖俯瞰整座機房的機櫃排佈（Row A, Row B, Row C）。為適配不同機房現場的巡檢走道與標籤方向，支援在機房抽屜集中配置：
+          </p>
+          <ul>
+            <li><code>rackOrder</code>：機櫃編號排序（由左至右 <code>normal</code> 或 由右至左 <code>reverse</code>）。</li>
+            <li><code>uOrder</code>：U 數排列方向（1U 在下/42U 在上 <code>normal</code>，或 1U 在上/42U 在下 <code>reverse</code>）。</li>
+            <li><code>rowOrder</code>：機房走道排列方向。</li>
+          </ul>
+        </div>
+
+        <div id="chapter-4-chassis" class="doc-section">
+          <h3 class="doc-section-title">🗄️ 4.2 42U/48U 機櫃、多節點 Chassis 與雙迴路 PDU</h3>
+          <ul>
+            <li><strong>雙迴路 PDU 負載</strong>：標記設備電源接線（PDU-A / PDU-B），預防單迴路過載斷電。</li>
+            <li><strong>Chassis 多節點維護</strong>：針對 Blade 及 Nutanix 刀鋒機箱，支援維護節點之 <strong>SN (序號)</strong>、<strong>iLO /
+                iDRAC IP</strong> 與 <strong>CVM IP</strong>。</li>
+          </ul>
+        </div>
+
+        <div id="chapter-4-topo" class="doc-section">
+          <h3 class="doc-section-title">🕸️ 4.3 Topology Map 網路拓撲視覺化</h3>
+          <p>
+            依據 Switch Port Links 自動繪製網路拓撲圖。系統採用<strong>雙向同步演算法</strong>：在設備端配置線路時自動建立對向連線；拔線時自動雙向解除關聯，確保拓撲資料 100% 準確。
+          </p>
+        </div>
+
+        <!-- 4.4 Spare Parts (NEW) -->
+        <div id="chapter-4-spare" class="doc-section">
+          <h3 class="doc-section-title">📦 4.4 備用耗材零件庫存與低水位預警 (Spare Parts)</h3>
+          <p>
+            機房現場營運之耗材備品全週期管理：
+          </p>
+          <ul>
+            <li><strong>備品分類管理</strong>：涵蓋 SFP+ 光纖模組、SAS/SATA 硬碟、DDR4/DDR5 ECC 記憶體條、冗餘電源模組 (PSU)、跳線與機架滑軌。</li>
+            <li><strong>安全水位與低庫存警報</strong>：為各類備件設定最低安全庫存數量 (<code>minStock</code>)，當實際庫存數量低於安全值時，首頁與儀表板自動發出
+              <strong>Spare Parts Low Stock Alert</strong>。</li>
+            <li><strong>領用與進貨審計</strong>：完整記錄更換更動人員、故障設備對應序號與進出庫歷史。</li>
+          </ul>
+        </div>
+
+        <!-- 4.5 Contracts & Warranties (NEW) -->
+        <div id="chapter-4-contracts" class="doc-section">
+          <h3 class="doc-section-title">📜 4.5 原廠維護合約與保固到期追蹤 (Contracts &amp; Warranties)</h3>
+          <p>
+            記錄各機房設備之原廠保固與第三方 SLA 維護合約：
+          </p>
+          <ul>
+            <li><strong>合約維度</strong>：設備標的 (Server / SAN / Switch / Nutanix)、維護廠商、SLA 等級 (7x24x4, 5x8xNBD)、合約起訖日期、原廠服務單號
+              (Case ID) 與負責人。</li>
+            <li><strong>30 天過期動態預警</strong>：每日排程自動掃描合約到期日，若於 30 天內即將到期或已逾期，首頁醒目橫幅高亮警報，防範設備過保「裸奔」風險。</li>
+          </ul>
+        </div>
+
+        <!-- 4.6 Hardware Issues (NEW) -->
+        <div id="chapter-4-issues" class="doc-section">
+          <h3 class="doc-section-title">🔧 4.6 硬體故障維修生命週期工單 (Hardware Issues)</h3>
+          <p>
+            實體伺服器與硬體設備故障處理閉環：
+          </p>
+          <ul>
+            <li><strong>工單生命週期</strong>：故障登錄 (Open) &rarr; 原廠叫修 (Vendor Dispatched) &rarr; 更換零件中 (Part Replacing) &rarr;
+              驗收測試 (Resolved) &rarr; 結案 (Closed)。</li>
+            <li><strong>關聯設備槽位</strong>：自動連動 42U 機櫃位置與備品庫存消耗，實現機房運維一體化協同。</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- CHAPTER 5: AD Control Hub (NEW TOP-LEVEL CHAPTER) -->
+      <section id="chapter-5" class="doc-chapter">
+        <div class="doc-chapter-header">
+          <span class="doc-chapter-tag">Chapter 05</span>
+          <h2 class="doc-chapter-title">Active Directory &amp; GPO 企業網域目錄治理 (AD Control Hub)</h2>
+        </div>
+        <p>
+          <strong>AD Control Hub</strong> 將 Windows Server Active Directory 網域控制站 (Domain Controller) 之複雜目錄結構與群組原則 (GPO)
+          搬移至 Web 前台，讓維運人員無需遠端登入 DC 即可安全、快速處理日常帳號與權限變更。
+        </p>
+
+        <!-- 5.1 Directory Browse -->
+        <div id="chapter-5-browse" class="doc-section">
+          <h3 class="doc-section-title">🌳 5.1 OU 組織樹狀目錄導覽 (AD Directory Browse)</h3>
+          <p>
+            以直觀的階層樹狀視圖呈現整個網域之 Organizational Unit (OU) 組織架構。點擊任一節點即可即時展開其下轄的子 OU、網域使用者 (User Accounts)、安全性群組 (Security
+            Groups) 與電腦實體 (Computers)。
+          </p>
+        </div>
+
+        <!-- 5.2 Object Search -->
+        <div id="chapter-5-search" class="doc-section">
+          <h3 class="doc-section-title">🔍 5.2 全域物件快速檢索 (AD Object Search)</h3>
+          <p>
+            支援跨全樹 OU 之極速模糊搜尋。輸入帳號名稱 (<code>sAMAccountName</code>)、使用者姓名 (DisplayName)、員工編號或 Email
+            地址，秒級定位目標物件並列出帳號啟用狀態、上次登入時間與所在 OU 路徑。
+          </p>
+        </div>
+
+        <!-- 5.3 User Details -->
+        <div id="chapter-5-user" class="doc-section">
+          <h3 class="doc-section-title">👤 5.3 使用者帳號安全管理 (一鍵解鎖、改密與成員維護)</h3>
+          <ul>
+            <li><strong>帳號鎖定即時偵測與一鍵解鎖 (Unlock Account)</strong>：當使用者因密碼輸錯被 AD 策略鎖定時，系統醒目標註「Locked Out」，授權 Operator
+              點擊按鈕即可立即解除鎖定。</li>
+            <li><strong>安全強制重設密碼 (Reset Password)</strong>：支援指派新密碼並勾選「下次登入時必須變更密碼」，密碼傳輸過程強制套用 TLS 加密。</li>
+            <li><strong>帳號狀態啟用 / 停用 (Enable / Disable)</strong>：員工離職或資安緊急事件時一鍵即刻停用帳號。</li>
+            <li><strong>所屬群組 (Member Of) 動態管理</strong>：檢視帳號目前所屬之全量 AD 群組，支援一鍵加入群組或自群組中移除。</li>
+          </ul>
+        </div>
+
+        <!-- 5.4 GPO Manager -->
+        <div id="chapter-5-gpo" class="doc-section">
+          <h3 class="doc-section-title">📜 5.4 GPO 原則連結分析與備份 (GPO Manager)</h3>
+          <ul>
+            <li><strong>全域 GPO 盤點</strong>：清單呈現網域內所有 Group Policy Objects，包含 GPO GUID、建立時間、修改時間與啟用狀態。</li>
+            <li><strong>OU 連結狀態分析 (Links &amp; Inheritance)</strong>：清楚展示各 GPO 連結至哪些 OU，並標明強制 (Enforced) 與連結啟用 (Link
+              Enabled) 狀態。</li>
+            <li><strong>登錄檔與安全性原則稽核</strong>：直接在線檢閱 GPO 所定義的電腦與使用者安全性原則、密碼複雜度規則與受限群組。</li>
+            <li><strong>GPO 原則備份 (Backup)</strong>：支援將指定 GPO 設定匯出為安全封裝檔案，以便變更前備份或災難復原。</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- CHAPTER 6: SIEM & Audit -->
+      <section id="chapter-6" class="doc-chapter">
+        <div class="doc-chapter-header">
+          <span class="doc-chapter-tag">Chapter 06</span>
+          <h2 class="doc-chapter-title">資訊安全防護、SIEM 日誌鑑識與審計日誌</h2>
+        </div>
+        <p>
+          <strong>SIEM Log Manager &amp; Forensics</strong> 集中匯總全網 Windows Event Logs、Linux Syslog 與
+          <code>/var/log/secure</code> 安全日誌，並整合隨選安全取證與全域不可篡改操作審計日誌。
+        </p>
+
+        <div id="chapter-6-forensics" class="doc-section">
+          <h3 class="doc-section-title">🔍 6.1 關鍵安全事件鑑識調查 (Security Forensics)</h3>
+          <p>系統預置高危險性資安事件特徵過濾引擎：</p>
+          <div class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>Event ID / 特徵</th>
+                  <th>事件類型說明</th>
+                  <th>安全調查分析重點</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>Event ID 4625</code></td>
+                  <td>登入失敗 (Logon Failure)</td>
+                  <td>偵測暴力破解攻擊、密碼噴灑 (Password Spraying) 與來源 IP 分析</td>
+                </tr>
+                <tr>
+                  <td><code>Event ID 4720 / 4726</code></td>
+                  <td>使用者帳號建立 / 刪除</td>
+                  <td>監控未授權後門帳號建立或惡意痕跡清理</td>
+                </tr>
+                <tr>
+                  <td><code>Event ID 4728 / 4732</code></td>
+                  <td>成員加入管理員群組</td>
+                  <td>特權提權鑑識 (Domain Admins / Local Administrators 變更)</td>
+                </tr>
+                <tr>
+                  <td><code>Event ID 7045 / 7036</code></td>
+                  <td>新服務安裝 / 服務狀態變更</td>
+                  <td>偵測惡意持久化服務 (Persistence) 植入</td>
+                </tr>
+                <tr>
+                  <td><code>sudo: &amp; sshd[auth]</code></td>
+                  <td>Linux 提權與 SSH 登入分析</td>
+                  <td>Linux 主機 root 提權指令追蹤與非法 SSH 登入來源</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 6.2 SIEM Local Dashboard & On-Demand Forensics (NEW) -->
+        <div id="chapter-6-dashboard" class="doc-section">
+          <h3 class="doc-section-title">📊 6.2 SIEM 態勢看板與隨選安全取證 (On-Demand Forensics)</h3>
+          <ul>
+            <li><strong>即時資安態勢看板</strong>：彙總過去 24 小時內全網登入失敗分佈、暴力破解 Top 來源 IP、可疑特權帳號異動與服務異動熱度圖。</li>
+            <li><strong>隨選安全取證任務 (On-Demand Forensics)</strong>：針對疑似遭受滲透的主機，可一鍵發起深度取證掃描，自動分析隱蔽排程任務 (Task
+              Scheduler)、註冊表啟動項 (Run Keys)、未簽名驅動與高負載外連行程。</li>
+          </ul>
+        </div>
+
+        <!-- 6.3 Audit Log Viewer (NEW) -->
+        <div id="chapter-6-audit" class="doc-section">
+          <h3 class="doc-section-title">📋 6.3 Audit Log Viewer (全域操作安全稽核與不可篡改日誌)</h3>
+          <p>
+            為滿足 ISO 27001、SOC 2 與金融監管合規要求，系統後端所有具修改性的 API 均強制串接 <code>auditLog()</code> 稽核引擎：
+          </p>
+          <ul>
+            <li><strong>記錄維度</strong>：操作時間戳記 (本地 OS 時間)、操作人員帳號 (含 AD 網域)、來源 IP 位址、目標模組、操作動作
+              (Action)、目標主機/物件名稱、以及變更參數與執行結果。</li>
+            <li><strong>涵蓋範圍</strong>：包含登入/登出、遠端指令下發、AI 事故診斷執行、排程新增修改、資料庫連線擊殺 (Kill Query)、密碼重設與功能開關調整。</li>
+            <li><strong>唯讀與防篡改保護</strong>：Audit Log 僅供 SuperAdmin 檢視，底層日誌儲存獨立校驗，支援即時多維度篩選與 CSV / JSON 完整匯出。</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- CHAPTER 7: Network Service -->
+      <section id="chapter-7" class="doc-chapter">
+        <div class="doc-chapter-header">
+          <span class="doc-chapter-tag">Chapter 07</span>
+          <h2 class="doc-chapter-title">網路服務管理 (Network Service)</h2>
+        </div>
+        <p>
+          集中管控企業邊界代理、實體交換器/路由器硬體設備、跨設備設定全文檢索、SSL 憑證全生命週期安全中心以及 IPAM 位址分配。
+        </p>
+
+        <!-- 7.1 Proxy -->
+        <div id="chapter-7-proxy" class="doc-section">
+          <h3 class="doc-section-title">🛡️ 7.1 FortiProxy &amp; Squid Proxy 代理伺服器治理</h3>
+          <ul>
+            <li><strong>在線 ACL 存取規則管理</strong>：即時配置網址黑白名單、使用者來源 IP 限制、通訊協定與連接埠放行原則。</li>
+            <li><strong>配置快照備份庫 (Backup Vault)</strong>：每次提交設定異動時自動建立時間戳版本快照，支援一鍵 Diff 比對與一鍵 Rollback 回滾歷史版本。</li>
+            <li><strong>語法驗證與動態熱重載 (Hot Reload)</strong>：提交前自動執行代理設定語法校驗，確認無誤後透過信號觸發平滑重載，不中斷既有連線。</li>
+          </ul>
+        </div>
+
+        <!-- 7.2 Network Device (NEW) -->
+        <div id="chapter-7-netdev" class="doc-section">
+          <h3 class="doc-section-title">🖧 7.2 Network Device (實體網路設備 SNMP 監控與介面流量)</h3>
+          <p>
+            納管機房實體交換器 (Cisco, Fortinet, H3C, Juniper, Huawei) 與路由器：
+          </p>
+          <ul>
+            <li><strong>SNMP v2c / v3 自動輪詢</strong>：定期採集設備 CPU、記憶體佔用率、設備溫度與電源供應器狀態。</li>
+            <li><strong>連接埠介面流量即時繪圖</strong>：採集每個 Interface 的 Link 狀態 (Up/Down)、連線速率 (1G/10G/25G/100G)、Input/Output
+              頻寬佔用率與錯誤封包數 (CRC Errors)。</li>
+            <li><strong>VLAN 關聯與配置備份</strong>：檢視各埠劃分之 VLAN ID、Trunk 允許清單，並定時發起設備配置快照備份。</li>
+          </ul>
+        </div>
+
+        <!-- 7.3 NetSearch (NEW) -->
+        <div id="chapter-7-netsearch" class="doc-section">
+          <h3 class="doc-section-title">🔍 7.3 NetSearch (跨廠牌網路設備設定檔全文檢索與拓撲定位)</h3>
+          <p>
+            解決大型機房跨數十台交換器排查路由與 VLAN 時耗費數小時的痛點：
+          </p>
+          <ul>
+            <li><strong>設定檔全文索引</strong>：將所有交換器/路由器的備份設定檔 (Running Config) 建立倒排索引。</li>
+            <li><strong>跨設備秒級定位</strong>：輸入 IP、MAC 位址、VLAN 編號或介面描述，立即列出出現在哪些交換器的哪個 Port 或路由條目中。</li>
+          </ul>
+        </div>
+
+        <!-- 7.4 SSL Certificate -->
+        <div id="chapter-7-ssl" class="doc-section">
+          <h3 class="doc-section-title">🔑 7.4 SSL Certificate (憑證全生命週期安全中心)</h3>
+          <ul>
+            <li><strong>多管道憑證接入</strong>：遠端主機 TLS Handshake 探測、文字貼上 (PEM/CRT)、以及二進位檔案上傳
+              (<code>.crt</code>、<code>.pem</code>、<code>.pfx</code>、<code>.jks</code>)。</li>
+            <li><strong>憑證解析與特徵分析</strong>：自動解析 Subject DN、Issuer CA、有效起訖日期、剩餘天數、SAN 多域名清單、金鑰演算法與長度。</li>
+            <li><strong>底層 AES-256-CBC 私鑰安全加密</strong>：私鑰與 PFX 密碼儲存於資料庫時強制套用透明加密，僅授權人員在前台解密檢視。</li>
+            <li><strong>30 天到期預警機制</strong>：後端原生本地時間排程每日自動稽核，針對 30 天內即將過期之憑證自動透過 Webhook 與 Email 發送警報。</li>
+          </ul>
+        </div>
+
+        <!-- 7.5 IPAM -->
+        <div id="chapter-7-ipam" class="doc-section">
+          <h3 class="doc-section-title">🌐 7.5 IPAM (IP 位址管理與子網路衝突排查)</h3>
+          <p>
+            視覺化展示各 VLAN / 子網路的使用率進度條。支援平行 ICMP Ping 存活探測，自動標記重複 MAC 或未註冊設備佔用的 IP 衝突，並能為新主機一鍵分配 Next Available IP。
+          </p>
+          <p>
+            環境清單已改由 <strong>Settings &gt; Environments</strong> 集中管理，IPAM 僅保留下拉選擇；SuperAdmin 可由頁首「Manage environments →」直接跳轉。
+          </p>
+        </div>
+      </section>
+
+      <!-- CHAPTER 8: Service Platform -->
+      <section id="chapter-8" class="doc-chapter">
+        <div class="doc-chapter-header">
+          <span class="doc-chapter-tag">Chapter 08</span>
+          <h2 class="doc-chapter-title">企業核心平台與雙核心 AI 顧問 (Service Platform)</h2>
+        </div>
+        <p>
+          整合 Kubernetes 容器雲、Mail Relay 郵件轉發、ELK 日誌分析平台、Unified NAS 企業儲存、內建安全 SFTP 伺服器、Redis 快取、Prometheus 監控端點與 AD DNS
+          Hub。
+        </p>
+
+        <!-- 8.1 Kubernetes -->
+        <div id="chapter-8-k8s" class="doc-section">
+          <h3 class="doc-section-title">☸️ 8.1 Kubernetes 容器雲維運平台 (含 🤖 AI Pod &amp; Event 事故診斷專家)</h3>
+          <ul>
+            <li><strong>多叢集與環境納管</strong>：支援 Kubeconfig YAML 憑證與 Service Account Bearer Token 雙軌接入，具備節點連通性探測與節點 SSH
+              診斷功能。</li>
+            <li><strong>完整資源生命週期維運</strong>：Workloads (Pods / Deployments)、副本伸縮 (Scale)、歷史 Rollout 版本查看與一鍵回滾
+              (Rollback)、Ingress 路由、PVC/PV 儲存、ConfigMaps、加密 Secrets 檢視、以及在線 Web Terminal 執行排查命令。</li>
+            <li><strong>🤖 AI Pod &amp; Event 事故診斷專家</strong>：
+              <ul>
+                <li><strong>全自動上下文封裝</strong>：點選 Pod 操作選單「🤖 AI 事故診斷」、在 Logs 視窗點擊「🤖 AI 診斷日誌」、或在異常 Event 點擊「🤖 AI
+                  診斷」，後端自動聚合 Pod 規格、Exit Code (如 137 OOMKilled)、近期 Warning 事件與前次崩潰日誌 (<code>previous: true</code>)。</li>
+                <li><strong>結構化四維分析報告</strong>：秒級產出 🚨 事故根因診斷 (Root Cause)、🔍 關鍵證據片段 (Evidence)、🛠️ 可直接執行的修復指令 (kubectl
+                  指令 / YAML 修訂) 與 🛡️ 長期防禦建議。</li>
+                <li><strong>離線確定性專家引擎降級</strong>：若外部 LLM API 未開啟或網路阻斷，系統自動平滑切換至內建離線 K8s 專家規則庫，保證 100% 產出高品質處置指引。</li>
+              </ul>
+            </li>
+          </ul>
+        </div>
+
+        <!-- 8.2 Mail Relay -->
+        <div id="chapter-8-mail" class="doc-section">
+          <h3 class="doc-section-title">✉️ 8.2 Mail Relay 郵件轉發叢集管理 (含 🤖 AI NDR 退信與佇列塞車分析師)</h3>
+          <ul>
+            <li><strong>轉發節點監控與 Access 管理</strong>：實時掌控多環境 (PRD/UAT/BU) 節點連線狀態與 Top Relayers；在線編輯 Access 白名單防止 Open
+              Relay 外洩，支援一鍵遠端重載。</li>
+            <li><strong>郵件外寄佇列監控 (Mail Queue Manager)</strong>：即時監控佇列數量，支援 <strong>Flush Queue
+                (重試發送)</strong>、<strong>Clear Entire Queue (清空佇列)</strong> 與特定 Queue ID 刪除。</li>
+            <li><strong>跨節點全量訊息追蹤 (Message Trace)</strong>：全叢集 <code>maillog</code> 秒級聚合檢索，完整追蹤單封郵件投遞歷程。</li>
+            <li><strong>🤖 AI NDR 退信與佇列塞車分析師</strong>：
+              <ul>
+                <li><strong>5 大診斷模式</strong>：單筆退信診斷 (bounce)、全量退信聚類 (batch_bounce)、佇列塞車排查 (queue)、軌跡解讀 (trace)、自訂文字分析
+                  (raw)。</li>
+                <li><strong>三層結構化解讀</strong>：SMTP 狀態碼白話解讀 (550 5.7.1, 550 5.1.1, 451 4.4.1, 554 5.4.4)、精準責任歸屬判斷
+                  (發信端/收信端/SPF/黑名單)、與清晰處置指引。</li>
+                <li><strong>離線確定性專家引擎降級</strong>：無外部 AI API 時自動切換內建離線 SMTP 專家規則庫，維持系統穩定分析。</li>
+              </ul>
+            </li>
+          </ul>
+        </div>
+
+        <!-- 8.3 ELK Platform (NEW) -->
+        <div id="chapter-8-elk" class="doc-section">
+          <h3 class="doc-section-title">📊 8.3 ELK Platform (Elasticsearch 叢集狀態、Shard 負載與 Pipeline)</h3>
+          <ul>
+            <li><strong>叢集健康狀態即時總覽</strong>：監控 Green / Yellow / Red 叢集狀態、節點數量、活躍 Shard 與未分配 Shard 數量。</li>
+            <li><strong>Index Lifecycle Management (ILM)</strong>：檢視各索引大小、Doc 計數與生命週期原則 (Hot, Warm, Cold, Delete)。</li>
+            <li><strong>Logstash Pipeline 監控</strong>：即時檢視各資料處理管線之 Event In/Out 速率與排隊堆積現況。</li>
+          </ul>
+        </div>
+
+        <!-- 8.4 Unified NAS (NEW) -->
+        <div id="chapter-8-nas" class="doc-section">
+          <h3 class="doc-section-title">💾 8.4 Unified NAS (企業 NAS 儲存池、Volume、共用資料夾與配額)</h3>
+          <ul>
+            <li><strong>多廠牌 NAS 集中納管</strong>：支援 Synology、QNAP 與標準 Linux/Windows SMB/NFS 儲存設備。</li>
+            <li><strong>儲存池與 Volume 監控</strong>：即時監控 RAID 狀態、可用空間百分比與硬碟健康狀態 (S.M.A.R.T.)。</li>
+            <li><strong>裝置管理集中於 Settings</strong>：NAS 裝置的新增 / 編輯 / 刪除 / 測試連線與全域設定（<code>NAS_DEFAULT_TIMEOUT_MS</code>、<code>NAS_DEFAULT_SYNC_ON_LOAD</code>）位於 <strong>Settings &gt; File Services &gt; NAS Devices</strong>（限 SuperAdmin，密碼僅可寫入、留空表示不變）；NAS Manager 頁面僅保留裝置選擇、共用資料夾與權限管理（建立 / 刪除 / 設定權限需 Operator 以上），尚無裝置時會提示由 SuperAdmin 先至 Settings 新增。</li>
+            <li><strong>共用資料夾與 iSCSI LUN 配額管理</strong>：檢視與維護各部門共用資料夾空間配額 (Quota)、存取權限與 iSCSI LUN 掛載狀態。</li>
+          </ul>
+        </div>
+
+        <!-- 8.5 SFTP Manager (NEW) -->
+        <div id="chapter-8-sftp" class="doc-section">
+          <h3 class="doc-section-title">📁 8.5 SFTP Manager (內建純 Node.js 安全 SFTP 伺服器)</h3>
+          <p>
+            免除第三方商業 SFTP 軟體昂貴授權，系統內建 Windows Server 2016 原生相容純 Node.js SFTP 服務：
+          </p>
+          <ul>
+            <li><strong>伺服器端點設定</strong>：SFTP 伺服器清單於 <strong>Settings &gt; File Services &gt; SFTP Servers</strong> 設定（原 SFTP Server 分類，功能不變）。</li>
+            <li><strong>使用者帳號管理與 Chroot 隔離</strong>：支援建立獨立 SFTP 帳號，並將使用者嚴格限制在專屬根目錄 (Chroot Jail)，防止越權存取主機系統目錄。</li>
+            <li><strong>雙重認證支援</strong>：支援密碼認證 (Password Auth) 與 SSH 公鑰認證 (Public Key Auth)。</li>
+            <li><strong>連線會話即時監控與強制阻斷</strong>：即時檢視在線連線 IP、傳輸檔案進度與頻寬佔用，授權人員可一鍵強制中斷異常連線。</li>
+            <li><strong>傳輸行為完整留痕</strong>：所有檔案上傳、下載、重命名、刪除動作均記錄於稽核日誌中。</li>
+          </ul>
+        </div>
+
+        <!-- 8.6 Redis Control -->
+        <div id="chapter-8-redis" class="doc-section">
+          <h3 class="doc-section-title">⚡ 8.6 Redis Control 記憶體快取維運中心</h3>
+          <ul>
+            <li><strong>實例指標監控</strong>：即時監控記憶體使用量 (Used/Peak)、連線客戶端數 (Clients)、快取命中率與每秒指令數 (OPS)。</li>
+            <li><strong>Key 分佈與配置維護</strong>：檢視不同 DB 的 Key 數量分佈，支援動態讀寫 Redis Config 參數。</li>
+            <li><strong>安全快取清理</strong>：提供 <code>FlushDB</code> 與 <code>FlushAll</code> 工具，附帶雙重防呆驗證與審計追蹤。</li>
+          </ul>
+        </div>
+
+        <!-- 8.7 Prometheus Targets -->
+        <div id="chapter-8-prom" class="doc-section">
+          <h3 class="doc-section-title">🎯 8.7 Prometheus Targets 監控目標端點治理</h3>
+          <ul>
+            <li><strong>端點自動探索與註冊</strong>：集中管理 Linux <code>node_exporter (9100)</code>、Windows
+              <code>windows_exporter (9182)</code> 及自訂 Exporter 端點。</li>
+            <li><strong>動態標籤 (Labels)</strong>：支援在前端為 Target 指派 <code>env</code>, <code>group</code>,
+              <code>datacenter</code> 標籤。</li>
+            <li><strong>即時健康探針</strong>：後端排程自動發送 HTTP 探針比對 Target 存活狀態，標記 UP / DOWN 徽章。</li>
+          </ul>
+        </div>
+
+        <!-- 8.8 DNS Hub -->
+        <div id="chapter-8-dns" class="doc-section">
+          <h3 class="doc-section-title">🌐 8.8 DNS Hub (Active Directory DNS 網域管理與即時探測)</h3>
+          <ul>
+            <li><strong>AD 網域原生整合</strong>：透過 WMI / RSAT 與 Windows Server Active Directory DNS 服務整合。</li>
+            <li><strong>Zone 區域管理</strong>：支援 Forward Lookup Zones (正向) 與 Reverse Lookup Zones (反向) 解析快速切換。</li>
+            <li><strong>Record 完整生命週期維護</strong>：支援新增、修改、刪除 <code>A</code>, <code>CNAME</code>, <code>MX</code>,
+              <code>TXT</code>, <code>SRV</code>, <code>PTR</code> 紀錄，具備行內即時編輯 (Inline Edit)。</li>
+            <li><strong>在線存活探測 (Live Heartbeat Probe)</strong>：即時監控各 DNS 伺服器解析延遲與健康狀態。</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- CHAPTER 9: Database Service -->
+      <section id="chapter-9" class="doc-chapter">
+        <div class="doc-chapter-header">
+          <span class="doc-chapter-tag">Chapter 09</span>
+          <h2 class="doc-chapter-title">Database 企業資料庫治理中樞 (SQLite &amp; 跨引擎維運)</h2>
+        </div>
+        <p>
+          SOMP Vanguard 提供統一跨引擎資料庫納管平台，完整覆蓋 <strong>SQLite 本地檔案庫</strong>、<strong>MySQL /
+            MariaDB</strong>、<strong>PostgreSQL</strong> 與 <strong>Microsoft SQL Server</strong>。包含連線管理、效能儀表板、AI SQL
+          慢查詢顧問、連線擊殺、動態遮罩、綱要導覽、容量預測與 Web SQL 終端。
+        </p>
+
+        <!-- 9.1 DB Connection Hub -->
+        <div id="chapter-9-inventory" class="doc-section">
+          <h3 class="doc-section-title">🗂️ 9.1 DB Connection Hub (多引擎資料庫連線中樞)</h3>
+          <p>
+            集中統一管理企業內部所有資料庫連線資訊。連線密碼儲存時強制採用 AES-256-CBC 加密。支援一鍵連線測試 (Test Connection) 與狀態探測。針對 SQLite 採用自適應雙引擎驅動（優先
+            <code>node:sqlite</code>，平滑降級 <code>sql.js</code>），免編譯且具 100% 穩定性。
+          </p>
+        </div>
+
+        <!-- 9.2 Performance Dashboard & Kill Query -->
+        <div id="chapter-9-performance" class="doc-section">
+          <h3 class="doc-section-title">🚦 9.2 效能看板、長事務與活動連線即時擊殺 (Kill Query)</h3>
+          <ul>
+            <li><strong>實時效能指標</strong>：跨引擎採集每秒查詢數 (QPS)、目前活動連線數、快取命中率與慢查詢次數統計。</li>
+            <li><strong>Active Processes 列表</strong>：聚合 <code>SHOW PROCESSLIST</code>、<code>pg_stat_activity</code> 與
+              <code>sys.dm_exec_requests</code>。</li>
+            <li><strong>長事務卡表緊急擊殺 (Kill Query)</strong>：遇到死鎖 (Deadlock) 或異常大查詢時，授權 SuperAdmin 可在介面上一鍵終止指定 PID /
+              Session，動作全程寫入審計日誌。</li>
+          </ul>
+        </div>
+
+        <!-- 9.3 AI SQL Advisor -->
+        <div id="chapter-9-ai-sql" class="doc-section">
+          <h3 class="doc-section-title">🤖 9.3 AI SQL Advisor (智能慢查詢分析與優化顧問)</h3>
+          <p>
+            對接系統集中 AI 引擎（Claude 3.7、GPT-4o、DeepSeek、Gemini），解析 SQL 語句與執行計畫 (Explain Plan)：
+          </p>
+          <ul>
+            <li>自動診斷全表掃描 (Full Table Scan) 與隱式型態轉換。</li>
+            <li>輸出精確覆蓋索引建立建議 (DDL <code>CREATE INDEX</code> 語句)。</li>
+            <li>提供語意改寫建議 (例如將 <code>NOT IN</code> 改寫為 <code>NOT EXISTS</code> 或 <code>JOIN</code>) 以大幅提升查詢效能。</li>
+          </ul>
+        </div>
+
+        <!-- 9.4 Dynamic Data Masking -->
+        <div id="chapter-9-masking" class="doc-section">
+          <h3 class="doc-section-title">🛡️ 9.4 Dynamic Data Masking (動態敏感資料遮罩)</h3>
+          <p>
+            保護生產環境敏感數據隱私。系統智慧特徵比對 Email、電話、手機、身分證號、密碼雜湊與金鑰欄位，依 RBAC 角色動態脫敏：一般維運與唯讀人員查詢時顯示
+            <code>0912****78</code>、<code>a***@corp.com</code>。僅授權人員可切換原碼檢視並強制留痕審計。
+          </p>
+        </div>
+
+        <!-- 9.5 Schema Explorer & Diff -->
+        <div id="chapter-9-schema" class="doc-section">
+          <h3 class="doc-section-title">📊 9.5 Schema Explorer 與跨庫結構差異比對 (Schema Diff)</h3>
+          <ul>
+            <li><strong>綱要導覽器</strong>：左側即時載入 Tables、Views、欄位型態、主鍵 (PK) 樹狀導覽，支援「預覽前 50 筆」與欄位自動帶入 SQL 編輯器。</li>
+            <li><strong>容量預測與 VACUUM</strong>：採集實體檔案大小與資料表佔用空間排行；針對 SQLite 支援一鍵執行 <code>VACUUM</code> 回收磁碟碎片。</li>
+            <li><strong>Schema Migration &amp; Diff</strong>：雙向比對來源庫（如 DEV）與目標庫（如 PRD），自動標記缺少之 Table 或 Column，一鍵生成安全補丁
+              DDL 遷移腳本。</li>
+          </ul>
+        </div>
+
+        <!-- 9.6 SQL Terminal -->
+        <div id="chapter-9-terminal" class="doc-section">
+          <h3 class="doc-section-title">🔍 9.6 Web-based SQL Query Terminal (線上查詢終端)</h3>
+          <p>
+            提供高度防護的 Web SQL 查詢介面：支援語法高亮、多標籤頁、執行計畫 Explain、結果集分頁與 CSV / JSON 匯出，預設限制查詢上限 1,000 筆防止記憶體耗盡。
+          </p>
+        </div>
+
+        <!-- 9.7 Universal Multi-Database Architecture & Zero-Loss Migration (NEW) -->
+        <div id="chapter-9-multi-db" class="doc-section">
+          <h3 class="doc-section-title">🛢️ 9.7 系統底層多資料庫架構 (PostgreSQL/MariaDB/MSSQL) 與雙庫串流遷移</h3>
+          <p>
+            為解決 SOMP Vanguard 在大型企業監控環境中，單一 <code>scout.sqlite</code> 隨機隊規模擴充增長至 40GB+ 所引發的<strong>磁碟 I/O 寫入鎖定、多 Worker
+              並發阻塞與跨日大表查詢延遲</strong>，系統全面重構升級為<strong>統一多資料庫驅動適配架構 (Universal Multi-Database Adapter)</strong>，徹底實現由單一本地
+            SQLite 平滑躍升至企業級關聯式資料庫叢集：
+          </p>
+
+          <div class="table-wrapper" style="margin: 16px 0;">
+            <table class="doc-table">
+              <thead>
+                <tr>
+                  <th style="width: 20%;">資料庫引擎</th>
+                  <th style="width: 25%;">底層驅動 / 連線機制</th>
+                  <th style="width: 30%;">核心適用場景</th>
+                  <th style="width: 25%;">設定檔參數範例</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>SQLite (預設相容)</strong></td>
+                  <td>原生 <code>better-sqlite3</code> / <code>node:sqlite</code></td>
+                  <td><strong>開箱即用、向下相容</strong>：中小規模監控 (50 台內)，無需安裝外部 DB</td>
+                  <td><code>DB_TYPE=sqlite</code></td>
+                </tr>
+                <tr>
+                  <td><strong>PostgreSQL (推薦首選)</strong></td>
+                  <td><code>pg.Pool</code> 高並發連線池</td>
+                  <td><strong>大型海量監控</strong>：上百台主機秒級遙測、時間序列分區查詢、高並發寫入</td>
+                  <td><code>DB_TYPE=postgres</code></td>
+                </tr>
+                <tr>
+                  <td><strong>MariaDB / MySQL</strong></td>
+                  <td><code>mysql2/promise</code> 串流連線池</td>
+                  <td><strong>標準開源棧</strong>：企業既有 LAMP/LNMP 維運環境整合</td>
+                  <td><code>DB_TYPE=mariadb</code></td>
+                </tr>
+                <tr>
+                  <td><strong>Microsoft SQL Server</strong></td>
+                  <td><code>mssql</code> (Tedious Driver)</td>
+                  <td><strong>純 Windows Server 企業內網</strong>：對齊 AD 網域帳號、現役 MSSQL AlwaysOn</td>
+                  <td><code>DB_TYPE=mssql</code></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h4 class="doc-subsection-title">⚡ 方案 A：全庫整併與微秒級 Document Store RAM Cache</h4>
+          <p>
+            系統捨棄傳統「混合雙庫 (Hybrid DB)」方案，全面採用<strong>全庫整併 (Option A)</strong>：
+          </p>
+          <ul>
+            <li><strong>Single Source of Truth</strong>：原本儲存 CMDB 主機清單、系統設定與各項排程策略的
+              <code>database.sqlite</code>，全量併入目標資料庫的 <code>document_store</code> 鍵值資料表，實現完全零本地 SQLite 依賴。</li>
+            <li><strong>微秒級 RAM Cache (0.001ms 命中)</strong>：後端啟動時透過 <code>warmupDocCache()</code> 將全量配置秒級載入記憶體
+              Map，完美相容既有依賴 <code>fs.readFileSync</code> 的同步讀取呼叫 <code>readDataSync()</code>。</li>
+            <li><strong>異步持久化雙寫 (Dual-Write)</strong>：設定更新時即時刷新記憶體快取，並於背景非同步寫回目標資料庫，兼顧百萬級讀取極速與數據絕對一致性。</li>
+          </ul>
+
+          <h4 class="doc-subsection-title">🔄 40GB 雙 SQLite 無損串流遷移腳本 (migrate_all_sqlite_to_db.js)</h4>
+          <p>
+            為確保既有維運環境升級時歷史資料零丟失，系統內建全自動分批串流遷移工具：
+          </p>
+          <ul>
+            <li><strong>低記憶體串流保護</strong>：採用游標分批讀取（每批 5,000 筆），記憶體恆定限制在 <strong>150MB 內</strong>，徹底杜絕舊版一次性讀取 40GB 檔案引發的
+              Node.js JavaScript Heap OOM 崩潰。</li>
+            <li><strong>雙庫全量覆蓋</strong>：一次性串流遷移 <code>database.sqlite</code>（CMDB/設定/密鑰）與
+              <code>scout.sqlite</code>（<code>monitors</code>, <code>metrics</code>, <code>windows_events</code>,
+              <code>linux_logs</code>, <code>alerts</code>, <code>siem_reports</code> 等 15+ 張核心表）。</li>
+            <li><strong>熱資料彈性過濾</strong>：支援 <code>--days=N</code> 參數，維運人員可選擇僅遷移最近 7 天或 30 天的高頻熱資料，舊資料可本機保留歸檔。</li>
+          </ul>
+
+          <div class="code-block-wrapper" style="margin: 16px 0;">
+            <div class="code-header">
+              <span>POWERSHELL / BASH - 雙庫遷移執行指令範例</span>
+              <button class="btn-copy-code"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+                  stroke="currentColor" stroke-width="2">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                </svg> 複製</button>
+            </div>
+            <pre><code># 指定 SQLite 原始存放目錄，並僅遷移近 7 天熱資料至 PostgreSQL
+node backend/scripts/migrate_all_sqlite_to_db.js --sqlite-dir="D:\somp-vanguard" --days=7
+
+# 全量遷移所有歷史資料 (包含指標與稽核日誌)
+node backend/scripts/migrate_all_sqlite_to_db.js --sqlite-dir="D:\somp-vanguard"</code></pre>
+          </div>
+
+          <h4 class="doc-subsection-title">🛡️ 排程備份與資料庫維護自適應 (Dynamic Maintenance)</h4>
+          <ul>
+            <li><strong>自動切換輕量設定快照</strong>：非 SQLite 模式下，每日定時備份自動切換為輕量系統設定 JSON 快照，底層資料庫資料檔備份正式移交企業專業 DBA 制度 (如 pg_dump
+              / mysqldump / MSSQL Maintenance Plan)。</li>
+            <li><strong>維護指令多態對齊</strong>：後台與排程之磁碟重整維護端點 <code>/api/monitor/vacuum</code> 動態自適應：
+              <ul>
+                <li><strong>PostgreSQL</strong>：執行 <code>VACUUM ANALYZE;</code> 更新統計資訊並回收過期元組。</li>
+                <li><strong>MariaDB / MySQL</strong>：執行 <code>OPTIMIZE TABLE ...;</code> 重建表索引與整理碎片。</li>
+                <li><strong>MSSQL</strong>：執行 <code>ALTER INDEX ALL ON ... REORGANIZE;</code> 進行線上索引重組。</li>
+                <li><strong>SQLite</strong>：維持原生物理空間壓縮 <code>VACUUM;</code>。</li>
+              </ul>
+            </li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- CHAPTER 10: Runbook -->
+      <section id="chapter-10" class="doc-chapter">
+        <div class="doc-chapter-header">
+          <span class="doc-chapter-tag">Chapter 10</span>
+          <h2 class="doc-chapter-title">SOP Runbook Library 運維知識手冊庫</h2>
+        </div>
+        <p>
+          系統內建 <strong>27 篇企業級標準維運 SOP</strong>，涵蓋全系統所有模組的操作指引、標準變更作業程序與故障排除指南。
+        </p>
+        <div class="doc-section">
+          <h3 class="doc-section-title">📖 智慧自動合併機制 (Smart Auto-Merge)</h3>
+          <p>
+            每次 SOMP Vanguard 系統版本升級或重啟時，系統將自動同步官方最新的 SOP 內容，同時完整保留維運團隊自行新增、修改的專屬文章，保障團隊維運知識庫永續累積。
+          </p>
+        </div>
+      </section>
+
+      <!-- CHAPTER 11: Settings & Dev Tools -->
+      <section id="chapter-11" class="doc-chapter">
+        <div class="doc-chapter-header">
+          <span class="doc-chapter-tag">Chapter 11</span>
+          <h2 class="doc-chapter-title">後台系統設定、開發者工具與主題引擎 (Settings Hub)</h2>
+        </div>
+        
+        <div class="callout callout-info" style="margin-bottom: 24px;">
+          <div class="callout-title">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="12" y1="16" x2="12" y2="12"></line>
+              <line x1="12" y1="8" x2="12.01" y2="8"></line>
+            </svg>
+            後台設定架構演進說明（舊版 /_setting 路徑正式退役）
+          </div>
+          <div class="callout-body">
+            SOMP Vanguard 現已<strong>完全棄用過往獨立的 <code>http://[SERVER_IP]:8080/_setting</code> 網址路徑</strong>。所有後台系統治理與安全配置已全面整合至 Vanguard SPA 主控制台左側導覽列的 <strong>「Settings (系統設定專區)」</strong> 分組中。為保障營運安全，該分組受嚴格 RBAC 控管，僅允許 <strong>SuperAdmin</strong> 最高權限管理員檢視與操作。
+          </div>
+        </div>
+
+        <!-- 11.1 System Settings -->
+        <div id="chapter-11-sys" class="doc-section">
+          <h3 class="doc-section-title">⚙️ 11.1 全域系統設定 (System Settings - <code>SYS_SETTINGS</code>)</h3>
+          <p>
+            提供平台級全域運行參數集中配置，包含模組功能開關、AI 顧問整合、環境變數透明加密與多資料庫管理：
+          </p>
+          <ul>
+            <li><strong>35+ 模組動態 Feature Flags 熱開關</strong>：
+              可在不重啟系統的情況下動態啟用或關閉各功能模組（例如 <code>dnsHub</code>, <code>adControl</code>, <code>serverList</code>, <code>serverCheck</code>, <code>remoteCmd</code>, <code>fortiProxy</code>, <code>squid</code>, <code>mail</code>, <code>elk</code>, <code>install</code>, <code>prometheus</code>, <code>nutanix</code>, <code>dataCenter</code>, <code>redisControl</code>, <code>inventory</code>, <code>ipam</code>, <code>sslMonitor</code>, <code>scheduler</code>, <code>netSearch</code>, <code>kubernetes</code>, <code>nasControl</code>, <code>workflow</code>, <code>sftpManager</code>, <code>database</code>, <code>networkDevice</code>, <code>monitorScout</code>, <code>monitorAlerts</code> 等）。關閉時前端選單與後端 API 將同步隱藏保護。
+            </li>
+            <li><strong>🤖 全域 AI Advisor 顧問參數配置</strong>：
+              集中設定全系統 AI 顧問之 API URL、API Key（保存時強制以 <code>enc:</code> AES-256-CBC 密文存放）、自訂模型名稱（如 Claude 3.7 Sonnet、GPT-4o、DeepSeek-V3、Gemini 2.0 Flash）、Temperature 採樣溫度，以及**離線專家知識庫引擎 (Offline Expert Engine)** 開關。
+            </li>
+            <li><strong>全域出向 Proxy 配置 (Outbound Proxy)</strong>：
+              支援在企業隔離網段中指定全域 HTTP/HTTPS Proxy 伺服器，並嚴格採用模組白名單 Opt-in 機制，防止未授權外部資料外洩。
+            </li>
+            <li><strong>前端閒置逾時自動登出 (Frontend Inactivity Timeout)</strong>：
+              預設 60 分鐘無滑鼠與鍵盤動作即自動安全銷毀 Token 並登出，防範終端無人看管安全風險。
+            </li>
+            <li><strong>敏感環境變數透明加密 (Transparent Secret Encryption)</strong>：
+              所有敏感環境變數（包含 <code>_PWD</code>、<code>_SECRET</code>、API Token、SMTP 密碼）存入 <code>.env</code> 時自動加入 <code>enc:</code> 前綴並以 AES-256 加密；後端載入時於記憶體內安全解密，磁碟永不儲存明文。
+            </li>
+            <li><strong>多資料庫運行狀態與定時備份快照</strong>：
+              即時檢視當前運行的資料庫引擎 (PostgreSQL / MariaDB / MSSQL / SQLite)。在 SQLite 模式下每日定時冷備份；非 SQLite 模式下每日自動產生系統配置與金鑰的輕量 JSON 快照供一鍵封存。
+            </li>
+          </ul>
+        </div>
+
+        <!-- 11.2 RBAC Group Mappings -->
+        <div id="chapter-11-rbac" class="doc-section">
+          <h3 class="doc-section-title">👥 11.2 RBAC 角色與網域群組權限對應 (Role &amp; Group Mappings - <code>RBAC</code>)</h3>
+          <p>
+            支援將 Active Directory 網域安全性群組無縫對應至 Vanguard 3 大權限等級，實現免維護自動化身分權限繼承：
+          </p>
+          <div class="table-wrapper" style="margin: 16px 0;">
+            <table class="doc-table">
+              <thead>
+                <tr>
+                  <th style="width: 20%;">RBAC 角色等級</th>
+                  <th style="width: 45%;">核心操作許可權限</th>
+                  <th style="width: 35%;">受限與禁止行為</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong style="color: #ef4444;">SuperAdmin</strong></td>
+                  <td>系統全域最高權限：可存取 Settings 全分組、修改 Feature Flags、管理使用者角色、執行資料庫 Kill Query、修改排程。</td>
+                  <td>功能開關由內建「SuperAdmin」AD Mapping 決定（Settings 與 Audit log 永遠開啟）</td>
+                </tr>
+                <tr>
+                  <td><strong style="color: #38bdf8;">Operator</strong></td>
+                  <td>維運執行員：可使用 Web Remote (RDP/SSH)、執行 Remote Command 指令庫、觸發 Server Check 巡檢、執行 SOP Runbook。</td>
+                  <td>禁止存取 Settings 分組、禁止修改 RBAC 角色對應、禁止修改全域系統配置</td>
+                </tr>
+                <tr>
+                  <td><strong style="color: #94a3b8;">Viewer</strong></td>
+                  <td>唯讀訪客 / 審計人員：可檢視 CMDB 資產清單、Scout 監控態勢、機房 2D 拓撲、SSL 憑證狀態與報表。</td>
+                  <td><strong>嚴格禁止任何遠端連線</strong>（Web Remote 阻斷）、禁止下發命令、禁止新增修改刪除</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <h4>🛡️ 內建「SuperAdmin」AD Mapping（SuperAdmin 功能開關）</h4>
+          <ul>
+            <li><strong>位置與性質</strong>：Settings → RBAC → AD Mappings 第一列，標示 <strong>Built-in</strong>。不綁定任何 OU / AD 群組（類型為 Role），套用於所有角色為 SuperAdmin 的使用者；永遠啟用。</li>
+            <li><strong>只能編輯、不能刪除</strong>：僅 SuperAdmin 可按 Edit 調整功能開關。刪除回 403、不可停用 / 改名 / 改類型或綁定目標，也不可建立同名（不分大小寫）Mapping；每次修改寫入稽核（開啟 / 關閉的功能清單）。</li>
+            <li><strong>判定規則</strong>：SuperAdmin 的功能完全依此 Mapping 的開關（API 檢查 <code>hasFeature</code>、登入回應與 <code>/api/auth/config</code> 共用同一判定），不再採「任一群組有開即可」；非 SuperAdmin 使用者維持原本「所屬 Mapping 聯集」規則。</li>
+            <li><strong>開關的實際範圍</strong>：關閉後該畫面會從所有 SuperAdmin 的側邊欄隱藏，<strong>該功能的 API 也回 403</strong>（每個功能開關都有對應的 API 檢查）。此規則適用所有角色：一般使用者所屬 Mapping 未開啟的功能，畫面不顯示、API 同樣回 403。v1.7.6 起新增 API 檢查的功能：<code>remoteCmd</code>、<code>serverCheck</code>、<code>nutanix</code>、<code>prometheus</code>（HTTP SD 的 <code>/api/prometheus/targets</code> 仍以 SD Token 驗證）、<code>redisControl</code>、<code>runbook</code>、<code>scheduler</code>、<code>sftpManager</code>、<code>networkDevice</code>、<code>monitorWinEvent</code>（Live Event Viewer）、<code>monitorLinuxLog</code>（Log Settings）。</li>
+            <li><strong>共用 API</strong>：多個畫面共用的 API 具備任一相關功能即可：Web Remote <code>/api/remote</code>（Host Detail 視窗、Nutanix）接受 remoteCmd / nutanix / serverList / serverCheck / inventory / ipam / monitorScout / monitorAlerts / monitorAgents；SNMP 設定與輪詢 <code>/api/network-device/:id/snmp|poll</code> 接受 networkDevice 或 dataCenter；<code>POST /api/scheduler/run-now/:module</code> 與 <code>POST /api/sftp/test-connection</code> 也接受 System Settings（settings）。設備管理 <code>/api/network-device/devices</code> 改需 networkDevice（原為 dataCenter）；Live Event Viewer / Log Settings 的 API 改依各自功能判定，不再需要 monitorScout。</li>
+            <li><strong>其他納入功能檢查的 API</strong>（依呼叫畫面判定，未新增功能鍵，因此不需要補種開關）：<code>/api/rack</code> → dataCenter（GET 機房 / 機櫃清單另接受 networkDevice）；<code>/api/cmd-library</code> → 讀取 remoteCmd 或 runbook、寫入 remoteCmd；<code>/api/siem</code> → elk；<code>/api/monitor-siem</code>、<code>/api/monitor/forensics</code> → monitorWinEvent（Agent 上傳 <code>/upload</code> 不受影響）；<code>/api/webhooks</code> → 清單 settings / monitorScout / monitorAlerts / monitorAgents / workflow 任一，寫入與測試 settings（<code>/incoming/:id</code> 不受影響）；<code>/api/ai</code> → 讀取設定 aiAgent 或 settings、修改 / 測試 / 取得模型 settings、<code>/chat</code> aiAgent、<code>/forensics-remediation</code> monitorWinEvent。AI Ops Agent 的 Runbook 工具需 runbook，日誌搜尋接受 monitorScout / monitorWinEvent / monitorLinuxLog 任一。</li>
+            <li><strong>新增角色限制</strong>：<code>POST /api/ops/command</code>（Remote Command）需 Operator 以上；Task Scheduler 新增 / 編輯 / 啟停 / 立即執行需 Operator 以上、刪除僅 SuperAdmin；Prometheus 寫入類端點需 Operator 以上；<code>POST /api/scheduler/run-now/:module</code> 需 Operator 以上。</li>
+            <li><strong>側邊欄</strong>：<code>/api/auth/config</code> 對所有使用者回傳完整功能清單，畫面隱藏與 API 403 一致。API 檢查立即生效；側邊欄於重新整理頁面或下次登入後更新，登入時取得的功能清單（如 Self-Healing 按鈕）於下次登入更新。</li>
+            <li><strong>防鎖死</strong>：<code>settings</code>（System Settings、Dev Tools、RBAC &amp; AD Mappings）與 <code>auditLog</code>（Audit log）對 SuperAdmin 永遠開啟，編輯器中顯示為已勾選且不可取消。</li>
+            <li><strong>緊急帳號</strong>：本機管理員（<code>LOCAL_ADMIN_USER</code>，網域 local）永遠擁有全部功能；全域開關 <code>APP_ENABLE_&lt;功能&gt;=false</code> 仍對所有人優先生效。</li>
+            <li><strong>升級</strong>：首次讀取設定時自動建立並寫回，初始開關等於升級前 SuperAdmin 實際看得到的功能（舊版依「任一已啟用 Mapping 有開」過濾的功能沿用該結果；舊版從未對 SuperAdmin 隱藏的功能如 Monitor 各頁、NAS、Network Device、SFTP、HostMonitor Checker、Self-Healing 一律開啟；無 Mapping 則全開），升級後行為不變。既有名為 <code>SuperAdmin</code> 的自訂 Mapping 會改名為 <code>SuperAdmin (legacy)</code> 並搬移其角色指派。</li>
+          </ul>
+        </div>
+
+        <!-- 11.3 Dev Tools -->
+        <!-- 11.2a Environments -->
+        <div id="chapter-11-env" class="doc-section">
+          <h3 class="doc-section-title">🌍 11.2a Environments 全域環境清單 (Settings &gt; Environments)</h3>
+          <p>
+            集中管理 IPAM、SSL、Database、Kubernetes、Scout、CMDB 等畫面共用的環境清單（原 IPAM 內的環境編輯功能已移到此處）。所有登入者可讀取，僅 <strong>SuperAdmin</strong> 可新增 / 編輯 / 刪除，並全數寫入稽核紀錄。
+          </p>
+          <ul>
+            <li><strong>驗證規則</strong>：名稱 1–64 字元、不分大小寫不可重複；用途最多 256 字元；ID 不可變更；預設 <code>Others</code> 與最後一個環境不可刪除。</li>
+            <li><strong>以環境 ID 儲存</strong>：CMDB / Server List、IPAM 子網路與 IP、SSL、DB Inventory / 申請單、Kubernetes、Scout 監控、API Key、告警規則綁定、維護時段皆儲存環境 ID，名稱依 ID 即時帶出（舊名稱欄位保留供回復）；改名後立即生效。找不到對應時顯示 <strong>Unassigned</strong>，不再預設為 Production。</li>
+            <li><strong>Production / Default 旗標</strong>：正式環境標示一律依 Production 旗標；Default（恰好一個，預設 <code>Others</code>）用於未指定環境的新資料，不可刪除。</li>
+            <li><strong>Usage 使用狀況</strong>：依環境 ID 計算各處引用數量；尚未轉換的舊資料以不分大小寫名稱比對。</li>
+            <li><strong>改名與串聯更新</strong>：「Also update references」只需處理仍以名稱儲存的 Prometheus 標籤（並更新名稱副本），Prometheus 目標透過安全寫入機制更新。</li>
+            <li><strong>刪除保護</strong>：仍有任何引用（以 ID 判斷）時拒絕刪除（HTTP 409 並附 Usage）。</li>
+            <li><strong>自動轉換與 Unmapped values</strong>：升級後啟動時，每個來源各執行一次把舊名稱（名稱 / ID / 代碼，不分大小寫）轉為環境 ID；無法對應者保持原樣並列於「Unmapped values」，SuperAdmin 選擇目標環境後 Apply（寫入稽核）。Prometheus 標籤僅供參考，不自動改寫。</li>
+            <li><strong>匯入與手動輸入驗證</strong>：Server List Excel、IPAM 批次、Prometheus 文字匯入（附行號）、Nutanix Clone VM（在開始 Clone 前檢查）遇到未知環境整列拒絕；Prometheus 編輯與 Nutanix 環境欄改用下拉選單；CMDB 同步到 Prometheus 一律寫入正式環境名稱。</li>
+            <li><strong>HM_checker</strong>：環境清單只取自全域 Environments；未設定「略過環境」時預設略過 DEV、SIT。</li>
+          </ul>
+        </div>
+
+        <div id="chapter-11-devtools" class="doc-section">
+          <h3 class="doc-section-title">🛠️ 11.3 開發者工具箱與系統診斷 (Dev Tools - <code>DEV_TOOLS</code>)</h3>
+          <p>
+            為系統整合人員與資安團隊提供內建除錯與測試工具：
+          </p>
+          <ul>
+            <li><strong>JWT Token 測試簽發器</strong>：支援自由指定使用者名稱、網域、RBAC 角色與時效（1 小時至 30 天），快速產出 Bearer Token 供外部腳本或 API 開發除錯使用。</li>
+            <li><strong>REST API 線上測試終端</strong>：免開外部 Postman，直接在介面中向全系統 42 個路由模組發起 GET / POST / PUT / DELETE 測試請求。</li>
+            <li><strong>Node.js 執行緒與運行狀態監控</strong>：即時監測 Node.js 行程記憶體消耗 (RSS / Heap)、Threadpool 執行緒佔用、Event Loop 延遲與服務 Uptime。</li>
+            <li><strong>擬真作業系統視窗風格切換器</strong>：提供 Web Remote 6 大 OS 經典視窗主題即時預覽與切換測試。</li>
+          </ul>
+        </div>
+
+        <!-- 11.4 Audit Log Viewer -->
+        <div id="chapter-11-audit" class="doc-section">
+          <h3 class="doc-section-title">📋 11.4 全域不可篡改操作審計日誌 (Audit Log Viewer - <code>AUDIT</code>)</h3>
+          <p>
+            遵循 ISO 27001 與企業資安審計合規標準，系統全自動記錄所有操作留痕：
+          </p>
+          <ul>
+            <li><strong>審計事件全量涵蓋</strong>：完整記錄使用者登入/登出、密碼重設、Web Remote 遠端桌面連線發起與中斷、遠端指令下發、排程任務變更與敏感設定異動。</li>
+            <li><strong>多維度快速檢索</strong>：支援依操作人員 (User)、目標主機 IP、模組名稱 (Module)、動作關鍵字 (Action) 與時間範圍快速過濾。</li>
+            <li><strong>稽核報表一鍵匯出</strong>：支援將查詢結果匯出為標準 CSV 格式，供企業法規合規性查核。</li>
+          </ul>
+        </div>
+
+        <!-- 11.5 Dynamic Themes -->
+        <div id="chapter-11-themes" class="doc-section">
+          <h3 class="doc-section-title">🎨 11.5 個人化賽博擬真動態主題引擎 (Theme Engine)</h3>
+          <p>
+            系統內建 4 款高效能 Canvas 賽博暗黑動態視覺主題，使用者可於介面右上角隨時切換，並自動持久化至瀏覽器 LocalStorage：
+          </p>
+          <ul>
+            <li><strong>CyberNodes (賽博神經網絡)</strong>：粒子拓撲連線動態網絡，呈現高科技運維態勢。</li>
+            <li><strong>MatrixRain (駭客任務代碼雨)</strong>：經典綠色字元垂直串流代碼雨效果。</li>
+            <li><strong>SakuraFall (落櫻紛飛)</strong>：優雅精緻的粉櫻瓣飄落動態特效。</li>
+            <li><strong>SunlightDust (晨光微塵)</strong>：溫暖微光浮塵粒子，提供舒適的長時護眼視覺體驗。</li>
+          </ul>
+        </div>
+      </section>
+
+    </article>
+  </div>
+
+  <!-- =========================================================================
+       VIEW 3: REST API Interactive Documentation (整合原生 API 文檔)
+       ========================================================================= -->
+  <div id="api-view" class="view-container api-view-container">
+    <iframe id="apiIframe" class="api-iframe" src="api_documentation.html"
+      title="sys-op-manager REST API 完整技術文檔"></iframe>
+  </div>
+
+  <!-- =========================================================================
+       VIEW 4: Troubleshooting Center & FAQ (故障排查專區)
+       ========================================================================= -->
+  <main id="troubleshooting-view" class="view-container troubleshooting-view">
+    <div class="section-heading-group" style="text-align: left; margin-bottom: 24px;">
+      <div class="section-tag">TROUBLESHOOTING &amp; FAQ</div>
+      <h1 class="section-title">故障排查與診斷中心</h1>
+      <p class="section-desc" style="margin: 0;">收錄在 Windows Server 2016+ 環境下運維 SOMP Vanguard 時可能遇到的常見問題、原因分析與標準處置步驟。
+      </p>
+    </div>
+
+    <!-- Category Filter Bar -->
+    <div class="faq-filter-bar">
+      <button class="faq-filter-btn active" data-category="all">全部問題 (All)</button>
+      <button class="faq-filter-btn" data-category="scout">Scout Agent &amp; 監控</button>
+      <button class="faq-filter-btn" data-category="cmdb">CMDB &amp; 硬體漂移</button>
+      <button class="faq-filter-btn" data-category="auth">登入與 RBAC 權限</button>
+      <button class="faq-filter-btn" data-category="dc">資料中心與機房</button>
+      <button class="faq-filter-btn" data-category="service">核心服務平台 &amp; AI 顧問</button>
+      <button class="faq-filter-btn" data-category="db">多資料庫與遷移</button>
+      <button class="faq-filter-btn" data-category="guacamole">Web 遠端桌面</button>
+      <button class="faq-filter-btn" data-category="winsw">WinSW 服務託管</button>
+    </div>
+
+    <!-- FAQ Accordion List -->
+    <div class="faq-grid">
+
+      <!-- Item 1: Linux Agent DEB vs RPM -->
+      <div class="faq-card open" data-category="scout">
+        <div class="faq-card-header">
+          <div class="faq-card-title-group">
+            <span class="faq-tag tag-scout">Scout Agent</span>
+            <h3 class="faq-card-title">1. Scout Agent Linux 部署報錯 (RPM should not be used directly... /bin/sh is needed)
+            </h3>
+          </div>
+          <svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+        <div class="faq-card-body">
+          <p><strong>現象說明</strong>：在 Ubuntu 或 Debian 主機上一鍵執行舊版 <code>install.sh</code> 安裝 Scout Agent 時，出現
+            <code>rpm: RPM should not be used directly install RPM packages, use Alien instead! /bin/sh is needed</code>
+            依賴性報錯。</p>
+          <p><strong>根本原因</strong>：早期安裝腳本未區分 Linux 發行版家族，嘗試在 Debian 系上強制安裝 RHEL RPM 套件導致依賴性失敗。</p>
+          <p><strong>標準處置步驟</strong>：</p>
+          <ol>
+            <li>系統現已全面支援 <strong>DEB / RPM 雙發行版自動適配</strong>。</li>
+            <li>請至 <strong>Scout Monitor &gt; Install Agent &gt; Deploy Scout Agent</strong> 複製最新的一鍵指令。</li>
+            <li>最新版 <code>install.sh</code> 會自動偵測 Debian/Ubuntu 系統並下載 <code>scout-*-amd64.deb</code> 原生透過
+              <code>dpkg -i</code> 完成乾淨安裝，不再需要安裝 rpm 工具。</li>
+          </ol>
+        </div>
+      </div>
+
+      <!-- Item 2: Open API 400 Bad Request -->
+      <div class="faq-card open" data-category="scout">
+        <div class="faq-card-header">
+          <div class="faq-card-title-group">
+            <span class="faq-tag tag-scout">Scout Open API</span>
+            <h3 class="faq-card-title">2. Scout Open API 呼叫回傳 400 Bad Request (不支援的查詢參數)</h3>
+          </div>
+          <svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+        <div class="faq-card-body">
+          <p><strong>現象說明</strong>：呼叫 Open API 端點（例如 <code>/api/v1/open/logs/events?ips=192.0.2.6</code>）時回傳
+            <code>400 Bad Request</code>，提示 <code>不支援的查詢參數: ips (Unsupported query parameter(s))</code>。</p>
+          <p><strong>根本原因</strong>：Open API 全面啟用了<strong>嚴格參數白名單校驗</strong>，防止外部程式傳入錯誤或拼寫不一致的 Query 參數造成底層查詢漏洞。</p>
+          <p><strong>標準處置步驟</strong>：</p>
+          <ol>
+            <li>檢查傳入的參數名稱是否正確：主機 IP 查詢請使用 <code>?ip=192.0.2.6</code> 或 <code>?host=192.0.2.6</code>（不可使用
+              <code>ips</code>、<code>server</code>、<code>node</code>）。</li>
+            <li>受支援的參數清單可參考 API 回傳之 <code>supportedParameters</code> 或查閱 <a href="javascript:void(0)"
+                onclick="switchView('api')">REST API 技術文檔</a>。</li>
+          </ol>
+        </div>
+      </div>
+
+      <!-- Item 3: Hardware Drift Detected -->
+      <div class="faq-card open" data-category="cmdb">
+        <div class="faq-card-header">
+          <div class="faq-card-title-group">
+            <span class="faq-tag tag-cmdb">CMDB 維運</span>
+            <h3 class="faq-card-title">3. CMDB 出現「⚠️ Drift Detected」硬體規格漂移告警</h3>
+          </div>
+          <svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+        <div class="faq-card-body">
+          <p><strong>現象說明</strong>：主機卡片或表格列顯示 ⚠️ <code>Drift Detected</code> 警示標記。</p>
+          <p><strong>根本原因</strong>：主機於虛擬化平台（如 Nutanix/vSphere）熱插拔擴充了 CPU 核心數或記憶體容量，導致即時遙測 (Live Specs) 與 CMDB 歷史記錄不一致。
+          </p>
+          <p><strong>標準處置步驟</strong>：</p>
+          <ol>
+            <li>點擊主機開啟 <strong>360° CMDB Drawer</strong>。</li>
+            <li>檢閱 <strong>Hardware Drift Comparison Table</strong> 比對記錄值與實際值。</li>
+            <li>若擴充為正常合法變更，點擊 <strong>Sync Specs from Live Agent</strong> 按鈕，系統將自動校準 CMDB 資料並消除告警。</li>
+          </ol>
+        </div>
+      </div>
+
+      <!-- Item 4: Server List Missing Rack Compute -->
+      <div class="faq-card" data-category="cmdb">
+        <div class="faq-card-header">
+          <div class="faq-card-title-group">
+            <span class="faq-tag tag-cmdb">CMDB 同步</span>
+            <h3 class="faq-card-title">4. Server List (Simplified CMDB) 未自動顯示 Server Rack 中的既有 Compute 資源</h3>
+          </div>
+          <svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+        <div class="faq-card-body">
+          <p><strong>現象說明</strong>：在 Server Rack 機櫃中配置的獨立伺服器或 Nutanix 刀鋒節點，改版後未出現在 Server List 清單中。</p>
+          <p><strong>根本原因</strong>：Server List 尚未執行全域資料關聯同步。</p>
+          <p><strong>標準處置步驟</strong>：</p>
+          <ol>
+            <li>進入 <strong>Server Operation &gt; Server List</strong>。</li>
+            <li>點擊右上角 <strong>Edit Mode</strong> 進入編輯模式。</li>
+            <li>點擊 <strong>Global Auto-Sync</strong> 按鈕。</li>
+            <li>系統將全量掃描所有 Data Center 的 Server Rack 結構，自動將所有 Compute 設備與 Nutanix 節點（包含 SN、iLO IP、CVM IP、位置槽位）匯入 CMDB。
+            </li>
+          </ol>
+        </div>
+      </div>
+
+      <!-- Item 5: Local Admin Login Failed -->
+      <div class="faq-card" data-category="auth">
+        <div class="faq-card-header">
+          <div class="faq-card-title-group">
+            <span class="faq-tag tag-auth">登入認證</span>
+            <h3 class="faq-card-title">5. 本地管理員 (admin@local) 登入失敗 (Invalid credentials)</h3>
+          </div>
+          <svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+        <div class="faq-card-body">
+          <p><strong>現象說明</strong>：輸入本地管理員密碼時顯示 "Invalid credentials"。</p>
+          <p><strong>根本原因</strong>：<code>LOCAL_ADMIN_PWD</code> 在 <code>.env</code> 中被手動修改，且未正確套用 <code>enc:</code>
+            前綴或加密金鑰不符。</p>
+          <p><strong>標準處置步驟</strong>：</p>
+          <ol>
+            <li>進入伺服器後台目錄開啟 <code>backend/.env</code>。</li>
+            <li>將 <code>LOCAL_ADMIN_PWD</code> 暫時改回明文密碼（不含 <code>enc:</code> 前綴）。</li>
+            <li>重啟 <code>somp-vanguard</code> 服務後登入，再透過 Settings 介面儲存一次，讓系統自動重新套用 AES-256 加密。</li>
+          </ol>
+        </div>
+      </div>
+
+      <!-- Item 6: IDC Top-Down Layout Orientation -->
+      <div class="faq-card" data-category="dc">
+        <div class="faq-card-header">
+          <div class="faq-card-title-group">
+            <span class="faq-tag tag-dc">機房架構</span>
+            <h3 class="faq-card-title">6. Data Centers 機房平面圖與現場實體方向相反</h3>
+          </div>
+          <svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+        <div class="faq-card-body">
+          <p><strong>現象說明</strong>：點擊 2D Top-Down 平面圖時，機櫃編號由左至右或 U 數由上至下的順序與現場巡檢走道視角相反。</p>
+          <p><strong>標準處置步驟</strong>：</p>
+          <ol>
+            <li>進入 <strong>Data Centers</strong> 模組，點擊該機房卡片的 <strong>Edit</strong> 按鈕。</li>
+            <li>調整方向參數：
+              <ul>
+                <li><code>rackOrder</code>: <code>normal</code> (由左至右) 或 <code>reverse</code> (由右至左)。</li>
+                <li><code>uOrder</code>: <code>normal</code> (1U 在下/42U 在上) 或 <code>reverse</code> (1U 在上/42U 在下)。</li>
+                <li><code>rowOrder</code>: <code>normal</code> 或 <code>reverse</code>。</li>
+              </ul>
+            </li>
+            <li>儲存後所有機櫃將自動重新渲染並對齊現場視角。</li>
+          </ol>
+        </div>
+      </div>
+
+      <!-- Item 7: WinSW Service Maintenance -->
+      <div class="faq-card" data-category="winsw">
+        <div class="faq-card-header">
+          <div class="faq-card-title-group">
+            <span class="faq-tag tag-winsw">WinSW 服務</span>
+            <h3 class="faq-card-title">7. Windows Server 2016 服務啟動與日誌排查 (WinSW)</h3>
+          </div>
+          <svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+        <div class="faq-card-body">
+          <p><strong>服務啟動與狀態檢查指令</strong>：</p>
+          <div class="code-block-wrapper">
+            <div class="code-header">
+              <span>POWERSHELL (ADMIN)</span>
+              <button class="btn-copy-code"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+                  stroke="currentColor" stroke-width="2">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                </svg> 複製</button>
+            </div>
+            <pre><code># 檢查服務狀態
+Get-Service somp-vanguard
+
+# 重啟服務
+Restart-Service somp-vanguard
+
+# 檢視 WinSW 與後端即時日誌
+Get-Content "C:\Program Files\somp-vanguard\somp-vanguard.out.log" -Tail 50 -Wait</code></pre>
+          </div>
+        </div>
+      </div>
+
+      <!-- Item 8: Kubernetes AI Diagnosis & Fallback (NEW) -->
+      <div class="faq-card" data-category="service">
+        <div class="faq-card-header">
+          <div class="faq-card-title-group">
+            <span class="faq-tag tag-service">K8s AI 診斷</span>
+            <h3 class="faq-card-title">8. Kubernetes AI 事故診斷執行時顯示「無法取得前次崩潰日誌」或分析逾時？</h3>
+          </div>
+          <svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+        <div class="faq-card-body">
+          <p><strong>現象說明</strong>：在 Pod Logs 視窗執行「🤖 AI 診斷日誌」時，提示 <code>previous terminated container not found</code>
+            或外部 AI API 呼叫逾時。</p>
+          <p><strong>根本原因</strong>：</p>
+          <ol>
+            <li>若容器為首次啟動失敗（如 ImagePullBackOff）或尚未發生過重啟 (RestartCount = 0)，Kubernetes API 伺服器不存在
+              <code>previous: true</code> 的崩潰日誌，此屬預期正常行為。</li>
+            <li>若公司網路隔離阻斷對外部 OpenAI / DeepSeek API 的連線，外接 LLM 會觸發 8 秒逾時。</li>
+          </ol>
+          <p><strong>標準處置步驟</strong>：</p>
+          <ol>
+            <li>系統已內建<strong>確定性離線專家規則引擎</strong>，當 external LLM 連線受阻時會自動平滑降級，針對 CrashLoopBackOff、OOMKilled Exit Code
+              137、ImagePullBackOff 等直接給出修復指令。</li>
+            <li>若需啟用外接 LLM，請進入 <strong>Settings &gt; System Settings</strong>，配置正確的 HTTP Proxy 或企業內部私有 LLM 網址。</li>
+          </ol>
+        </div>
+      </div>
+
+      <!-- Item 9: Mail Relay 550 5.7.1 Access Denied (NEW) -->
+      <div class="faq-card" data-category="service">
+        <div class="faq-card-header">
+          <div class="faq-card-title-group">
+            <span class="faq-tag tag-service">Mail Relay</span>
+            <h3 class="faq-card-title">9. Mail Relay 郵件發送遭拒 (550 5.7.1 Relaying denied / SPF fail) 排查？</h3>
+          </div>
+          <svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+        <div class="faq-card-body">
+          <p><strong>現象說明</strong>：內部應用程式發送郵件時，Mail Relay 立即退信並拋出 <code>550 5.7.1 Relay access denied</code> 或
+            <code>550 SPF check failed</code>。</p>
+          <p><strong>根本原因</strong>：發件端伺服器 IP 未加入 Postfix / Mail Relay 節點之 <code>mynetworks</code> 或 <code>access</code>
+            白名單，或發件網域的 DNS TXT (SPF) 紀錄未包含該 Mail Relay 出口 IP。</p>
+          <p><strong>標準處置步驟</strong>：</p>
+          <ol>
+            <li>進入 <strong>Service Platform &gt; Mail Relay &gt; Access List</strong>，確認發件伺服器 IP 是否已放行，修改後點擊
+              <strong>Deploy &amp; Reload</strong>。</li>
+            <li>點擊退信紀錄右側的 <strong>[🤖 AI 診斷]</strong>，AI 會自動鑑定責任歸屬並給出具體的 SPF <code>v=spf1 ip4:... ~all</code> 設定語法。</li>
+          </ol>
+        </div>
+      </div>
+
+      <!-- Item 10: SFTP Permission Denied (NEW) -->
+      <div class="faq-card" data-category="service">
+        <div class="faq-card-header">
+          <div class="faq-card-title-group">
+            <span class="faq-tag tag-service">SFTP 服務</span>
+            <h3 class="faq-card-title">10. SFTP 客戶端連線提示 Permission Denied 或無法列出目錄？</h3>
+          </div>
+          <svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+        <div class="faq-card-body">
+          <p><strong>現象說明</strong>：FileZilla 或 WinSCP 使用 SFTP 帳號連線時認證失敗或提示
+            <code>Fatal: unable to initialise SFTP: could not connect</code>。</p>
+          <p><strong>根本原因</strong>：Windows Server 2016 檔案系統 NTFS 權限未賦予 SOMP 服務執行帳號讀寫該 Chroot 資料夾之權限，或 SFTP
+            使用者密碼包含特殊不支援字元。</p>
+          <p><strong>標準處置步驟</strong>：</p>
+          <ol>
+            <li>進入 <strong>Service Platform &gt; SFTP Manager</strong>，檢查該使用者狀態是否為 Active，以及 Chroot 路徑是否存在。</li>
+            <li>在 Windows Server 本機檢查目標目錄的 NTFS 安全性設定，確保 <code>SYSTEM</code> 及執行 <code>somp-vanguard</code> 的服務帳號具備「修改
+              (Modify)」權限。</li>
+          </ol>
+        </div>
+      </div>
+
+      <!-- Item 11: Multi-Database Migration & Connection (NEW) -->
+      <div class="faq-card" data-category="db">
+        <div class="faq-card-header">
+          <div class="faq-card-title-group">
+            <span class="faq-tag tag-db"
+              style="background: rgba(6, 182, 212, 0.15); color: #06b6d4; border: 1px solid rgba(6, 182, 212, 0.3);">多資料庫遷移</span>
+            <h3 class="faq-card-title">11. 系統切換至 PostgreSQL / MariaDB / MSSQL 後的啟動檢驗與雙庫串流遷移常見疑問？</h3>
+          </div>
+          <svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+        <div class="faq-card-body">
+          <p><strong>標準升級切換流程 (SOP)</strong>：</p>
+          <ol>
+            <li><strong>設定連線參數</strong>：在 <code>backend/.env</code> 中配置 <code>DB_TYPE=postgres</code>（或
+              <code>mariadb</code> / <code>mssql</code>）及對應的 <code>DB_HOST</code>, <code>DB_PORT</code>,
+              <code>DB_USER</code>, <code>DB_PASSWORD</code>, <code>DB_NAME</code>。</li>
+            <li><strong>首次啟動自動建表</strong>：啟動後端服務一次，系統將於日誌輸出
+              <code>[DB Manager] All database schemas and indexes ready.</code>，確認核心資料表（包含
+              <code>document_store</code>）建立完畢後停止服務。</li>
+            <li><strong>執行雙庫串流遷移腳本</strong>：
+              <div class="code-block-wrapper" style="margin: 8px 0;">
+                <pre><code># 串流遷移 D:\somp-vanguard 下的 database.sqlite 與 scout.sqlite (可選 --days=7 僅遷熱資料)
+node backend/scripts/migrate_all_sqlite_to_db.js --sqlite-dir="D:\somp-vanguard" --days=7</code></pre>
+              </div>
+            </li>
+            <li><strong>正式啟動服務</strong>：啟動 <code>somp-vanguard</code> 服務，此時登入系統即可見完整 CMDB 與歷史日誌，系統正式以目標關聯式資料庫全速運轉。</li>
+          </ol>
+          <p><strong>常見排查要點</strong>：</p>
+          <ul>
+            <li>若 <code>.env</code> <strong>未配置任何 DB 參數</strong>，系統保證 100% 安全向下相容，維持原狀使用本地 SQLite，零業務中斷風險。</li>
+            <li>遷移過程中若目標庫已有舊資料，腳本採用 <code>UPSERT</code> 與 <code>INSERT OR IGNORE</code> 策略，支援中斷後重複執行，保證不產生重複衝突主鍵。</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- Item 12: Guacamole Web Remote Desktop & WebSocket (NEW) -->
+      <div class="faq-card" data-category="guacamole">
+        <div class="faq-card-header">
+          <div class="faq-card-title-group">
+            <span class="faq-tag tag-guacamole"
+              style="background: rgba(99, 102, 241, 0.15); color: #818cf8; border: 1px solid rgba(99, 102, 241, 0.3);">Web
+              遠端桌面</span>
+            <h3 class="faq-card-title">12. Apache Guacamole Web-RDP / SSH 遠端連線提示 403 / 502 或連線畫面黑畫面排查？</h3>
+          </div>
+          <svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </div>
+        <div class="faq-card-body">
+          <p><strong>現象說明</strong>：點擊 Web 控制台時出現 <code>WebSocket connection failed (502 Bad Gateway)</code>，或 RDP
+            桌面一直停留在黑畫面。</p>
+          <p><strong>根本原因與標準處置步驟</strong>：</p>
+          <ol>
+            <li><strong>檢查 Guacamole Daemon (<code>guacd</code>) 狀態</strong>：
+              確認 <code>guacd</code> 服務（預設埠 4822）是否正在運行。若後端日誌出現 <code>ECONNREFUSED 127.0.0.1:4822</code>，請先於 Linux/容器端執行
+              <code>systemctl status guacd</code> 或 <code>docker start guacd</code>。
+            </li>
+            <li><strong>目標 Windows 主機 NLA (網路層驗證) 設定</strong>：
+              若遠端桌面停在黑畫面後斷開，通常為目標 Windows 伺服器啟用了強制 NLA 且憑證不符。請在後台連線設定中確認 <code>security: any / rdp / tls / nla</code>
+              設定，或在測試環境暫時放寬 NLA 進行交叉比對。
+            </li>
+            <li><strong>反向代理 (Nginx / IIS) WebSocket 轉發支援</strong>：
+              若前方有 Nginx 或 IIS 反向代理，必須開啟 <code>Upgrade $http_upgrade</code> 與 <code>Connection "upgrade"</code>
+              Header，並將 <code>proxy_read_timeout</code> 調整至 3600 秒以上以防連線中斷。
+            </li>
+          </ol>
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+  <!-- =========================================================================
+       Global Search Modal (Ctrl + K)
+       ========================================================================= -->
+  <div id="searchModal" class="modal-overlay">
+    <div class="search-modal">
+      <div class="modal-search-header">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2">
+          <circle cx="11" cy="11" r="8"></circle>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+        </svg>
+        <input type="text" id="modalSearchInput" class="modal-search-input"
+          placeholder="全文搜尋 SOMP Vanguard 文檔... (例如: RBAC, CMDB, K8s, Mail, AD, GPO, SFTP, Nutanix, SSL, DB)">
+        <span class="kbd-shortcut">ESC</span>
+      </div>
+      <ul id="searchResultsList" class="search-results-list">
+        <!-- Dynamically rendered search results -->
+      </ul>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toastContainer" class="toast-container"></div>
+
+  <!-- Application Script -->
+  <script src="app.js"></script>
+</body>
+
+</html>

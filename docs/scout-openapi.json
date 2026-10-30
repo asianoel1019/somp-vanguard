@@ -1,0 +1,153 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "SOMP Vanguard Scout Open API",
+    "description": "RESTful API for external monitoring systems to query Scout host metrics, real-time telemetry, and Windows/Linux event logs.",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "/api/v1/open",
+      "description": "Primary Open API Server Endpoint"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "API Key",
+        "description": "API Key token generated in Monitor Service -> Agents -> API Keys"
+      },
+      "ApiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key",
+        "description": "Alternative API Key Header"
+      }
+    }
+  },
+  "security": [
+    { "BearerAuth": [] },
+    { "ApiKeyAuth": [] }
+  ],
+  "paths": {
+    "/status": {
+      "get": {
+        "summary": "Check API service status and metadata",
+        "responses": {
+          "200": { "description": "API is online and operational" }
+        }
+      }
+    },
+    "/hosts": {
+      "get": {
+        "summary": "List all monitored hosts and latest telemetry snapshots",
+        "parameters": [
+          { "name": "status", "in": "query", "schema": { "type": "string" }, "description": "online or offline" },
+          { "name": "os", "in": "query", "schema": { "type": "string" }, "description": "windows or linux" },
+          { "name": "group", "in": "query", "schema": { "type": "string" }, "description": "host group name" }
+        ],
+        "responses": {
+          "200": { "description": "Array of monitored hosts" }
+        }
+      }
+    },
+    "/metrics/realtime": {
+      "get": {
+        "summary": "Fetch the latest real-time metrics for hosts",
+        "parameters": [
+          { "name": "host", "in": "query", "schema": { "type": "string" }, "description": "Host name, IP, or Monitor ID" }
+        ],
+        "responses": {
+          "200": { "description": "Real-time CPU, RAM, Disk, Network metrics" },
+          "404": { "description": "Host not found" }
+        }
+      }
+    },
+    "/metrics/history": {
+      "get": {
+        "summary": "Fetch historical time-series metrics",
+        "parameters": [
+          { "name": "host", "in": "query", "required": true, "schema": { "type": "string" }, "description": "Host name, IP, or Monitor ID" },
+          { "name": "from", "in": "query", "schema": { "type": "string", "format": "date-time" }, "description": "ISO 8601 start timestamp" },
+          { "name": "to", "in": "query", "schema": { "type": "string", "format": "date-time" }, "description": "ISO 8601 end timestamp" },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 100, "maximum": 1000 }, "description": "Max records to return" }
+        ],
+        "responses": {
+          "200": { "description": "Time-series metric points" }
+        }
+      }
+    },
+    "/logs/windows": {
+      "get": {
+        "summary": "Query Windows Event Logs",
+        "parameters": [
+          { "name": "host", "in": "query", "schema": { "type": "string" }, "description": "Host name, IP, or Monitor ID" },
+          { "name": "ip", "in": "query", "schema": { "type": "string" }, "description": "Host IP address filter" },
+          { "name": "level", "in": "query", "schema": { "type": "string", "enum": ["Critical", "Error", "Warning", "Information", "1", "2", "3", "4", "0"] }, "description": "Severity level (string or numeric code)" },
+          { "name": "eventID", "in": "query", "schema": { "type": "integer" }, "description": "Windows Event ID" },
+          { "name": "provider", "in": "query", "schema": { "type": "string" }, "description": "Event source provider" },
+          { "name": "keyword", "in": "query", "schema": { "type": "string" }, "description": "Message keyword search" },
+          { "name": "from", "in": "query", "schema": { "type": "string", "format": "date-time" }, "description": "ISO 8601 UTC start time" },
+          { "name": "to", "in": "query", "schema": { "type": "string", "format": "date-time" }, "description": "ISO 8601 UTC end time" },
+          { "name": "page", "in": "query", "schema": { "type": "integer", "default": 1 } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 100, "maximum": 1000 } }
+        ],
+        "responses": {
+          "200": { "description": "Paginated Windows events" }
+        }
+      }
+    },
+    "/logs/linux": {
+      "get": {
+        "summary": "Query Linux Syslog and File Logs",
+        "parameters": [
+          { "name": "host", "in": "query", "schema": { "type": "string" }, "description": "Host name, IP, or Monitor ID" },
+          { "name": "ip", "in": "query", "schema": { "type": "string" }, "description": "Host IP address filter" },
+          { "name": "filePath", "in": "query", "schema": { "type": "string" }, "description": "Log file path" },
+          { "name": "level", "in": "query", "schema": { "type": "string" }, "description": "Severity level (e.g. error, warning, info)" },
+          { "name": "keyword", "in": "query", "schema": { "type": "string" }, "description": "Message keyword search" },
+          { "name": "from", "in": "query", "schema": { "type": "string", "format": "date-time" }, "description": "ISO 8601 UTC start time" },
+          { "name": "to", "in": "query", "schema": { "type": "string", "format": "date-time" }, "description": "ISO 8601 UTC end time" },
+          { "name": "page", "in": "query", "schema": { "type": "integer", "default": 1 } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 100, "maximum": 1000 } }
+        ],
+        "responses": {
+          "200": { "description": "Paginated Linux logs" }
+        }
+      }
+    },
+    "/logs/events": {
+      "get": {
+        "summary": "Unified cross-platform logs search",
+        "parameters": [
+          { "name": "host", "in": "query", "schema": { "type": "string" }, "description": "Host name, IP, or Monitor ID" },
+          { "name": "ip", "in": "query", "schema": { "type": "string" }, "description": "Host IP address filter" },
+          { "name": "os", "in": "query", "schema": { "type": "string", "enum": ["windows", "linux"] } },
+          { "name": "level", "in": "query", "schema": { "type": "string" }, "description": "Severity level" },
+          { "name": "keyword", "in": "query", "schema": { "type": "string" } },
+          { "name": "from", "in": "query", "schema": { "type": "string", "format": "date-time" } },
+          { "name": "to", "in": "query", "schema": { "type": "string", "format": "date-time" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 100, "maximum": 500 } }
+        ],
+        "responses": {
+          "200": { "description": "Merged log entries ordered by timestamp descending" }
+        }
+      }
+    },
+    "/prometheus": {
+      "get": {
+        "summary": "Prometheus text format metrics scrape endpoint",
+        "responses": {
+          "200": {
+            "description": "Standard Prometheus text format metrics",
+            "content": {
+              "text/plain": {}
+            }
+          }
+        }
+      }
+    }
+  }
+}

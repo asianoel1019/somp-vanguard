@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scout Agent 使用與設定手冊 | SOMP Vanguard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&family=Inter:wght@300;400;600;700;900&family=Noto+Sans+TC:wght@300;400;700;900&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0b0f19;
+            --bg-secondary: #111827;
+            --bg-glass: rgba(17, 24, 39, 0.7);
+            --border-color: rgba(255, 255, 255, 0.08);
+            --accent-primary: #00f2fe;
+            --accent-glow: rgba(0, 242, 254, 0.15);
+            --text-primary: #f3f4f6;
+            --text-muted: #9ca3af;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --code-bg: #1e293b;
+        }
+
+        body {
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            font-family: 'Inter', 'Noto Sans TC', sans-serif;
+            margin: 0;
+            padding: 0;
+            line-height: 1.7;
+        }
+
+        .container {
+            display: flex;
+            max-width: 1400px;
+            margin: 0 auto;
+            min-height: 100vh;
+        }
+
+        /* Sidebar Navigation */
+        aside {
+            width: 320px;
+            background-color: var(--bg-secondary);
+            border-right: 1px solid var(--border-color);
+            position: sticky;
+            top: 0;
+            height: 100vh;
+            overflow-y: auto;
+            padding: 40px 24px;
+            box-sizing: border-box;
+        }
+
+        .logo-area {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 40px;
+        }
+
+        .logo-icon {
+            background: linear-gradient(135deg, #00f2fe, #4facfe);
+            width: 36px;
+            height: 36px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 900;
+            color: #000;
+            box-shadow: 0 0 15px var(--accent-glow);
+        }
+
+        .logo-text {
+            font-size: 18px;
+            font-weight: 900;
+            letter-spacing: 0.05em;
+            background: linear-gradient(to right, #ffffff, #9ca3af);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .nav-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .nav-item {
+            margin-bottom: 8px;
+        }
+
+        .nav-link {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: var(--text-muted);
+            text-decoration: none;
+            padding: 10px 16px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+
+        .nav-link:hover {
+            color: var(--text-primary);
+            background-color: rgba(255, 255, 255, 0.03);
+        }
+
+        .nav-link.active {
+            color: var(--bg-primary);
+            background: linear-gradient(to right, #00f2fe, #4facfe);
+            font-weight: 700;
+            box-shadow: 0 4px 15px rgba(0, 242, 254, 0.3);
+        }
+
+        /* Main Content Area */
+        main {
+            flex: 1;
+            padding: 60px 80px;
+            box-sizing: border-box;
+            max-width: 1080px;
+        }
+
+        header {
+            margin-bottom: 48px;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 32px;
+        }
+
+        h1 {
+            font-size: 38px;
+            font-weight: 900;
+            margin: 0 0 12px 0;
+            background: linear-gradient(135deg, #fff, #9ca3af);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .version-badge {
+            display: inline-block;
+            background-color: var(--accent-glow);
+            color: var(--accent-primary);
+            border: 1px solid rgba(0, 242, 254, 0.3);
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        h2 {
+            font-size: 24px;
+            font-weight: 800;
+            margin: 48px 0 24px 0;
+            border-left: 4px solid var(--accent-primary);
+            padding-left: 16px;
+            color: #fff;
+        }
+
+        h3 {
+            font-size: 18px;
+            font-weight: 700;
+            margin: 32px 0 16px 0;
+            color: var(--accent-primary);
+        }
+
+        p {
+            color: var(--text-muted);
+            margin: 0 0 20px 0;
+        }
+
+        /* Callout/Alerts */
+        .alert {
+            background-color: rgba(245, 158, 11, 0.08);
+            border: 1px solid rgba(245, 158, 11, 0.25);
+            border-radius: 12px;
+            padding: 20px;
+            margin: 28px 0;
+            position: relative;
+        }
+
+        .alert-title {
+            color: var(--warning);
+            font-weight: 800;
+            font-size: 15px;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .alert p {
+            margin: 0;
+            font-size: 14px;
+            color: #d1d5db;
+        }
+
+        .alert-success {
+            background-color: rgba(16, 185, 129, 0.08);
+            border: 1px solid rgba(16, 185, 129, 0.25);
+        }
+        .alert-success .alert-title {
+            color: var(--success);
+        }
+
+        /* Code Blocks */
+        .code-container {
+            background-color: var(--code-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            margin: 20px 0;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .code-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background-color: rgba(0, 0, 0, 0.2);
+            padding: 10px 20px;
+            border-bottom: 1px solid var(--border-color);
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        pre {
+            margin: 0;
+            padding: 20px;
+            overflow-x: auto;
+            font-family: 'Fira Code', monospace;
+            font-size: 13.5px;
+        }
+
+        code {
+            color: #a78bfa;
+        }
+
+        .copy-btn {
+            background: transparent;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: var(--text-muted);
+            border-radius: 4px;
+            padding: 4px 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 11px;
+        }
+
+        .copy-btn:hover {
+            color: #fff;
+            background-color: rgba(255, 255, 255, 0.05);
+        }
+
+        /* Steps */
+        .step-list {
+            margin: 24px 0;
+            padding-left: 20px;
+        }
+
+        .step-item {
+            margin-bottom: 12px;
+            color: var(--text-muted);
+        }
+
+        .step-item strong {
+            color: #fff;
+        }
+
+        /* Tabs inside content for code examples */
+        .example-tabs {
+            display: flex;
+            border-bottom: 1px solid var(--border-color);
+            margin-top: 24px;
+        }
+
+        .example-tab {
+            padding: 10px 20px;
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            font-weight: 600;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s;
+        }
+
+        .example-tab.active {
+            color: var(--accent-primary);
+            border-bottom: 2px solid var(--accent-primary);
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <!-- Sidebar Navigation -->
+    <aside>
+        <div class="logo-area">
+            <div class="logo-icon">S</div>
+            <div class="logo-text">SOMP VANGUARD</div>
+        </div>
+        <ul class="nav-list">
+            <li class="nav-item"><a href="#intro" class="nav-link active">📖 系統簡介</a></li>
+            <li class="nav-item"><a href="#install" class="nav-link">📥 1. 安裝與升級</a></li>
+            <li class="nav-item"><a href="#self-healing" class="nav-link">🛡️ 2. 設定監控自癒 (Self-Healing)</a></li>
+            <li class="nav-item"><a href="#self-healing-examples" class="nav-link">&nbsp;&nbsp;&nbsp;&nbsp;💡 自癒 Script 範例</a></li>
+            <li class="nav-item"><a href="#elk" class="nav-link">📊 3. 設定日誌推送至 ELK</a></li>
+            <li class="nav-item"><a href="#elk-examples" class="nav-link">&nbsp;&nbsp;&nbsp;&nbsp;💡 ES YAML 設定範例</a></li>
+            <li class="nav-item"><a href="#security" class="nav-link">🔒 4. 安全性與連線</a></li>
+        </ul>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main>
+        <header>
+            <h1>Scout Agent 使用與設定手冊</h1>
+            <p style="margin: 0; font-size: 16px;">Vanguard Agent-based 監控、日誌轉發與自癒維護終極指南</p>
+            <div style="margin-top: 16px; display: flex; gap: 8px;">
+                <span class="version-badge">Windows Agent: v1.0.12</span>
+                <span class="version-badge" style="background-color: rgba(16, 185, 129, 0.08); color: #10b981; border-color: rgba(16, 185, 129, 0.2)">Linux Agent: v1.0.12</span>
+            </div>
+        </header>
+
+        <!-- Intro -->
+        <section id="intro">
+            <h2>📖 系統簡介</h2>
+            <p>
+                <strong>Scout Agent</strong> 是部署於託管主機上的主動式監控代理程式。它定時採集硬體指標並回傳至 Vanguard 後端。
+                除此之外，它提供了強大的<strong>邊緣端自癒 (Self-Healing)</strong> 以及 <strong>日誌即時過濾並直推 ELK (Elasticsearch)</strong> 之功能，避免所有日誌皆透過 Vanguard 後端轉發而造成瓶頸。
+            </p>
+        </section>
+
+        <!-- Section 1 -->
+        <section id="install">
+            <h2>📥 1. 安裝與升級</h2>
+            <p>
+                Agent 分為 Windows 執行檔及 Linux RPM 安裝包，伺服器背景排程會自動偵測對應路徑下的最高版號，並於前端提供一鍵更新。
+            </p>
+            
+            <h3>1.1 目錄結構</h3>
+            <p>請將更新的帶版號二進位檔案放置於 Vanguard 後端的主機對應路徑：</p>
+            <ul class="step-list">
+                <li class="step-item"><strong>Windows 代理程式存放區</strong>：<code>somp-vanguard\scout\scout-win\scout-win_v1.0.12.exe</code></li>
+                <li class="step-item"><strong>Linux RPM 存放區</strong>：<code>somp-vanguard\scout\scout-linux\scout-1.0.12-1.el10.x86_64.rpm</code></li>
+            </ul>
+
+            <h3>1.2 一鍵點檢與部署閘道 (Server Check Portal)</h3>
+            <p>當您需要將新伺服器納入監控時，不需手動登入目標伺服器下指令安裝：</p>
+            <ol class="step-list">
+                <li class="step-item">前往 <strong>Server Operations</strong> ➡️ <strong>Server Check</strong>。</li>
+                <li class="step-item">在診斷設定中填入 IP（支援多行填寫），並填入 SSH 連線密碼。</li>
+                <li class="step-item">點選「▶ Start Diagnostic」完成無代理的即時效能診斷。</li>
+                <li class="step-item">診斷完畢後，針對未安裝 Agent 的主機點選 <strong>「Deploy Scout」</strong>，系統會在背景透過 SSH / WinRM 自動上傳並註冊最新版 Agent 服務。安裝完成後，狀態會立刻切換為 <strong>`⚡ Scout Active`</strong>。</li>
+            </ol>
+        </section>
+
+        <!-- Section 2 -->
+        <section id="self-healing">
+            <h2>🛡️ 2. 設定監控自癒 (Self-Healing)</h2>
+            <p>
+                自癒是指當監控指標 (如特定服務停止、記憶體耗盡) 觸發警報後，Agent 在邊端立即執行預設腳本進行重啟或清理。
+            </p>
+
+            <div class="alert">
+                <div class="alert-title">⚠️ RBAC 權限管理要求</div>
+                <p>
+                    基於資安考量，新增/修改自癒指令碼屬於高敏感操作。使用者帳號必須在權限管理頁面配置 <strong><code>manage_self_healing</code></strong> 權限。
+                    超級管理員 (SuperAdmin) 預設具備此權限，一般操作員 (Operator) 未授權時無法修改 any Remediation Script。
+                </p>
+            </div>
+
+            <h3>2.1 設定要素</h3>
+            <ul class="step-list">
+                <li class="step-item"><strong>Remediation Script (修復腳本)</strong>：當規則被判定為 Alert 狀態時，執行此區塊的指令。</li>
+                <li class="step-item"><strong>Remediation Cooldown (冷卻時間)</strong>：執行一次修復後，在指定時間內（預設 300 秒）不再重複觸發執行，以給予服務重啟並恢復的時間。</li>
+                <li class="step-item"><strong>Remediation Max Retries (最大重試)</strong>：在警報未解除狀態下，最多重試執行的次數。</li>
+            </ul>
+        </section>
+
+        <!-- Section 2.2 Examples -->
+        <section id="self-healing-examples">
+            <h3>💡 實用自癒 Script 範例</h3>
+            
+            <p>您可以直接複製以下範例到 Vanguard 控制台的 <strong>Remediation Script</strong> 輸入框中使用：</p>
+
+            <div class="example-tabs">
+                <button class="example-tab active" onclick="switchExample('sh-linux-nginx', this)">Linux Nginx 自動重啟</button>
+                <button class="example-tab" onclick="switchExample('sh-win-iis', this)">Windows IIS Pool 自動回收</button>
+                <button class="example-tab" onclick="switchExample('sh-linux-disk', this)">Linux 磁碟滿載自動清 Log</button>
+            </div>
+
+            <!-- Example 1 -->
+            <div id="sh-linux-nginx" class="code-container example-content">
+                <div class="code-header">
+                    <span>Linux Shell Script</span>
+                    <button class="copy-btn" onclick="copyCode(this)">複製程式碼</button>
+                </div>
+                <pre><code>#!/bin/bash
+# 偵測到 Nginx Offline 時的自癒處理
+LOG_FILE="/var/log/scout_self_healing.log"
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] 偵測到 Nginx 服務異常，啟動修復程序..." >> $LOG_FILE
+
+# 嘗試重啟 Nginx
+systemctl restart nginx
+
+# 檢驗重啟結果
+if systemctl is-active --quiet nginx; then
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Nginx 重啟成功！警報即將恢復。" >> $LOG_FILE
+    exit 0
+else
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Nginx 重啟失敗，將等待下次重試。" >> $LOG_FILE
+    exit 1
+fi</code></pre>
+            </div>
+
+            <!-- Example 2 -->
+            <div id="sh-win-iis" class="code-container example-content" style="display:none;">
+                <div class="code-header">
+                    <span>Windows PowerShell Script</span>
+                    <button class="copy-btn" onclick="copyCode(this)">複製程式碼</button>
+                </div>
+                <pre><code># 偵測到 IIS AppPool 記憶體超載或回應異常時自動回收
+Import-Module WebAdministration
+$PoolName = "DefaultAppPool"
+$LogPath = "C:\scout\self_healing_log.txt"
+
+Add-Content -Path $LogPath -Value "[$(Get-Date)] 觸發 IIS AppPool ($PoolName) 回收程序..."
+
+try {
+    Restart-WebAppPool -Name $PoolName
+    Add-Content -Path $LogPath -Value "[$(Get-Date)] AppPool $PoolName 回收成功。"
+    exit 0
+} catch {
+    Add-Content -Path $LogPath -Value "[$(Get-Date)] AppPool 回收失敗: $_"
+    exit 1
+}</code></pre>
+            </div>
+
+            <!-- Example 3 -->
+            <div id="sh-linux-disk" class="code-container example-content" style="display:none;">
+                <div class="code-header">
+                    <span>Linux Shell Script</span>
+                    <button class="copy-btn" onclick="copyCode(this)">複製程式碼</button>
+                </div>
+                <pre><code>#!/bin/bash
+# 當磁碟使用率過高時，自動清除舊的日誌與快取釋放空間
+LOG_FILE="/var/log/scout_disk_healing.log"
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] 觸發磁碟滿載自癒，進行日誌清理作業..." >> $LOG_FILE
+
+# 清除 nginx 30天以上的舊日誌
+find /var/log/nginx/ -name "*.gz" -mtime +30 -exec rm -f {} \;
+
+# 清除系統暫存檔與 yum / apt 快取
+yum clean all || apt-get clean
+
+# 重新評估空間
+FREE_SPACE=$(df -h / | awk 'NR==2 {print $5}' | sed 's/%//')
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] 清理完成。目前根目錄空間使用率：$FREE_SPACE %" >> $LOG_FILE
+exit 0</code></pre>
+            </div>
+        </section>
+
+        <!-- Section 3 -->
+        <section id="elk">
+            <h2>📊 3. 設定日誌推送至 ELK (Elasticsearch)</h2>
+            <p>
+                Scout Agent 支援將日誌資料在主機端即時過濾整理後，直接以 Bulk API 推送至指定的 Elasticsearch 叢集。
+            </p>
+
+            <h3>3.1 Windows 事件日誌轉發</h3>
+            <p>
+                在 <strong>Monitor Groups</strong> 的 <strong>Windows Event Policy</strong> 下，您可以設定 Index Name，並開啟 <strong>Elasticsearch Independent Mapping Policy (YAML)</strong> 欄位填寫映射結構。
+            </p>
+
+            <h3>3.2 Linux 特定日誌監控 (Log File Watchers)</h3>
+            <p>
+                在 <strong>Linux Log Subscription</strong> 下，開啟 <strong>Log File Watchers (Elasticsearch Push)</strong>，可動態監視多個文字日誌檔 (如 Nginx access log, secure log)，即時分析並轉發。
+            </p>
+        </section>
+
+        <!-- Section 3.2 Examples -->
+        <section id="elk-examples">
+            <h3>💡 日誌轉發 YAML 與設定範例</h3>
+
+            <div class="example-tabs">
+                <button class="example-tab active" onclick="switchExample('elk-yaml-win', this)">Windows 事件日誌過濾 YAML</button>
+                <button class="example-tab" onclick="switchExample('elk-json-linux', this)">Linux Log Watchers (ES Push) 設定</button>
+            </div>
+
+            <!-- Example 4 -->
+            <div id="elk-yaml-win" class="code-container example-content">
+                <div class="code-header">
+                    <span>Windows Event Independent Mapping YAML</span>
+                    <button class="copy-btn" onclick="copyCode(this)">複製程式碼</button>
+                </div>
+                <pre><code># 啟用與設定 Windows 事件直推 Elasticsearch Policy
+enabled: true
+elasticsearch:
+  hosts: 
+    - "https://es-cluster.corp.local:9200"
+  api_key: "V1dfMmJjM2RfNGU1Zl9nNmg3aThqOWs="
+  ssl:
+    verification_mode: "none" # 測試環境可略過 SSL 憑證校驗
+
+# 欲擷取的 Windows 事件來源與層級
+filters:
+  channels:
+    - name: "System"
+      levels: ["critical", "error"]
+    - name: "Application"
+      levels: ["critical", "error", "warning"]
+
+# 欄位映射轉換規則
+mapping:
+  event_time: "@timestamp"
+  Computer: "host.name"
+  EventID: "event.code"
+  Message: "message"
+  LevelDisplayName: "log.level"</code></pre>
+            </div>
+
+            <!-- Example 5 -->
+            <div id="elk-json-linux" class="code-container example-content" style="display:none;">
+                <div class="code-header">
+                    <span>Linux Log File Watcher Config</span>
+                    <button class="copy-btn" onclick="copyCode(this)">複製程式碼</button>
+                </div>
+                <pre><code># Linux Log Watchers - 監看日誌清單並直推 ES 範例
+[
+  {
+    "path": "/var/log/nginx/access.log",
+    "index": "nginx-access-prod-%{+YYYY.MM.dd}",
+    "parser": "json",
+    "fields": {
+      "environment": "production",
+      "service": "api-gateway"
+    }
+  },
+  {
+    "path": "/var/log/secure",
+    "index": "os-auth-secure-logs",
+    "parser": "regex",
+    "pattern": "^(?&lt;timestamp&gt;\\b[A-Z][a-z]{2}\\s+\\d+\\s+\\d{2}:\\d{2}:\\d{2})\\s+(?&lt;hostname&gt;\\S+)\\s+sshd\\[(?&lt;pid&gt;\\d+)\\]:\\s+(?&lt;message&gt;.*)$",
+    "fields": {
+      "log_source": "syslog-secure"
+    }
+  }
+]</code></pre>
+            </div>
+        </section>
+
+        <!-- Section 4 -->
+        <section id="security">
+            <h2>🔒 4. 安全性與連線</h2>
+            <ul class="step-list">
+                <li class="step-item"><strong>雙向 TLS</strong>：Agent 與後端 Vanguard 通訊支援 TLS 1.3 協定加密，預防資料包於傳輸途中被側聽或篡改。</li>
+                <li class="step-item"><strong>權限安全</strong>：自癒腳本由 Agent 本身以 OS 系統服務最高權限啟動執行，請務必嚴格控管能編輯自癒腳本的 Vanguard 帳號。</li>
+            </ul>
+        </section>
+    </main>
+</div>
+
+<script>
+    // Copy to clipboard function
+    function copyCode(btn) {
+        const codeElement = btn.parentElement.nextElementSibling.querySelector('code');
+        const text = codeElement.innerText;
+        navigator.clipboard.writeText(text).then(() => {
+            const originalText = btn.innerText;
+            btn.innerText = '已複製！';
+            setTimeout(() => {
+                btn.innerText = originalText;
+            }, 2000);
+        }).catch(err => {
+            console.error('Failed to copy', err);
+        });
+    }
+
+    // Switch between example tabs
+    function switchExample(id, tabBtn) {
+        // Get all tabs in the same group
+        const parentContainer = tabBtn.parentElement;
+        const tabs = parentContainer.querySelectorAll('.example-tab');
+        tabs.forEach(t => t.classList.remove('active'));
+        tabBtn.classList.add('active');
+
+        // Hide all sibling contents
+        let nextSibling = parentContainer.nextElementSibling;
+        while (nextSibling && nextSibling.classList.contains('code-container')) {
+            nextSibling.style.display = 'none';
+            nextSibling = nextSibling.nextElementSibling;
+        }
+
+        // Show target
+        document.getElementById(id).style.display = 'block';
+    }
+
+    // Smooth scroll for nav links and toggle active status
+    document.querySelectorAll('.nav-link').forEach(link => {
+        link.addEventListener('click', function(e) {
+            e.preventDefault();
+            const targetId = this.getAttribute('href');
+            document.querySelector(targetId).scrollIntoView({
+                behavior: 'smooth'
+            });
+            document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
+            this.classList.add('active');
+        });
+    });
+</script>
+</body>
+</html>

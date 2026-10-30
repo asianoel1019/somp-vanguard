@@ -1,0 +1,48 @@
+# ---- Secrets / site configuration (never commit) ----
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+config.json
+!**/config.example.json
+scripts/SCP_to_Prod.ps1
+.last_scp_sync
+*.pem
+*.key
+*.pfx
+*.p12
+.system_key
+
+# ---- Internal data exports / backups ----
+docs/hostmonitor-item-backup-*.txt
+backend/scripts/datacenter_backup.json
+*.hml
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.db
+backups/
+archives/
+config_backup/
+hm_checker_uploads/
+
+# ---- Internal design notes ----
+docs/superpowers/
+.superpowers/
+
+# ---- Build output / dependencies / binaries ----
+node_modules/
+frontend/dist/
+*.exe
+*.msi
+*.zip
+*.7z
+
+# ---- Logs / temp ----
+logs/
+*.log
+temp_run_*.ps1
+.DS_Store
+Thumbs.db

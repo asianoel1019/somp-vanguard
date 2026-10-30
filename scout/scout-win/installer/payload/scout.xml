@@ -1,0 +1,11 @@
+<service> 
+  <id>ScoutAgent</id> 
+  <name>ScoutAgent</name> 
+  <description>Vanguard System Operation Manager Scout Agent.</description> 
+  <executable>%BASE%\scout-agent.exe</executable> 
+  <log mode="roll-by-size"> 
+    <sizeThreshold>102400</sizeThreshold> 
+    <keepFiles>10</keepFiles> 
+  </log> 
+  <onfailure action="restart" delay="10 sec"/> 
+</service> 

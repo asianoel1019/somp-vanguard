@@ -1,0 +1,44 @@
+{
+  "name": "backend",
+  "version": "1.7.6",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "start:web": "node index.js",
+    "start:worker": "node worker.js",
+    "version:bump": "node ../scripts/update_version.js",
+    "db:vacuum": "node scripts/scoutDb_maintenance.js",
+    "test": "node --test --test-reporter=./test/helpers/summary-reporter.mjs \"test/**/*.test.js\"",
+    "test:verbose": "node --test \"test/**/*.test.js\"",
+    "test:coverage": "node --test --experimental-test-coverage \"test/**/*.test.js\""
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@kubernetes/client-node": "^1.4.0",
+    "axios": "^1.15.0",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.6",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "guacamole-lite": "^1.2.0",
+    "ioredis": "^5.10.1",
+    "js-yaml": "^4.2.0",
+    "jsonwebtoken": "^9.0.3",
+    "mssql": "^12.5.5",
+    "mysql2": "^3.22.5",
+    "net-snmp": "^3.26.3",
+    "node-cron": "^4.2.1",
+    "nodemailer": "^8.0.5",
+    "pg": "^8.21.0",
+    "sql.js": "^1.14.1",
+    "ssh2": "^1.17.0",
+    "ws": "^8.21.0"
+  },
+  "devDependencies": {
+    "supertest": "^7.3.1"
+  }
+}

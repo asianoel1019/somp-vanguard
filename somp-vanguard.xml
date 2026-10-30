@@ -1,0 +1,18 @@
+<service>
+  <id>somp-vanguard</id>
+  <name>SOMP Vanguard</name>
+  <description>Unified Management System for Infrastructure, SIEM, and DNS</description>
+  
+  <executable>node.exe</executable>
+  
+  <!-- Path will be automatically updated by deploy.ps1 -->
+  <arguments>--max-old-space-size=2048 "C:\Program Files\somp-vanguard\backend\index.js"</arguments>
+  <workingdirectory>C:\Program Files\somp-vanguard\backend</workingdirectory>
+  
+  <onfailure action="restart" delay="10sec"/>
+  
+  <log mode="roll">
+    <sizeThreshold>10240</sizeThreshold>
+    <keepFiles>10</keepFiles>
+  </log>
+</service>

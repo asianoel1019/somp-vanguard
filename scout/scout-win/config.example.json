@@ -1,0 +1,11 @@
+{
+  "apiKey": "<YOUR_SCOUT_API_KEY>",
+  "backendUrl": "http://your-somp-server:3000",
+  "reportInterval": 60,
+  "pingTargets": [
+    "8.8.8.8"
+  ],
+  "tcpTargets": null,
+  "watchServices": null,
+  "watchProcesses": null
+}

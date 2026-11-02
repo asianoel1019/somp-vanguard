@@ -18,7 +18,7 @@ function getSystemKey() {
             return fs.readFileSync(LEGACY_KEY_FILE, 'utf-8').trim();
         }
     } catch (e) {
-        console.error('Failed to read system key:', e);
+        console.error('[Crypto] Failed to read system key:', e);
     }
 
     // Generate new key
@@ -29,7 +29,7 @@ function getSystemKey() {
     try {
         fs.writeFileSync(SYSTEM_KEY_FILE, newKey, 'utf-8');
     } catch (e) {
-        console.error('Failed to write system key:', e);
+        console.error('[Crypto] Failed to write system key:', e);
     }
     return newKey;
 }
@@ -118,7 +118,7 @@ function decryptText(cipherText) {
         decrypted += decipher.final('utf8');
         return decrypted;
     } catch (e) {
-        console.error('Decryption failed:', e.message);
+        console.error('[Crypto] Decryption failed:', e.message);
         throw new Error('DECRYPTION_FAILED');
     }
 }

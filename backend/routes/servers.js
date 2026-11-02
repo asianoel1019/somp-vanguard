@@ -146,7 +146,7 @@ router.post('/:id/restart', checkRole(['SuperAdmin', 'Operator']), async (req, r
         auditLog(req.user.username, 'DNS Hub', `Restarted DNS Service on: ${server.name} (${server.hostname})`);
         res.json({ success: true });
     } catch (error) {
-        console.error('Restart error:', error);
+        console.error('[Servers] Restart error:', error);
         res.status(500).json({ error: 'Failed to restart DNS service. Please contact administrator.' });
     }
 });
@@ -280,7 +280,7 @@ router.post('/:id/cache-update', checkRole(['SuperAdmin', 'Operator']), async (r
         auditLog(req.user.username, 'DNS Hub', `Updated Zone Cache for: ${server.name}`);
         res.json({ success: true, domains: zones });
     } catch (error) {
-        console.error('Cache update error:', error);
+        console.error('[Servers] Cache update error:', error);
         server.lastError = 'Failed to update domain cache';
         mutateDnsDb((cur) => {
             const srv = cur.servers.find(s => s.id === server.id);
@@ -332,7 +332,7 @@ router.post('/:id/sync-ad', checkRole(['SuperAdmin', 'Operator']), async (req, r
         auditLog(req.user.username, 'DNS Hub', `Executed AD Sync on: ${server.name}`);
         res.json({ success: true, log: result });
     } catch (error) {
-        console.error('AD Sync error:', error);
+        console.error('[Servers] AD Sync error:', error);
         res.status(500).json({ error: 'Failed to sync AD. Please contact administrator.' });
     }
 });

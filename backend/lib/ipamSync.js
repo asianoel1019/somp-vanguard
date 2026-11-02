@@ -68,7 +68,7 @@ function syncIpToIpam(ip, hostname, username, action = 'use', source = 'Network 
         if (res.created) auditCreated([res.created], username, source);
         return { changed: res.changed, created: res.created ? 1 : 0, skipped: res.skipped ? 1 : 0 };
     } catch (e) {
-        console.error('Failed to sync IPAM', e);
+        console.error('[IPAM Sync] Failed to sync IPAM', e);
         return { changed: false, created: 0, skipped: 0 };
     }
 }
@@ -91,7 +91,7 @@ function batchSyncIpsToIpam(actions) {
         for (const c of res.created) auditCreated([c.subnet], c.username, c.source);
         return { changed: res.changed, created: res.created.length, skipped: res.skipped };
     } catch (e) {
-        console.error('Failed to batch sync IPAM', e);
+        console.error('[IPAM Sync] Failed to batch sync IPAM', e);
         return { changed: false, created: 0, skipped: 0 };
     }
 }

@@ -48,7 +48,7 @@ router.get('/check', async (req, res) => {
             monitorData.lastMetric = latestMetricRow ? parseJSON(latestMetricRow.metrics, null) : null;
         }
     } catch(e) {
-        console.error('Error checking monitor in integration.js:', e);
+        console.error('[Integration] Error checking monitor in integration.js:', e);
     }
     
     // Check Inventory
@@ -141,7 +141,7 @@ router.get('/summary', async (req, res) => {
         }
         res.json(summary);
     } catch(err) {
-        console.error('Integration summary API error:', err);
+        console.error('[Integration] Integration summary API error:', err);
         res.json({});
     }
 });

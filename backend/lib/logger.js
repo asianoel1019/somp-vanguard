@@ -14,7 +14,7 @@ if (!fs.existsSync(LOG_DIR)) {
     try {
         fs.mkdirSync(LOG_DIR, { recursive: true });
     } catch (e) {
-        console.error(`Failed to create logs dir at ${LOG_DIR}:`, e);
+        console.error(`[Logger] Failed to create logs dir at ${LOG_DIR}:`, e);
     }
 }
 console.log(`[Logger] Initialized with directory: ${LOG_DIR}`);
@@ -52,7 +52,8 @@ function appendLog(msg) {
     } catch (e) {
         // Fallback if file write fails
     }
-    console.log(line);
+    // the audit file keeps "[time] message" (parsed by routes/audit.js); the console line gets the shared format
+    console.log(msg);
 }
 
 // Categories that are only pushed (Telegram / webhooks) when explicitly selected,
@@ -401,12 +402,12 @@ function compressLogFile(filePath) {
             .on('finish', () => {
                 // Delete original log file after successful compression
                 fs.unlink(filePath, (err) => {
-                    if (err) console.error(`Failed to delete ${filePath}:`, err);
+                    if (err) console.error(`[Logger] Failed to delete ${filePath}:`, err);
                     resolve();
                 });
             })
             .on('error', (err) => {
-                console.error(`Compression error for ${filePath}:`, err);
+                console.error(`[Logger] Compression error for ${filePath}:`, err);
                 reject(err);
             });
     });
@@ -424,7 +425,7 @@ function performLogRotationAndCleanup() {
     
     fs.readdir(LOG_DIR, (err, files) => {
         if (err) {
-            return console.error('Failed to read log directory:', err);
+            return console.error('[Logger] Failed to read log directory:', err);
         }
         
         files.forEach(file => {
@@ -432,21 +433,22 @@ function performLogRotationAndCleanup() {
             
             const filePath = path.join(LOG_DIR, file);
             
-            // 1. Compress .log files that are older than 7 days
+            // 1. Compress dated .log files: audit logs (auth_) after 7 days, application logs (app_) from the next day
             if (file.endsWith('.log')) {
-                const match = file.match(/^auth_(\d{4}-\d{2}-\d{2})\.log$/);
+                const match = file.match(/^(auth|app)_(\d{4}-\d{2}-\d{2})\.log$/);
                 if (match) {
-                    const fileDateStr = match[1];
+                    const minDays = match[1] === 'app' ? 1 : 7;
+                    const fileDateStr = match[2];
                     const fileDate = new Date(fileDateStr);
                     const today = new Date(getTodayStr());
                     const diffTime = today.getTime() - fileDate.getTime();
                     const diffDays = diffTime / (1000 * 60 * 60 * 24);
-                    if (diffDays >= 7) {
+                    if (diffDays >= minDays) {
                         compressLogFile(filePath).then(() => {
                             const gzPath = `${filePath}.gz`;
                             const archivePath = path.join(archiveDir, `${file}.gz`);
                             fs.rename(gzPath, archivePath, e => {
-                                if (e) console.error(`Failed to move ${file}.gz to archive:`, e);
+                                if (e) console.error(`[Logger] Failed to move ${file}.gz to archive:`, e);
                             });
                         }).catch(e => console.error(e));
                     }
@@ -457,7 +459,7 @@ function performLogRotationAndCleanup() {
             if (file.endsWith('.gz')) {
                 const archivePath = path.join(archiveDir, file);
                 fs.rename(filePath, archivePath, e => {
-                    if (e) console.error(`Failed to move ${file} to archive:`, e);
+                    if (e) console.error(`[Logger] Failed to move ${file} to archive:`, e);
                 });
             }
         });

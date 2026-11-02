@@ -184,7 +184,7 @@ function loadRaw() {
     const oldPath = path.join(TARGET_DB_DIR, OLD_CONFIG_PATH);
     if (!fs.existsSync(newPath) && fs.existsSync(oldPath)) {
         try { writeDataSync(CONFIG_PATH, readDataSync(OLD_CONFIG_PATH, [])); }
-        catch (e) { console.error('Failed to migrate NAS config', e.message); }
+        catch (e) { console.error('[NAS] Failed to migrate NAS config', e.message); }
     }
     const data = readDataSync(CONFIG_PATH, []);
     return Array.isArray(data) ? data : [];

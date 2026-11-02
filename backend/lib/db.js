@@ -168,7 +168,7 @@ function readDataSync(key, defaultValue = null) {
             }
         }
     } catch (e) {
-        console.error(`Error reading fallback flat file for key ${key}:`, e);
+        console.error(`[DB] Error reading fallback flat file for key ${key}:`, e);
     }
     return defaultValue;
 }

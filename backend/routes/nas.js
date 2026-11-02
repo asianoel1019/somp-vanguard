@@ -317,7 +317,7 @@ router.post('/get-permissions', async (req, res) => {
             const driver = nasDrivers.getDriver(dev);
             if (typeof driver.getSharePermissions === 'function') perms = await driver.getSharePermissions(shareName);
         } catch (e) {
-            console.error('Failed to get share permissions:', e.message);
+            console.error('[NAS] Failed to get share permissions:', e.message);
             return res.json({ success: true, permissions: cached() });
         }
         if (perms && perms.length > 0) {

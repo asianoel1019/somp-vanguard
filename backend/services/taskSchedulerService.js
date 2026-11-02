@@ -125,7 +125,7 @@ function appendExecutionLog(taskId, taskName, runStatus, stdout, stderr, duratio
         };
         schedulerStore.appendLog(newLog);
     } catch (e) {
-        console.error('Failed to write execution logs:', e);
+        console.error('[Scheduler] Failed to write execution logs:', e);
     }
 }
 

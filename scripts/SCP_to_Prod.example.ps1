@@ -159,22 +159,64 @@ if ($All) {
         $modifiedFiles += $rel
     }
 } else {
-    # Check if Git repository exists
+    # The file list is the UNION of
+    #   a) files modified on disk since the last sync (or -Since / the past $Days day(s)), and
+    #   b) uncommitted git changes (git status, every untracked file listed one by one).
+    # Git status alone is NOT enough: a file committed after the last sync is clean in git but was never uploaded.
+    $referenceTime = [DateTime]::MinValue
+    if ($Since) {
+        $referenceTime = [DateTime]::Parse($Since)
+        Write-Host "[INFO] Mode: Files modified since $Since (+ uncommitted git changes)" -ForegroundColor Cyan
+    } elseif (Test-Path $SyncRecordFile) {
+        $rawTime = Get-Content $SyncRecordFile -ErrorAction SilentlyContinue
+        if (-not [DateTime]::TryParse($rawTime, [ref]$referenceTime)) {
+            $referenceTime = (Get-Item $SyncRecordFile).LastWriteTime
+        }
+        Write-Host "[INFO] Mode: Files modified since last sync ($($referenceTime.ToString('yyyy-MM-dd HH:mm:ss'))) (+ uncommitted git changes)" -ForegroundColor Cyan
+    } else {
+        # First run / no sync history: default to files modified in the past $Days day(s)
+        $referenceTime = (Get-Date).AddDays(-$Days)
+        Write-Host "[INFO] No sync history found: Defaulting to files modified in the past $Days day(s) (+ uncommitted git changes)..." -ForegroundColor Yellow
+    }
+
+    $seen = @{}
+    $allFiles = Get-ChildItem -Path $LocalPath -Recurse -File | Where-Object {
+        $rel = $_.FullName.Substring($LocalPath.Length).TrimStart('\', '/')
+        if ($rel -like "frontend\dist\*" -or $rel -like "frontend/dist/*" -or $rel -eq "frontend\dist" -or $rel -eq "frontend/dist") {
+            return $false
+        }
+        if (Test-IsExcluded -Path $rel -Patterns $ExcludeList) {
+            return $false
+        }
+        if ($_.LastWriteTime -le $referenceTime) {
+            return $false
+        }
+        return $true
+    }
+    foreach ($f in $allFiles) {
+        $rel = $f.FullName.Substring($LocalPath.Length).TrimStart('\', '/')
+        $seen[$rel.ToLower()] = $true
+        $modifiedFiles += $rel
+    }
+
     $hasGit = Test-Path (Join-Path $LocalPath ".git")
     if ($hasGit) {
         try {
-            $gitStatus = git -C $LocalPath status --porcelain 2>$null
+            $gitStatus = git -C $LocalPath status --porcelain --untracked-files=all 2>$null
             if ($LASTEXITCODE -eq 0 -and $gitStatus) {
-                Write-Host "[INFO] Git repository detected, parsing changed files..." -ForegroundColor Cyan
                 foreach ($line in ($gitStatus -split "\r?\n")) {
                     if ($line.Length -gt 3) {
                         $filePath = $line.Substring(3).Trim().Trim('"')
-                        if ($filePath) {
-                            $isDist = ($filePath -like "frontend/dist/*" -or $filePath -like "frontend\dist\*" -or $filePath -eq "frontend\dist" -or $filePath -eq "frontend/dist")
+                        # renames are listed as "old -> new"
+                        if ($filePath -like "* -> *") { $filePath = ($filePath -split " -> ")[-1].Trim('"') }
+                        $filePath = $filePath -replace '/', '\'
+                        if ($filePath -and -not $seen.ContainsKey($filePath.ToLower())) {
+                            $isDist = ($filePath -like "frontend\dist\*" -or $filePath -eq "frontend\dist")
                             $isEx = (Test-IsExcluded -Path $filePath -Patterns $ExcludeList)
                             if (-not $isDist -and -not $isEx) {
                                 $full = Join-Path $LocalPath $filePath
                                 if (Test-Path $full -PathType Leaf) {
+                                    $seen[$filePath.ToLower()] = $true
                                     $modifiedFiles += $filePath
                                 }
                             }
@@ -183,44 +225,6 @@ if ($All) {
                 }
             }
         } catch {}
-    }
-
-    # If not a Git repo or no Git changes detected, fallback to timestamp comparison
-    if ($modifiedFiles.Count -eq 0) {
-        $referenceTime = [DateTime]::MinValue
-        if ($Since) {
-            $referenceTime = [DateTime]::Parse($Since)
-            Write-Host "[INFO] Mode: Filtering files modified since $Since" -ForegroundColor Cyan
-        } elseif (Test-Path $SyncRecordFile) {
-            $rawTime = Get-Content $SyncRecordFile -ErrorAction SilentlyContinue
-            if (-not [DateTime]::TryParse($rawTime, [ref]$referenceTime)) {
-                $referenceTime = (Get-Item $SyncRecordFile).LastWriteTime
-            }
-            Write-Host "[INFO] Mode: Filtering files modified since last sync ($($referenceTime.ToString('yyyy-MM-dd HH:mm:ss')))" -ForegroundColor Cyan
-        } else {
-            # First run / no sync history: default to files modified in the past $Days day(s)
-            $referenceTime = (Get-Date).AddDays(-$Days)
-            Write-Host "[INFO] No sync history found: Defaulting to files modified in the past $Days day(s)..." -ForegroundColor Yellow
-        }
-
-        $allFiles = Get-ChildItem -Path $LocalPath -Recurse -File | Where-Object {
-            $rel = $_.FullName.Substring($LocalPath.Length).TrimStart('\', '/')
-            if ($rel -like "frontend\dist\*" -or $rel -like "frontend/dist/*" -or $rel -eq "frontend\dist" -or $rel -eq "frontend/dist") {
-                return $false
-            }
-            if (Test-IsExcluded -Path $rel -Patterns $ExcludeList) {
-                return $false
-            }
-            if ($_.LastWriteTime -le $referenceTime) {
-                return $false
-            }
-            return $true
-        }
-
-        foreach ($f in $allFiles) {
-            $rel = $f.FullName.Substring($LocalPath.Length).TrimStart('\', '/')
-            $modifiedFiles += $rel
-        }
     }
 }
 

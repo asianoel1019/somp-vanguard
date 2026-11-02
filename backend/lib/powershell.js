@@ -29,7 +29,7 @@ function validateADCredentials(username, domain, password) {
 
         exec(`powershell.exe -EncodedCommand ${b64Script}`, (error, stdout, stderr) => {
             if (error) {
-                console.error('AD Auth Error:', error, stderr);
+                console.error('[PowerShell] AD Auth Error:', error, stderr);
                 return resolve(stderr || error.message); 
             }
             resolve(stdout.trim());

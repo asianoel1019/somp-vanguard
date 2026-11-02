@@ -1,5 +1,3 @@
-const fs = require('fs');
-const path = require('path');
 const http = require('http');
 const https = require('https');
 const tls = require('tls');
@@ -24,28 +22,14 @@ function saveWebhooks(webhooks) {
     return true;
 }
 
-// Function to log webhook events into C:\ProgramData\somp-vanguard\logs\ and stdout/stderr
+// Webhook results go to the console only: the shared console format adds the time and process, and copies the
+// line to logs\app_YYYY-MM-DD.log (lib/consoleFormat.js)
 function logWebhookResult(webhookName, status, details) {
-    const timestamp = new Date().toISOString();
-    const logLine = `${timestamp}: [WebhookHub] [${status}] Webhook: "${webhookName}" - ${details}`;
-    
-    // Print to standard console so Windows Service (NSSM) out.log / err.log captures it immediately
+    const logLine = `[WebhookHub] [${status}] Webhook: "${webhookName}" - ${details}`;
     if (status === 'SUCCESS') {
         console.log(logLine);
     } else {
         console.error(logLine);
-    }
-
-    try {
-        const baseDir = process.env.DB_DATA_DIR || (fs.existsSync('D:\\somp-vanguard') ? 'D:\\somp-vanguard' : 'C:\\ProgramData\\somp-vanguard');
-        const logDir = path.join(baseDir, 'logs');
-        if (!fs.existsSync(logDir)) {
-            fs.mkdirSync(logDir, { recursive: true });
-        }
-        const logFile = path.join(logDir, 'out.log');
-        fs.appendFileSync(logFile, logLine + '\n', 'utf8');
-    } catch (err) {
-        // file write failed, console already logged
     }
 }
 
@@ -100,21 +84,8 @@ function logWebhookFailure(webhook, requestOptions, postData, proxyUrl, errorDet
         divider
     ].join('\n');
 
-    // 1. Output entire request dump to console (NSSM out.log / err.log will catch it)
-    console.error(dumpStr);
-
-    // 2. Output to out.log file
-    try {
-        const baseDir = process.env.DB_DATA_DIR || (fs.existsSync('D:\\somp-vanguard') ? 'D:\\somp-vanguard' : 'C:\\ProgramData\\somp-vanguard');
-        const logDir = path.join(baseDir, 'logs');
-        if (!fs.existsSync(logDir)) {
-            fs.mkdirSync(logDir, { recursive: true });
-        }
-        const logFile = path.join(logDir, 'out.log');
-        fs.appendFileSync(logFile, dumpStr + '\n', 'utf8');
-    } catch (e) {
-        // ignore
-    }
+    // The whole request dump goes to the console (and with it to logs\app_YYYY-MM-DD.log)
+    console.error(`[WebhookHub] Dispatch failure dump\n${dumpStr}`);
 
     return debugObj;
 }

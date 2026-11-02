@@ -183,7 +183,7 @@ async function runHost({ ip, osType, software, opts, ctx, shouldStop }) {
             ? scrubResult(await runLinuxHost(ip, software, opts, ctx.linuxCreds, shouldStop), ctx.secrets || [])
             : await runWindowsHost(ip, software, opts, ctx);
     } catch (e) {
-        console.error('Remote Install host error:', ip, prov.scrubSecrets(errText(e), ctx.secrets || []));
+        console.error('[Remote Install] host error:', ip, prov.scrubSecrets(errText(e), ctx.secrets || []));
         return scrubResult({
             ip, ok: false,
             packages: software.map(s => ({ name: s.name, exitCode: null, ok: false, rebootRequired: false, message: 'Not executed' })),

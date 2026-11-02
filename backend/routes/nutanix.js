@@ -397,7 +397,7 @@ router.post('/clone', async (req, res) => {
     try {
         ipSwitchMap = readDataSync('server_operation/ip_switch_map.json', []);
     } catch (e) {
-        console.error('Failed to parse IP switch map: ', e);
+        console.error('[Nutanix] Failed to parse IP switch map: ', e);
     }
 
     // Read Remote Install (Server Provision) settings dynamically from settings config
@@ -411,7 +411,7 @@ router.post('/clone', async (req, res) => {
     try {
         templateBuMap = readDataSync('server_operation/template_bu_map.json', []);
     } catch (e) {
-        console.error('Failed to parse Template BU map: ', e);
+        console.error('[Nutanix] Failed to parse Template BU map: ', e);
     }
 
     // Setup parameter file in backend/lib/ alongside the PowerShell scripts
@@ -580,7 +580,7 @@ router.post('/clone', async (req, res) => {
                     fs.unlinkSync(paramFilePath);
                 }
             } catch (err) {
-                console.error('Failed to delete temporary clone params file:', err);
+                console.error('[Nutanix] Failed to delete temporary clone params file:', err);
             }
         });
 

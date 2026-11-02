@@ -69,7 +69,10 @@ function scanLog(msg) {
     const entry = `[${new Date().toLocaleTimeString()}] ${msg}`;
     scanStatus.logs.push(entry);
     if (scanStatus.logs.length > 100) scanStatus.logs = scanStatus.logs.slice(-80);
-    console.log(`[Inventory] ${msg}`);
+    // WARN: / DEGRADED: lines are logged at WARN level (the scan log shown in the UI keeps the full text)
+    if (msg.startsWith('WARN: ')) console.warn(`[Inventory] ${msg.slice(6)}`);
+    else if (msg.startsWith('DEGRADED: ')) console.warn(`[Inventory] ${msg}`);
+    else console.log(`[Inventory] ${msg}`);
 }
 
 const { readDataSync } = require('../lib/db');

@@ -688,7 +688,7 @@ router.post('/backups/create', checkFeature('dbBackup'), checkRole(['SuperAdmin'
                 saveBackups(allBackups);
                 auditLog(req.user.username, 'Database', `Created ${type} backup for DB: ${db.name} (${db.engine})`);
             } catch (err) {
-                console.error('Backup failed:', err);
+                console.error('[Database] Backup failed:', err);
                 auditLog(req.user.username, 'Database', `Backup FAILED for DB: ${db.name}`);
             }
         })();
@@ -730,7 +730,7 @@ router.post('/backups/restore/:id', checkFeature('dbBackup'), checkRole(['SuperA
                 if (cmd) await execPromise(cmd);
                 auditLog(req.user.username, 'Database', `Completed restore from snapshot: ${req.params.id}`);
             } catch (err) {
-                console.error('Restore failed:', err);
+                console.error('[Database] Restore failed:', err);
                 auditLog(req.user.username, 'Database', `Restore FAILED for snapshot: ${req.params.id}`);
             }
         })();
@@ -795,7 +795,7 @@ setInterval(() => {
             lastScheduledDay = currentDayString;
         }
     } catch (err) {
-        console.error('Time-wheel Scheduled Auto-Backup Error:', err);
+        console.error('[Database] Time-wheel Scheduled Auto-Backup Error:', err);
     }
 }, 60000).unref(); // Poll once every 60 seconds to avoid time-drift issues (unref: the HTTP server keeps the process alive)
 

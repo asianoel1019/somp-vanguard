@@ -53,7 +53,7 @@ router.get('/logs', (req, res) => {
                     content = fs.readFileSync(filePath, 'utf8');
                 }
             } catch (err) {
-                console.error(`Failed to read/decompress audit log file: ${file}`, err);
+                console.error(`[Audit API] Failed to read/decompress audit log file: ${file}`, err);
                 return;
             }
 
@@ -83,7 +83,7 @@ router.get('/logs', (req, res) => {
             }
         });
     } catch (err) {
-        console.error('Error in GET /api/audit/logs:', err);
+        console.error('[Audit API] Error in GET /api/audit/logs:', err);
         res.status(500).json({ error: 'Internal server error reading audit logs' });
     }
 });

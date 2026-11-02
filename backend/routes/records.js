@@ -168,7 +168,7 @@ function appendDnsChangeLog(user, actions) {
         // one row per change in table dns_changes (listed in this order, before the older ones)
         dnsDataStore.appendDnsChanges(newLogs);
     } catch (e) {
-        console.error('Failed to write the DNS change log', e);
+        console.error('[DNS] Failed to write the DNS change log', e);
     }
 }
 
@@ -533,7 +533,7 @@ router.post('/add', checkRole(['SuperAdmin', 'Operator']), async (req, res) => {
                 });
             }
         } catch (err) {
-            console.error('DNS Add Error:', err.stderr || err.message || String(err));
+            console.error('[DNS] DNS Add Error:', err.stderr || err.message || String(err));
             items.forEach(it => {
                 results.push({ record: it.fqdn, status: `Error: Failed to process DNS record`, serverName: server.name });
             });
@@ -629,7 +629,7 @@ router.post('/delete', checkRole(['SuperAdmin', 'Operator']), async (req, res) =
                 });
             }
         } catch (err) {
-            console.error('DNS Delete Error:', err.stderr || err.message || String(err));
+            console.error('[DNS] DNS Delete Error:', err.stderr || err.message || String(err));
             items.forEach(it => {
                 results.push({ record: it.fqdn, status: `Error: Failed to process DNS record`, serverName: server.name });
             });
@@ -714,7 +714,7 @@ router.get('/export-all', async (req, res) => {
         }
         res.json({ records: allRecords });
     } catch (err) {
-        console.error('Export all failed:', err);
+        console.error('[DNS] Export all failed:', err);
         res.status(500).json({ error: 'Failed to export records. Please contact administrator.' });
     }
 });
@@ -780,7 +780,7 @@ router.get('/export-server/:id', async (req, res) => {
         }
         res.json({ records: allRecords });
     } catch (err) {
-        console.error('Export server failed:', err);
+        console.error('[DNS] Export server failed:', err);
         res.status(500).json({ error: 'Failed to export records. Please contact administrator.' });
     }
 });

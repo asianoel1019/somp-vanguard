@@ -50,7 +50,7 @@ router.post('/execute', writers, (req, res) => {
         const r = jobs.submit({ user: req.user, input: p.value, installCfg, config });
         res.status(r.status).json(r.body);
     } catch (e) {
-        console.error('Remote Install execute error:', runners.errText(e));
+        console.error('[Remote Install] execute error:', runners.errText(e));
         res.status(500).json({ error: 'Failed to create the install job' });
     }
 });
@@ -89,7 +89,7 @@ router.post('/precheck', writers, async (req, res) => {
         logger.auditLog(req.user.username, MODULE, `Pre-check (${input.osType}, template ${input.buType}) of ${input.ips.length} host(s): ${result.hosts.filter(h => h.ok).length} ok${override}`);
         res.json({ success: true, ...result });
     } catch (e) {
-        console.error('Remote Install precheck error:', runners.errText(e));
+        console.error('[Remote Install] precheck error:', runners.errText(e));
         res.status(500).json({ error: 'Pre-check failed' });
     }
 });
@@ -98,7 +98,7 @@ router.get('/targets', writers, (req, res) => {
     try {
         res.json({ targets: jobs.listTargets({ q: req.query.q, limit: req.query.limit }) });
     } catch (e) {
-        console.error('Remote Install targets error:', runners.errText(e));
+        console.error('[Remote Install] targets error:', runners.errText(e));
         res.status(500).json({ error: 'Failed to list targets' });
     }
 });
@@ -107,7 +107,7 @@ router.get('/jobs', (req, res) => {
     try {
         res.json(jobs.listJobs({ limit: req.query.limit, before: req.query.before }));
     } catch (e) {
-        console.error('Remote Install jobs error:', runners.errText(e));
+        console.error('[Remote Install] jobs error:', runners.errText(e));
         res.status(500).json({ error: 'Failed to list jobs' });
     }
 });
@@ -128,7 +128,7 @@ router.get('/jobs/:id', (req, res) => {
         }
         res.json(j);
     } catch (e) {
-        console.error('Remote Install job error:', runners.errText(e));
+        console.error('[Remote Install] job error:', runners.errText(e));
         res.status(500).json({ error: 'Failed to read the job' });
     }
 });
@@ -138,7 +138,7 @@ router.post('/jobs/:id/cancel', writers, (req, res) => {
         const r = jobs.cancelJob(req.params.id, req.user.username);
         res.status(r.status).json(r.body);
     } catch (e) {
-        console.error('Remote Install cancel error:', runners.errText(e));
+        console.error('[Remote Install] cancel error:', runners.errText(e));
         res.status(500).json({ error: 'Failed to cancel the job' });
     }
 });
@@ -158,7 +158,7 @@ router.post('/jobs/:id/retry-failed', writers, (req, res) => {
         if (r.status === 202) logger.auditLog(req.user.username, MODULE, `Retried failed hosts of install job ${base.original.id} as job ${r.body.jobId} (${input.ips.length} host(s))`);
         res.status(r.status).json(r.body);
     } catch (e) {
-        console.error('Remote Install retry error:', runners.errText(e));
+        console.error('[Remote Install] retry error:', runners.errText(e));
         res.status(500).json({ error: 'Failed to retry the job' });
     }
 });

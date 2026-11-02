@@ -13,58 +13,13 @@ process.emitWarning = (warning, ...args) => {
 const path = require('path');
 const dotenv = require('dotenv');
 
-// 1. Timezone and Logging format helper
-const originalLog = console.log;
-const originalError = console.error;
-const originalWarn = console.warn;
-const originalInfo = console.info;
-
-const getFormattedTime = () => {
-    const now = new Date();
-    const tz = process.env.SYSTEM_TIMEZONE || 'Asia/Taipei';
-    try {
-        return now.toLocaleString('sv-SE', { timeZone: tz }).replace(' ', 'T');
-    } catch (e) {
-        return now.toISOString();
-    }
-};
-
-const hasTimestamp = (arg) => {
-    if (typeof arg !== 'string') return false;
-    return /^\[\d{4}-\d{2}-\d{2}/.test(arg);
-};
-
-console.log = (...args) => {
-    if (args.length > 0 && hasTimestamp(args[0])) {
-        originalLog(...args);
-    } else {
-        originalLog(`[Worker ${getFormattedTime()}]`, ...args);
-    }
-};
-console.error = (...args) => {
-    if (args.length > 0 && hasTimestamp(args[0])) {
-        originalError(...args);
-    } else {
-        originalError(`[Worker ${getFormattedTime()}]`, ...args);
-    }
-};
-console.warn = (...args) => {
-    if (args.length > 0 && hasTimestamp(args[0])) {
-        originalWarn(...args);
-    } else {
-        originalWarn(`[Worker ${getFormattedTime()}]`, ...args);
-    }
-};
-console.info = (...args) => {
-    if (args.length > 0 && hasTimestamp(args[0])) {
-        originalInfo(...args);
-    } else {
-        originalInfo(`[Worker ${getFormattedTime()}]`, ...args);
-    }
-};
+// Shared console format: [time] [Worker] [LEVEL] message (lib/consoleFormat.js)
+require('./lib/consoleFormat').installConsole('Worker');
 
 // 2. Load and decrypt environment variables
 dotenv.config({ path: path.join(__dirname, '.env'), override: true });
+// Copy of every console line in <data dir>\logs\app_YYYY-MM-DD.log (rotated with the audit logs; APP_LOG_FILE=false disables)
+require('./lib/consoleFormat').enableFileSink(path.join(process.env.DB_DATA_DIR || 'C:\\ProgramData\\somp-vanguard', 'logs'));
 
 // The worker only READS .env (rewrite: false); only the web process may migrate plain-text secrets.
 global.reloadEnv = function() {

@@ -5,13 +5,14 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
-const { requireAuth, checkFeature } = require('../middleware/auth');
+const { requireAuth, checkRole, checkFeature } = require('../middleware/auth');
 const { auditLog } = require('../lib/logger');
 const { detectOs } = require('../lib/osDetect');
 const { readEnv } = require('../lib/envEditor');
 const provisioningConfig = require('../lib/provisioningConfig');
 const { executeSSH } = require('../lib/ssh');
 const envRegistry = require('../lib/environmentRegistry');
+const nutanixValidation = require('../lib/nutanixValidation');
 
 
 
@@ -28,6 +29,9 @@ let currentTask = {
 
 router.use(requireAuth);
 router.use(checkFeature('nutanix')); // only NutanixManager / NutanixCloneVM call these endpoints
+
+// Power actions, cloning and the mapping tables change infrastructure: Viewer is read-only here
+const canOperate = checkRole(['SuperAdmin', 'Operator']);
 
 // GET /connection-status
 router.get('/connection-status', async (req, res) => {
@@ -72,11 +76,12 @@ router.get('/ip-switch-map', async (req, res) => {
 });
 
 // POST /ip-switch-map
-router.post('/ip-switch-map', async (req, res) => {
+router.post('/ip-switch-map', canOperate, async (req, res) => {
     try {
         const data = req.body;
-        if (!Array.isArray(data)) {
-            return res.status(400).json({ error: 'Payload must be an array of mapping entries.' });
+        const { errors } = nutanixValidation.validateIpSwitchMap(data);
+        if (errors.length > 0) {
+            return res.status(400).json({ error: nutanixValidation.describeErrors('IP Switch Mapping rejected', errors), rows: errors });
         }
         writeDataSync('server_operation/ip_switch_map.json', data);
         auditLog(req.user.username, 'Nutanix Manager', 'Updated IP Switch Mapping Table');
@@ -99,11 +104,12 @@ router.get('/template-bu-map', async (req, res) => {
 });
 
 // POST /template-bu-map
-router.post('/template-bu-map', async (req, res) => {
+router.post('/template-bu-map', canOperate, async (req, res) => {
     try {
         const data = req.body;
-        if (!Array.isArray(data)) {
-            return res.status(400).json({ error: 'Payload must be an array of mapping entries.' });
+        const { errors } = nutanixValidation.validateTemplateBuMap(data);
+        if (errors.length > 0) {
+            return res.status(400).json({ error: nutanixValidation.describeErrors('Template-BU Mapping rejected', errors), rows: errors });
         }
         writeDataSync('server_operation/template_bu_map.json', data);
         auditLog(req.user.username, 'Nutanix Manager', 'Updated Template-BU Mapping Table');
@@ -343,7 +349,7 @@ function validateCloneEnvironments(vms) {
 }
 
 // POST /clone
-router.post('/clone', async (req, res) => {
+router.post('/clone', canOperate, async (req, res) => {
     if (currentTask.running) {
         return res.status(400).json({ error: 'A cloning provisioning task is currently running. Please wait for it to complete.' });
     }
@@ -909,14 +915,15 @@ router.post('/detect-os', async (req, res) => {
 });
 
 
-router.post('/vm-action', async (req, res) => {
-    const { uuids, actionType } = req.body;
+router.post('/vm-action', canOperate, async (req, res) => {
+    const { uuids, actionType } = req.body || {};
     const isPeMode = process.env.NUTANIX_MODE === 'PE' || (!process.env.NUTANIX_PC_IP && process.env.NUTANIX_PE_IP);
     const account = isPeMode ? process.env.NUTANIX_PE_ACCOUNT : process.env.NUTANIX_PC_ACCOUNT;
     const pwd = isPeMode ? process.env.NUTANIX_PE_PWD : process.env.NUTANIX_PC_PWD;
 
-    if (!uuids || !Array.isArray(uuids) || uuids.length === 0 || !actionType) {
-        return res.status(400).json({ error: 'Missing UUIDs or actionType' });
+    const { errors } = nutanixValidation.validateVmAction(uuids, actionType);
+    if (errors.length > 0) {
+        return res.status(400).json({ error: nutanixValidation.describeErrors('VM action rejected', errors), rows: errors });
     }
 
     if (isPeMode) {

@@ -34,7 +34,9 @@ test('maskUrl: query secrets, user info and token path segments are masked; host
         'https://prod.example.com/workflows/***/triggers/manual/paths/invoke?api-version=2016-06-01&sp=%2Ftriggers&sig=***');
     assert.equal(maskUrl('https://hooks.example.com/services/T0000000/B0000000/XXXXXXXXXXXXXXXXXXXXXXXX'),
         'https://hooks.example.com/services/T0000000/B0000000/***');
-    assert.equal(maskUrl('https://api.example.org/bot123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw/sendMessage?chat_id=-100123'),
+    // bot-token-shaped dummy built at runtime so secret scanners don't flag a literal
+    const botToken = ['0'.repeat(9), 'x'.repeat(35)].join(':');
+    assert.equal(maskUrl(`https://api.example.org/bot${botToken}/sendMessage?chat_id=-100123`),
         'https://api.example.org/***/sendMessage?chat_id=-100123');
     assert.equal(maskUrl('http://user:pa55@proxy.example.com:3128'), 'http://***:***@proxy.example.com:3128/');
     assert.equal(maskUrl('https://hooks.example.com/notify?token=abc&channel=ops'), 'https://hooks.example.com/notify?token=***&channel=ops');

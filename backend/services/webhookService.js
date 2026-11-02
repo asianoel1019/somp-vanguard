@@ -53,17 +53,56 @@ function renderTemplate(template, params, contentType = 'application/json') {
     return result;
 }
 
+// Secrets never reach the failure dump (log file) or the debug object (returned to the Test button):
+// credential-like header values, URL user info, credential-like query values and token-like path segments are masked.
+const SECRET_HEADER = /authorization|token|key|secret|password|passwd|cookie|signature|auth|credential/i;
+const SECRET_PARAM = /sig|token|key|secret|pass|auth|code|credential/i;
+const TOKEN_SEGMENT = /^[A-Za-z0-9_\-:@.%~+=]{16,}$/;
+const MASK = '***';
+
+function maskHeaders(headers) {
+    const out = {};
+    for (const [name, value] of Object.entries(headers || {})) {
+        if (!SECRET_HEADER.test(name)) { out[name] = value; continue; }
+        const scheme = /^(Bearer|Basic|Token|Digest|Bot)\s+/i.exec(String(value));
+        out[name] = scheme ? `${scheme[1]} ${MASK}` : MASK;
+    }
+    return out;
+}
+
+function maskUrl(raw) {
+    const text = String(raw || '').trim();
+    if (!text) return text;
+    let u;
+    try { u = new URL(text); } catch (e) {
+        // unparseable: keep only what looks like scheme://host
+        const m = /^([a-z][a-z0-9+.-]*:\/\/[^/?#@\s]+)/i.exec(text);
+        return m ? `${m[1]}/${MASK}` : MASK;
+    }
+    if (u.username) u.username = MASK;
+    if (u.password) u.password = MASK;
+    u.pathname = u.pathname.split('/').map(seg => (TOKEN_SEGMENT.test(seg) ? MASK : seg)).join('/');
+    for (const key of [...u.searchParams.keys()]) {
+        if (SECRET_PARAM.test(key)) u.searchParams.set(key, MASK);
+    }
+    // URLSearchParams / pathname setters percent-encode the mask
+    return u.toString().replace(/%2A%2A%2A/gi, MASK);
+}
+
 function logWebhookFailure(webhook, requestOptions, postData, proxyUrl, errorDetails) {
     const timestamp = new Date().toISOString();
     const divider = '='.repeat(72);
+    const targetUrl = maskUrl(webhook.url);
+    const proxyUsed = proxyUrl ? maskUrl(proxyUrl) : 'None (Direct Connection)';
+    const headers = maskHeaders(requestOptions.headers);
     const debugObj = {
         timestamp,
         webhookName: webhook.name,
         webhookId: webhook.id || 'N/A',
-        targetUrl: webhook.url,
+        targetUrl,
         method: requestOptions.method || 'POST',
-        proxyUsed: proxyUrl || 'None (Direct Connection)',
-        headers: requestOptions.headers || {},
+        proxyUsed,
+        headers,
         payloadBody: postData || '(Empty)',
         failureReason: typeof errorDetails === 'string' ? errorDetails : JSON.stringify(errorDetails)
     };
@@ -72,11 +111,11 @@ function logWebhookFailure(webhook, requestOptions, postData, proxyUrl, errorDet
         divider,
         `💥 [WEBHOOK DISPATCH FAILURE DUMP] ${timestamp}`,
         `Webhook Name  : "${webhook.name}" (ID: ${webhook.id || 'N/A'})`,
-        `Target URL    : ${webhook.url}`,
+        `Target URL    : ${targetUrl}`,
         `Method        : ${requestOptions.method || 'POST'}`,
-        `Proxy Used    : ${proxyUrl || 'None (Direct Connection)'}`,
+        `Proxy Used    : ${proxyUsed}`,
         `--- Request Headers ---`,
-        JSON.stringify(requestOptions.headers, null, 2),
+        JSON.stringify(headers, null, 2),
         `--- Request Body (Payload) ---`,
         postData ? postData : '(Empty Body)',
         `--- Failure Reason ---`,
@@ -338,5 +377,8 @@ module.exports = {
     executeWebhook,
     triggerWebhooks,
     selectWebhooksForCategory,
-    handleIncomingWebhook
+    handleIncomingWebhook,
+    maskHeaders,
+    maskUrl,
+    logWebhookFailure
 };

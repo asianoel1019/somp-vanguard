@@ -33,7 +33,7 @@ if ($ParamFile) {
     $ParamFile = $ParamFile.Trim().Trim('"').Trim("'")
 }
 
-if (-not (Test-Path $ParamFile)) {
+if ($ParamFile -ne '-' -and -not (Test-Path $ParamFile)) {
     Write-Error "Error: Cannot find parameter file: $ParamFile"
     exit 1
 }
@@ -44,7 +44,9 @@ Write-Host "   PowerShell 5.1 Compatible Edition" -ForegroundColor Cyan
 Write-Host "=============================================" -ForegroundColor Cyan
 Write-Host "Loading parameters from: $ParamFile"
 
-$Params = Get-Content -Raw $ParamFile | ConvertFrom-Json
+# '-': the backend passes the parameters (with credentials) on stdin, so they never touch the disk
+$ParamJson = if ($ParamFile -eq '-') { [Console]::In.ReadToEnd() } else { Get-Content -Raw $ParamFile }
+$Params = $ParamJson | ConvertFrom-Json
 
 $PrismCentralIP  = $Params.PrismCentralIP
 $BaseUrl         = "https://${PrismCentralIP}:9440/api/nutanix/v3"
@@ -527,6 +529,8 @@ runcmd:
 
         if ($TaskInfo.status -eq "SUCCEEDED") {
             $NewVMUUID = $TaskInfo.entity_reference_list[0].uuid
+            # Read by lib/nutanixCloneTask.js: this VM exists, so it gets the follow-up steps (Linux software, Server List)
+            Write-Host ("##SOMP_VM_CREATED## " + (@{ ip = "$CurrentIP"; name = "$CurrentName"; uuid = "$NewVMUUID" } | ConvertTo-Json -Compress))
             Write-Host "   [$CurrentName] Clone succeeded. Launching update phase 1 (disk expansion and power on)..." -ForegroundColor Green
 
             # Phase 1 Update: Expand Disks & Power ON VM

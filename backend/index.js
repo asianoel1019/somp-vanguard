@@ -561,6 +561,18 @@ initDB().then(async () => {
             console.error('[Startup] Provision job service skipped:', e.message);
         }
 
+        // Nutanix Clone VM: a task the previous web process left running is watched (PowerShell still alive)
+        // or finished from its log (PowerShell gone), so its VMs still reach the Server List
+        try {
+            const cloneTask = require('./lib/nutanixCloneTask');
+            const removed = cloneTask.removeLegacyParamFiles();
+            if (removed.length) console.log(`[Nutanix] Deleted ${removed.length} leftover clone parameter file(s) with credentials`);
+            const state = cloneTask.getCloneTask().recover();
+            if (state !== 'idle') console.log(`[Nutanix] Clone task left by the previous run: ${state}`);
+        } catch (e) {
+            console.error('[Startup] Nutanix clone task recovery skipped:', e.message);
+        }
+
         // Startup warning when ALLOWED_AD_DOMAIN=local (ignored: reserved for the local admin account)
         try { require('./lib/rbac').getAllowedAdDomain(); } catch (e) {}
 

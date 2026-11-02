@@ -120,3 +120,15 @@ test('describeErrors keeps the message short', () => {
     assert.match(msg, /^X rejected: row 1: bad; /);
     assert.match(msg, /\(\+2 more\)$/);
 });
+
+test('clone: refused while a task is running; clone-status is the persisted task status', async (t) => {
+    const nutanix = require('../../routes/nutanix');
+    const fake = { running: true, startTime: 1, timeoutAt: 2, finishedAt: null, vms: [{ Name: 'a' }], result: null };
+    nutanix.setCloneTaskForTest(() => ({ status: () => fake, start: () => { throw new Error('must not start'); } }));
+    t.after(() => nutanix.setCloneTaskForTest(null));
+    const res = await request(app).post('/api/nutanix/clone').set('Authorization', bearer('Operator'))
+        .send({ vms: [{ Name: 'a', IP: '10.20.30.5', OS: 'Rocky Linux', Env: 'x' }] }).expect(400);
+    assert.match(res.body.error, /currently running/);
+    const st = await request(app).get('/api/nutanix/clone-status').set('Authorization', bearer('Viewer')).expect(200);
+    assert.deepEqual(st.body, fake);
+});

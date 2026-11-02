@@ -4,28 +4,17 @@ const axios = require('axios');
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
-const { spawn } = require('child_process');
 const { requireAuth, checkRole, checkFeature } = require('../middleware/auth');
 const { auditLog } = require('../lib/logger');
 const { detectOs } = require('../lib/osDetect');
 const { readEnv } = require('../lib/envEditor');
 const provisioningConfig = require('../lib/provisioningConfig');
-const { executeSSH } = require('../lib/ssh');
 const envRegistry = require('../lib/environmentRegistry');
 const nutanixValidation = require('../lib/nutanixValidation');
+const { getCloneTask } = require('../lib/nutanixCloneTask');
 
-
-
-
-
-const BASE_DATA_DIR = process.env.DB_DATA_DIR || 'C:\\ProgramData\\somp-vanguard';
-
-let currentTask = {
-    running: false,
-    startTime: null,
-    vms: [],
-    logFile: path.join(BASE_DATA_DIR, 'logs', 'nutanix_clone.log')
-};
+// Overridable in tests
+let cloneTask = getCloneTask;
 
 router.use(requireAuth);
 router.use(checkFeature('nutanix')); // only NutanixManager / NutanixCloneVM call these endpoints
@@ -350,7 +339,7 @@ function validateCloneEnvironments(vms) {
 
 // POST /clone
 router.post('/clone', canOperate, async (req, res) => {
-    if (currentTask.running) {
+    if (cloneTask().status().running) {
         return res.status(400).json({ error: 'A cloning provisioning task is currently running. Please wait for it to complete.' });
     }
 
@@ -409,7 +398,6 @@ router.post('/clone', canOperate, async (req, res) => {
     // Read Remote Install (Server Provision) settings dynamically from settings config
     const config = readEnv();
     // One shared parser (lib/provisioningConfig.js) for Server Provision and Nutanix Clone VM
-    const installCfg = provisioningConfig.loadInstallConfig(config);
     const remoteInstallConfig = provisioningConfig.nutanixRemoteInstallConfig(config);
 
     // Load current Template BU map
@@ -419,10 +407,6 @@ router.post('/clone', canOperate, async (req, res) => {
     } catch (e) {
         console.error('[Nutanix] Failed to parse Template BU map: ', e);
     }
-
-    // Setup parameter file in backend/lib/ alongside the PowerShell scripts
-    const paramFileName = `nutanix_clone_params_${Date.now()}.json`;
-    const paramFilePath = path.join(__dirname, '../lib/', paramFileName);
 
     // Sanitize VM objects to prevent duplicate case-insensitive keys (PS5.1 ConvertFrom-Json compatibility)
     const cleanBatchList = vms.map(vm => ({
@@ -455,147 +439,16 @@ router.post('/clone', canOperate, async (req, res) => {
     };
 
     try {
-        const libDir = path.dirname(paramFilePath);
-        if (!fs.existsSync(libDir)) {
-            fs.mkdirSync(libDir, { recursive: true });
-        }
-        fs.writeFileSync(paramFilePath, JSON.stringify(params, null, 2), 'utf8');
-
-        if (!fs.existsSync(paramFilePath)) {
-            throw new Error(`Failed to create parameter file at: ${paramFilePath}`);
-        }
-        
-        // Ensure log file parent directory exists and clear log file
-        const logFileDir = path.dirname(currentTask.logFile);
-        if (!fs.existsSync(logFileDir)) {
-            fs.mkdirSync(logFileDir, { recursive: true });
-        }
-        fs.writeFileSync(currentTask.logFile, `[${new Date().toISOString()}] Starting headless Nutanix ${isPeMode ? 'PE' : 'PC'} VM provisioning...\n`, 'utf8');
-
-        // Spawning PowerShell process in the background
+        // Credentials reach the script on stdin only; lib/nutanixCloneTask.js owns the process, its deadline,
+        // the per-VM follow-up (Linux software, Server List) and the persisted status
         const scriptName = isPeMode ? 'nutanix_clone_vm_pe_api.ps1' : 'nutanix_clone_vm_api.ps1';
-        const scriptPath = path.join(__dirname, '../lib/', scriptName).replace(/\\/g, '/');
-        const safeParamFilePath = paramFilePath.replace(/\\/g, '/');
-        const psCmd = `& '${scriptPath}' -ParamFile '${safeParamFilePath}'`;
-        const psProcess = spawn('powershell.exe', [
-            '-NonInteractive',
-            '-NoProfile',
-            '-ExecutionPolicy', 'Bypass',
-            '-Command', psCmd
-        ]);
-
-        const logStream = fs.createWriteStream(currentTask.logFile, { flags: 'a' });
-        psProcess.stdout.pipe(logStream);
-        psProcess.stderr.pipe(logStream);
-
-        psProcess.on('error', (err) => {
-            fs.appendFileSync(currentTask.logFile, `\n[Node.js Process Error] Failed to launch PowerShell: ${err.message}\n`);
-            currentTask.running = false;
-            try { require('../lib/websocket').broadcastEvent('NUTANIX_CLONE_COMPLETED', { success: false }); } catch(e) {}
+        cloneTask().start({
+            scriptPath: path.join(__dirname, '../lib/', scriptName),
+            params,
+            vms,
+            user: req.user?.username || 'SYSTEM',
+            mode: isPeMode ? 'PE' : 'PC'
         });
-
-        psProcess.on('close', async (code) => {
-            fs.appendFileSync(currentTask.logFile, `\n[Node.js Task Exit] PowerShell process finished with exit code ${code}\n`);
-            
-            if (code === 0) {
-                fs.appendFileSync(currentTask.logFile, `\n[Linux Provisioning] Analyzing VMs for Linux software deployments...\n`);
-                const linuxVMs = vms.filter(vm => {
-                    const os = vm.OS || '';
-                    return !!os.match(/linux|ubuntu|centos|rhel|redhat|debian|rocky|alma|suse|sles/i);
-                });
-
-                if (linuxVMs.length > 0) {
-                    fs.appendFileSync(currentTask.logFile, `[Linux Provisioning] Found ${linuxVMs.length} Linux target VMs. Initializing SSH software installation pipelines...\n`);
-                    
-                    const linuxUser = config.LINUX_ADMIN_USER || process.env.LINUX_ADMIN_USER || 'root';
-                    const linuxPwd = config.LINUX_ADMIN_PWD || process.env.LINUX_ADMIN_PWD || '';
-
-                    for (const vm of linuxVMs) {
-                        const vmIP = vm.IP;
-                        const vmName = vm.VMName || vm.Name;
-                        const vmBU = vm.BU || 'Basic';
-                        const selectedNames = provisioningConfig.selectedNamesFor(installCfg, vmBU, 'linux');
-                        const selectedSoftware = provisioningConfig.resolveSoftware(installCfg, vmBU, 'linux');
-
-                        if (selectedSoftware.length === 0) {
-                            fs.appendFileSync(currentTask.logFile, `[Linux Provisioning] VM ${vmName} (${vmIP}) - BU [${vmBU}]: No Linux software mapped. Skipping.\n`);
-                            continue;
-                        }
-
-                        fs.appendFileSync(currentTask.logFile, `[Linux Provisioning] VM ${vmName} (${vmIP}) - BU [${vmBU}]: Mapped software: ${selectedNames.join(', ')}\n`);
-                        fs.appendFileSync(currentTask.logFile, `[Linux Provisioning] VM ${vmName} (${vmIP}): Connecting to guest via SSH on port 22...\n`);
-                        
-                        try {
-                            // Wait up to 30 seconds for SSH port 22 to be up again after boot ON
-                            let sshReady = false;
-                            for (let attempt = 1; attempt <= 6; attempt++) {
-                                try {
-                                    await executeSSH(vmIP, linuxUser, linuxPwd, 'echo OK', { timeout: 10000 });
-                                    sshReady = true;
-                                    break;
-                                } catch (e) {
-                                    fs.appendFileSync(currentTask.logFile, `[Linux Provisioning] VM ${vmName} (${vmIP}): SSH connection attempt ${attempt}/6 failed. Retrying in 5 seconds...\n`);
-                                    await new Promise(r => setTimeout(r, 5000));
-                                }
-                            }
-
-                            if (!sshReady) {
-                                throw new Error('SSH connection timed out after VM boot ON.');
-                            }
-
-                            fs.appendFileSync(currentTask.logFile, `[Linux Provisioning] VM ${vmName} (${vmIP}): SSH session established. Running installer commands...\n`);
-
-                            for (const sw of selectedSoftware) {
-                                fs.appendFileSync(currentTask.logFile, `=== Installing ${sw.name} inside ${vmName} ===\n`);
-                                fs.appendFileSync(currentTask.logFile, `Running command: ${sw.command}\n`);
-                                const resCmd = await executeSSH(vmIP, linuxUser, linuxPwd, sw.command, { timeout: 10000 });
-                                fs.appendFileSync(currentTask.logFile, `stdout:\n${resCmd.stdout}\n`);
-                                if (resCmd.stderr) {
-                                    fs.appendFileSync(currentTask.logFile, `stderr:\n${resCmd.stderr}\n`);
-                                }
-                                fs.appendFileSync(currentTask.logFile, `Exit code: ${resCmd.code}\n\n`);
-                            }
-                            fs.appendFileSync(currentTask.logFile, `[Linux Provisioning] VM ${vmName} (${vmIP}): Software installations completed successfully! [OK]\n`);
-                        } catch (err) {
-                            fs.appendFileSync(currentTask.logFile, `[Linux Provisioning] VM ${vmName} (${vmIP}) ERROR: SSH deployment failed: ${err.message}\n`);
-                        }
-                    }
-                } else {
-                    fs.appendFileSync(currentTask.logFile, `[Linux Provisioning] No Linux VMs detected in batch list. Skip.\n`);
-                }
-            }
-
-            // Auto-register / Upsert newly cloned VMs into Server List CMDB Meta
-            if (code === 0 && Array.isArray(vms) && vms.length > 0) {
-                try {
-                    const serverListRoute = require('./serverList');
-                    if (typeof serverListRoute.upsertClonedVms === 'function') {
-                        const upsertResult = serverListRoute.upsertClonedVms(vms, req.user?.username || 'SYSTEM');
-                        fs.appendFileSync(currentTask.logFile, `\n[Server List Integration] Successfully synced ${upsertResult.count} VMs to Server List (CMDB).\n`);
-                    }
-                } catch (syncErr) {
-                    console.error('[Nutanix Clone] Error syncing to Server List:', syncErr);
-                    fs.appendFileSync(currentTask.logFile, `\n[Server List Warning] Failed to auto-sync VMs to Server List: ${syncErr.message}\n`);
-                }
-            }
-
-            currentTask.running = false;
-            try { require('../lib/websocket').broadcastEvent('NUTANIX_CLONE_COMPLETED', { success: code === 0 }); } catch(e) {}
-            try {
-                if (fs.existsSync(paramFilePath)) {
-                    fs.unlinkSync(paramFilePath);
-                }
-            } catch (err) {
-                console.error('[Nutanix] Failed to delete temporary clone params file:', err);
-            }
-        });
-
-        psProcess.unref();
-
-        currentTask.running = true;
-        currentTask.startTime = Date.now();
-        currentTask.vms = vms;
-
         auditLog(req.user.username, 'Nutanix Manager', `Triggered background clone provisioning task for ${vms.length} VMs`);
         res.json({ success: true, message: 'Cloning task started in the background.' });
     } catch (err) {
@@ -605,20 +458,17 @@ router.post('/clone', canOperate, async (req, res) => {
 
 // GET /clone-status
 router.get('/clone-status', (req, res) => {
-    res.json({
-        running: currentTask.running,
-        startTime: currentTask.startTime,
-        vms: currentTask.vms
-    });
+    res.json(cloneTask().status());
 });
 
 // GET /clone-logs
 router.get('/clone-logs', (req, res) => {
     try {
-        if (!fs.existsSync(currentTask.logFile)) {
+        const logFile = cloneTask().logFile;
+        if (!fs.existsSync(logFile)) {
             return res.send('');
         }
-        const logs = fs.readFileSync(currentTask.logFile, 'utf8');
+        const logs = fs.readFileSync(logFile, 'utf8');
         res.send(logs);
     } catch (err) {
         res.status(500).send('Error reading logs: ' + err.message);
@@ -1001,4 +851,5 @@ router.post('/vm-action', canOperate, async (req, res) => {
 
 
 router.validateCloneEnvironments = validateCloneEnvironments;
+router.setCloneTaskForTest = (getter) => { cloneTask = getter || getCloneTask; };
 module.exports = router;

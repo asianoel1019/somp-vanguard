@@ -101,6 +101,8 @@ const ENTRIES = [
     { key: 'elk_siem_config', mode: 'replace', owner: 'web', description: 'SIEM config', writers: ['routes/siem.js'], notes: '' },
     { key: 'server_operation/ip_switch_map.json', mode: 'replace', owner: 'web', description: 'Nutanix IP -> switch map', writers: ['routes/nutanix.js'], notes: '' },
     { key: 'server_operation/template_bu_map.json', mode: 'replace', owner: 'web', description: 'Nutanix template -> BU map', writers: ['routes/nutanix.js'], notes: '' },
+    { key: 'server_operation/nutanix_clone_task.json', mode: 'replace', owner: 'web', description: 'Nutanix clone task status (no credentials)',
+        writers: ['lib/nutanixCloneTask.js'], notes: 'single task at a time, web process only; survives a web restart' },
     { key: 'system/environments.json', mode: 'replace', owner: 'web', description: 'Global environments',
         writers: ['routes/environments.js'], notes: 'awaits inside handlers, but every write runs inside the in-process withEnvLock; web only' },
     { key: 'server_operation/hm_checker_config.json', mode: 'replace', owner: 'web', description: 'HM checker settings', writers: ['services/hostMonitorCheckerService.js'], notes: '' },

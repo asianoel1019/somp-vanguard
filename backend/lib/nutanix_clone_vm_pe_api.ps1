@@ -31,7 +31,7 @@ if ($ParamFile) {
     $ParamFile = $ParamFile.Trim().Trim('"').Trim("'")
 }
 
-if (-not (Test-Path $ParamFile)) {
+if ($ParamFile -ne '-' -and -not (Test-Path $ParamFile)) {
     Write-Error "Error: Cannot find parameter file: $ParamFile"
     exit 1
 }
@@ -41,7 +41,9 @@ Write-Host "   VM Provisioning Tool (Prism Element Edition)" -ForegroundColor Cy
 Write-Host "   PowerShell 5.1 Compatible Edition" -ForegroundColor Cyan
 Write-Host "=============================================" -ForegroundColor Cyan
 
-$Params = Get-Content -Raw $ParamFile | ConvertFrom-Json
+# '-': the backend passes the parameters (with credentials) on stdin, so they never touch the disk
+$ParamJson = if ($ParamFile -eq '-') { [Console]::In.ReadToEnd() } else { Get-Content -Raw $ParamFile }
+$Params = $ParamJson | ConvertFrom-Json
 
 # Handle multiple PE IPs if comma separated. Use first IP for primary operations.
 $PeIpsStr        = $Params.PrismCentralIP
@@ -80,7 +82,8 @@ try {
 Write-Host "Starting VM provisioning for $($BatchList.Count) targets on Prism Element..." -ForegroundColor Yellow
 
 # Iterate through each VM sequentially or in parallel. In PE, we perform sequential stable cloning.
-foreach ($VM in $BatchList) {
+# A failed VM is skipped (continue VmLoop); the other VMs of the batch still run
+:VmLoop foreach ($VM in $BatchList) {
     $CurrentName = $VM.Name
     $CurrentIP   = $VM.IP
     $NumCore     = $VM.NumCore
@@ -128,7 +131,8 @@ foreach ($VM in $BatchList) {
     $IPParts = $CurrentIP.Split('.')
     if ($IPParts.Count -ne 4) {
         Write-Host "Error: Invalid IP address format: $CurrentIP" -ForegroundColor Red
-        exit 1
+        Write-Host "Skipping VM [$CurrentName]: provisioning failed (see the error above)." -ForegroundColor Red
+        continue VmLoop
     }
     $cprIPPre = "$($IPParts[0]).$($IPParts[1]).$($IPParts[2])"
     $CurrentGateway = "$cprIPPre.254"
@@ -138,7 +142,8 @@ foreach ($VM in $BatchList) {
     $Matched = $IPSwitchMap | Where-Object { $_.subnetPrefix -eq $cprIPPre }
     if ($null -eq $Matched) {
         Write-Host "Error: Cannot resolve subnet prefix ($cprIPPre) in IP Switch Map! Skipping..." -ForegroundColor Red
-        exit 1
+        Write-Host "Skipping VM [$CurrentName]: provisioning failed (see the error above)." -ForegroundColor Red
+        continue VmLoop
     }
 
     $LoopZone    = $Matched.zone
@@ -162,7 +167,8 @@ foreach ($VM in $BatchList) {
 
     if ([string]::IsNullOrEmpty($TargetTemplateName)) {
         Write-Host "Error: No matching template found for OS [$OS] and BU [$FinalBU]!" -ForegroundColor Red
-        exit 1
+        Write-Host "Skipping VM [$CurrentName]: provisioning failed (see the error above)." -ForegroundColor Red
+        continue VmLoop
     }
 
     Write-Host "Selected template VM name: [$TargetTemplateName]"
@@ -328,12 +334,14 @@ runcmd:
         }
     } catch {
         Write-Host "Error querying templates from PE: $($_.Exception.Message)" -ForegroundColor Red
-        exit 1
+        Write-Host "Skipping VM [$CurrentName]: provisioning failed (see the error above)." -ForegroundColor Red
+        continue VmLoop
     }
 
     if (-not $TemplateUuid) {
         Write-Host "Error: Cannot find template VM named [$TargetTemplateName] on Prism Element!" -ForegroundColor Red
-        exit 1
+        Write-Host "Skipping VM [$CurrentName]: provisioning failed (see the error above)." -ForegroundColor Red
+        continue VmLoop
     }
 
     Write-Host "Template UUID: [$TemplateUuid]"
@@ -380,13 +388,15 @@ runcmd:
                 Write-Host "API Response Detail: $ErrorBody" -ForegroundColor Yellow
             } catch {}
         }
-        exit 1
+        Write-Host "Skipping VM [$CurrentName]: provisioning failed (see the error above)." -ForegroundColor Red
+        continue VmLoop
     }
 
     $TaskUuid = $CloneTask.task_uuid
     if (-not $TaskUuid) {
         Write-Host "Error: No task UUID returned from PE clone API!" -ForegroundColor Red
-        exit 1
+        Write-Host "Skipping VM [$CurrentName]: provisioning failed (see the error above)." -ForegroundColor Red
+        continue VmLoop
     }
 
     Write-Host "PE Clone Task initiated. UUID: [$TaskUuid]"
@@ -420,7 +430,8 @@ runcmd:
 
     if (-not $TaskComplete) {
         Write-Host "Error: VM Clone task timed out or failed!" -ForegroundColor Red
-        exit 1
+        Write-Host "Skipping VM [$CurrentName]: provisioning failed (see the error above)." -ForegroundColor Red
+        continue VmLoop
     }
 
     Write-Host "PE Clone task completed successfully!" -ForegroundColor Green
@@ -439,10 +450,13 @@ runcmd:
 
     if (-not $NewVmUuid) {
         Write-Host "Error: Could not locate new VM UUID after clone!" -ForegroundColor Red
-        exit 1
+        Write-Host "Skipping VM [$CurrentName]: provisioning failed (see the error above)." -ForegroundColor Red
+        continue VmLoop
     }
 
     Write-Host "New VM UUID resolved: [$NewVmUuid]. Proceeding to customization Phase..." -ForegroundColor Green
+    # Read by lib/nutanixCloneTask.js: this VM exists, so it gets the follow-up steps (Linux software, Server List)
+    Write-Host ("##SOMP_VM_CREATED## " + (@{ ip = "$CurrentIP"; name = "$CurrentName"; uuid = "$NewVmUuid" } | ConvertTo-Json -Compress))
 
     # 5. Fetch Cloned VM Complete Details for SCSI mapping and container resolution
     $VmDetail = $null
@@ -460,7 +474,8 @@ runcmd:
         }
     } catch {
         Write-Host "Error: Failed to query VM details: $($_.Exception.Message)" -ForegroundColor Red
-        exit 1
+        Write-Host "Skipping VM [$CurrentName]: provisioning failed (see the error above)." -ForegroundColor Red
+        continue VmLoop
     }
     # DEBUG: Print all returned keys from Prism Element for VM details
     if ($VmDetail) {
@@ -791,7 +806,8 @@ runcmd:
                 Write-Host "API Response Detail: $ErrorBody" -ForegroundColor Yellow
             } catch {}
         }
-        exit 1
+        Write-Host "Skipping VM [$CurrentName]: provisioning failed (see the error above)." -ForegroundColor Red
+        continue VmLoop
     }
 
     # 6. Power ON the newly cloned and customized VM in PE v2.0

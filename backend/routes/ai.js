@@ -494,7 +494,9 @@ router.post('/config', requireAuth, aiSettingsGate, checkRole(['SuperAdmin', 'Op
             enabled: typeof enabled === 'boolean' ? enabled : current.enabled,
             provider: provider || current.provider || 'opencode',
             baseUrl: baseUrl !== undefined ? baseUrl : current.baseUrl,
-            apiKey_enc: apiKey ? encryptText(apiKey) : (apiKey === '' ? '' : current.apiKey_enc),
+            // The page never receives the stored key and always sends the field back empty: empty means "keep".
+            // Removing the key takes an explicit clearApiKey: true.
+            apiKey_enc: apiKey ? encryptText(apiKey) : (req.body.clearApiKey === true ? '' : current.apiKey_enc),
             model: model || current.model,
             temperature: temperature !== undefined ? Number(temperature) : current.temperature,
             timeout: timeout !== undefined ? Number(timeout) : current.timeout,

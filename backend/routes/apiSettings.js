@@ -1,7 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const { requireAuth, checkRole } = require('../middleware/auth');
-const { readEnv, writeEnv } = require('../lib/envEditor');
+const fs = require('fs');
+const path = require('path');
+const { readEnv, writeEnv, envVersion } = require('../lib/envEditor');
 const { auditLog } = require('../lib/logger');
 const { validateProvisionSettings } = require('../lib/provisioning');
 const { validateMasterListText, decodeMasterList } = require('../lib/provisioningConfig');
@@ -54,18 +56,48 @@ router.get('/', (req, res) => {
         // Only these two keys change; the save route encodes real newlines exactly as before.
         if (config.REMOTE_INSTALL_SOFTWARE_MASTER) config.REMOTE_INSTALL_SOFTWARE_MASTER = decodeMasterList(config.REMOTE_INSTALL_SOFTWARE_MASTER, 'windows');
         if (config.REMOTE_INSTALL_LINUX_SOFTWARE_MASTER) config.REMOTE_INSTALL_LINUX_SOFTWARE_MASTER = decodeMasterList(config.REMOTE_INSTALL_LINUX_SOFTWARE_MASTER, 'linux');
-        res.json(config);
+        // __version: fingerprint of the file this page was built from; the save must send it back unchanged
+        res.json({ ...config, __version: envVersion() });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
+/**
+ * DB_DATA_DIR also locates the .system_key that decrypts every enc: value and rbac.json. Moving it to a directory
+ * without that key would make all of them unreadable after the restart, so such a change is refused.
+ * @returns {string|null} error message
+ */
+function checkDataDirChange(next, current) {
+    if (next === undefined || next === null) return null;
+    const norm = (v) => (String(v || '').trim() ? path.resolve(String(v).trim()) : '');
+    if (norm(next) === norm(current)) return null;
+    const target = norm(next) || path.resolve('C:\\ProgramData\\somp-vanguard');
+    if (!fs.existsSync(path.join(target, '.system_key'))) {
+        return `DB_DATA_DIR 不能改成 ${target}：該目錄沒有加密金鑰檔 .system_key，改了之後所有加密設定與 RBAC 都會無法解密。請先把資料目錄（含 .system_key）整個搬過去，再修改並重啟服務。`;
+    }
+    return null;
+}
+
 // POST /api/settings/save - Save updated configuration settings
 router.post('/save', (req, res) => {
     try {
+        // The page saves its whole form, and keys of the repeatable sections that are missing from it are deleted.
+        // A save is therefore only accepted when it was built from the current file: a page whose load failed (empty
+        // form) or that another admin saved over in the meantime would otherwise delete or overwrite settings.
+        const { __version: version, ...body } = req.body || {};
+        if (!version) {
+            return res.status(409).json({ error: '設定尚未成功載入，請重新整理頁面後再儲存', code: 'SETTINGS_NOT_LOADED' });
+        }
+        if (version !== envVersion()) {
+            return res.status(409).json({ error: '設定已被其他人或其他程序修改，請重新整理頁面，重新修改後再儲存', code: 'SETTINGS_CHANGED' });
+        }
         const stored = readEnv();
-        const rawConfig = unmaskSecrets(req.body, stored);
+        const rawConfig = unmaskSecrets(body, stored);
         const prunedConfig = {};
+
+        const dataDirError = checkDataDirChange(rawConfig.DB_DATA_DIR, stored.DB_DATA_DIR);
+        if (dataDirError) return res.status(400).json({ error: dataDirError });
 
         // Server Provision: range-check the PROVISION_* numbers and the detect rules of the master lists before anything is written.
         // Only fields this request actually changes are validated, so an old out-of-range stored value never blocks saving other settings.
@@ -162,7 +194,7 @@ router.post('/save', (req, res) => {
         }
 
         auditLog(req.user.username, 'Settings Manager', 'System configurations updated');
-        res.json({ success: true });
+        res.json({ success: true, __version: envVersion() });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

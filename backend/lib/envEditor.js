@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { encryptText, decryptText } = require('./crypto');
 
 const envPath = process.env.SOMP_ENV_PATH || path.join(__dirname, '../.env');
@@ -140,4 +141,10 @@ function writeEnv(newConfig, dynamicPrefixes = []) {
     }
 }
 
-module.exports = { readEnv, writeEnv, shouldEncrypt };
+/** Fingerprint of the .env file as it is now: a save made from an older read can be detected and refused. */
+function envVersion() {
+    const content = fs.existsSync(envPath) ? fs.readFileSync(envPath) : Buffer.alloc(0);
+    return crypto.createHash('sha256').update(content).digest('hex').slice(0, 16);
+}
+
+module.exports = { readEnv, writeEnv, shouldEncrypt, envVersion };

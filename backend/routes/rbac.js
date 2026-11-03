@@ -244,9 +244,19 @@ router.post('/groups', (req, res) => {
             return res.status(400).json({ error: 'Mapping Name and Target are required' });
         }
         // atomic read-modify-write of the CURRENT document
+        // "Add mapping" sends mode 'create': an existing mapping of the same name (any case) is never replaced, which
+        // would silently swap its target and reset its features. Edits keep using this route without the mode.
+        const isCreate = req.body && req.body.mode === 'create';
+        const sameName = (config) => Object.keys(config.groups || {}).find(k => k.toLowerCase() === String(name).trim().toLowerCase());
+        if (isCreate && sameName(readRbacConfig())) {
+            return res.status(409).json({ error: `AD Mapping "${sameName(readRbacConfig())}" already exists. Edit it instead of adding it again.` });
+        }
         let membershipChanged = false;
+        let duplicate = null;
         const groups = mutateRbacConfig((config) => {
             if (!config.groups) config.groups = {};
+            // re-checked inside the locked write: another admin may have added it a moment ago
+            if (isCreate && sameName(config)) { duplicate = sameName(config); return null; }
             const before = config.groups[name];
             // who belongs to the mapping (and so who holds its role) changes with its type, target or enabled flag
             membershipChanged = !!before && (before.type !== mappingType || before.target !== mappingTarget || (before.enabled !== false) !== (enabled !== false));
@@ -260,6 +270,9 @@ router.post('/groups', (req, res) => {
             };
             return JSON.parse(JSON.stringify(config.groups));
         });
+        if (duplicate) {
+            return res.status(409).json({ error: `AD Mapping "${duplicate}" already exists. Edit it instead of adding it again.` });
+        }
         if (membershipChanged) revokeRoleHolder(`[group] ${name}`);
         auditLog(req.user.username, 'AD User Control', `Added/Updated AD Mapping (${mappingType}): ${name} -> ${mappingTarget}`);
         res.json({ success: true, groups });

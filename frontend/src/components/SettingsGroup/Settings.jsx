@@ -78,6 +78,7 @@ const Settings = ({ mode = 'system' }) => {
     const [devicesText, setDevicesText] = useState('');
     const [webhooks, setWebhooks] = useState([]);
     const [isEditingWebhook, setIsEditingWebhook] = useState(false);
+    const [settingsLoadFailed, setSettingsLoadFailed] = useState(false);
     const [incomingSecret, setIncomingSecret] = useState(''); // shown once, right after it is generated
     const [webhookForm, setWebhookForm] = useState({ id: '', name: '', url: '', method: 'POST', headers: '{\n  "Content-Type": "application/json"\n}', bodyTemplate: '{\n  "text": "{{message}}"\n}', enabled: true, enabledLogs: DEFAULT_LOG_TYPE_KEYS });
     const [testingWebhookId, setTestingWebhookId] = useState(null);
@@ -221,7 +222,8 @@ const Settings = ({ mode = 'system' }) => {
             const [rbacRes, groupsRes, settingsRes, webhooksRes, aiRes] = await Promise.all([
                 api.get('/rbac'),
                 api.get('/rbac/groups').catch(() => ({ data: {} })),
-                api.get('/settings').catch(() => ({ data: {} })),
+                // a failed load must not look like an empty configuration: saving that would delete settings
+                api.get('/settings').catch(() => ({ data: null })),
                 api.get('/webhooks').catch(() => ({ data: [] })),
                 api.get('/ai/config').catch(() => ({ data: {} }))
             ]);
@@ -231,6 +233,7 @@ const Settings = ({ mode = 'system' }) => {
             if (aiRes.data) {
                 setAiConfig(prev => ({ ...prev, ...aiRes.data, apiKey: '' }));
             }
+            setSettingsLoadFailed(!settingsRes.data);
             const cfg = settingsRes.data || {};
             setSysConfig(cfg);
             if (cfg.NETSEARCH_DEVICES) {
@@ -463,11 +466,17 @@ const Settings = ({ mode = 'system' }) => {
     };
 
     const handleSaveSettings = async () => {
-        setSavingSettings(true);
         setError(null);
         setSuccess(null);
+        if (settingsLoadFailed) {
+            setError('設定沒有成功載入，無法儲存。請重新整理頁面。');
+            return;
+        }
+        setSavingSettings(true);
         try {
-            await api.post('/settings/save', sysConfig);
+            const res = await api.post('/settings/save', sysConfig);
+            // the file changed: the next save must be built on the new version
+            setSysConfig(prev => ({ ...prev, __version: res.data.__version }));
             setSuccess('System configurations updated successfully.');
         } catch (err) {
             setError(err.response?.data?.error || err.message);
@@ -602,6 +611,12 @@ const Settings = ({ mode = 'system' }) => {
         if (!targetVal) return;
         if (newGroup.type !== 'account' && !nameVal) return;
         const reservedError = validateNewMappingName(nameVal, newGroup.type, targetVal);
+        const existing = newGroup.type !== 'account' && Object.keys(groups || {}).find(k => k.toLowerCase() === nameVal.toLowerCase());
+        if (existing) {
+            setSuccess(null);
+            setError(`AD Mapping "${existing}" already exists. Edit it instead of adding it again.`);
+            return;
+        }
         if (reservedError) {
             setSuccess(null);
             setError(reservedError);
@@ -612,6 +627,7 @@ const Settings = ({ mode = 'system' }) => {
             setSuccess(null);
             setError(null);
             const res = await api.post('/rbac/groups', {
+                mode: 'create', // the server refuses to replace an existing mapping of the same name
                 name: nameVal || targetVal,
                 type: newGroup.type,
                 target: targetVal,
@@ -890,9 +906,12 @@ const Settings = ({ mode = 'system' }) => {
                             <div>
                                 <h2 style={{ fontSize: 20, fontWeight: 900, margin: 0 }}>{activeCat?.title}</h2>
                                 <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '4px 0 0' }}>{activeCat?.subtitle}</p>
+                                {settingsLoadFailed && (
+                                    <p style={{ fontSize: 12, color: 'var(--danger)', fontWeight: 700, margin: '6px 0 0' }}>⚠️ 設定沒有成功載入，畫面上的值不是目前的設定，已停用儲存。請重新整理頁面。</p>
+                                )}
                             </div>
                             {activeCategory !== 'rbac' && activeCategory !== 'ai' && activeCategory !== 'environments' && (
-                                <button style={S.btnP} onClick={handleSaveSettings} disabled={savingSettings}>
+                                <button style={{ ...S.btnP, ...(settingsLoadFailed ? { opacity: 0.4, cursor: 'not-allowed' } : {}) }} onClick={handleSaveSettings} disabled={savingSettings || settingsLoadFailed}>
                                     {savingSettings ? 'Saving...' : 'Save Changes'}
                                 </button>
                             )}
@@ -976,7 +995,7 @@ const Settings = ({ mode = 'system' }) => {
                                             <input type="text" style={S.input} value={sysConfig.SYSTEM_TIMEZONE || ''} onChange={e => handleConfigChange('SYSTEM_TIMEZONE', e.target.value)} />
                                         </div>
                                         <div style={S.fieldBlock}>
-                                            <label style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-muted)' }}>DB_DATA_DIR <span style={{ color: 'var(--text-muted)', fontWeight: 'normal' }}>(Database & Telemetry Directory Path)</span></label>
+                                            <label style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-muted)' }}>DB_DATA_DIR <span style={{ color: 'var(--text-muted)', fontWeight: 'normal' }}>(Database & Telemetry Directory Path · 改了需重啟；新目錄必須已有搬過去的資料與 .system_key)</span></label>
                                             <input type="text" style={S.input} value={sysConfig.DB_DATA_DIR || ''} placeholder="C:\ProgramData\somp-vanguard" onChange={e => handleConfigChange('DB_DATA_DIR', e.target.value)} />
                                         </div>
                                     </div>

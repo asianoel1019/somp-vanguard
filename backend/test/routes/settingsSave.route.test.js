@@ -7,6 +7,9 @@ const express = require('express');
 const request = require('supertest');
 const { signToken } = require('../helpers/http');
 const settingsRouter = require('../../routes/apiSettings');
+const { envVersion } = require('../../lib/envEditor');
+// every save must carry the version of the file it was built from (supertest merges the two send() objects)
+const v = () => ({ __version: envVersion() });
 
 const app = express();
 app.use(express.json());
@@ -18,7 +21,7 @@ test('save of a Telegram setting tells the worker to reload env, then the Telegr
     const sent = [];
     global.sendWorkerMessage = (msg) => { sent.push(msg.type); return true; };
     try {
-        await request(app).post('/api/settings/save').set('Authorization', superAdmin).send({ FOO: '2', TELEGRAM_BOT_TOKEN: 'abc' }).expect(200);
+        await request(app).post('/api/settings/save').set('Authorization', superAdmin).send(v()).send({ FOO: '2', TELEGRAM_BOT_TOKEN: 'abc' }).expect(200);
     } finally {
         delete global.sendWorkerMessage;
     }
@@ -31,7 +34,7 @@ test('save of a Telegram setting tells the worker to reload env, then the Telegr
 test('save without a reachable worker succeeds and does nothing for Telegram', async () => {
     fs.writeFileSync(process.env.SOMP_ENV_PATH, 'FOO=1\n');
     delete global.sendWorkerMessage;
-    await request(app).post('/api/settings/save').set('Authorization', superAdmin).send({ FOO: '3' }).expect(200);
+    await request(app).post('/api/settings/save').set('Authorization', superAdmin).send(v()).send({ FOO: '3' }).expect(200);
     assert.equal(Object.keys(require.cache).some(p => p.endsWith(path.join('services', 'telegramListener.js'))), false);
 });
 
@@ -40,10 +43,10 @@ test('save of an unrelated setting reloads env but does not restart the Telegram
     const sent = [];
     global.sendWorkerMessage = (msg) => { sent.push(msg.type); return true; };
     try {
-        await request(app).post('/api/settings/save').set('Authorization', superAdmin).send({ DB_BACKUP_TARGETS: 'system' }).expect(200);
+        await request(app).post('/api/settings/save').set('Authorization', superAdmin).send(v()).send({ DB_BACKUP_TARGETS: 'system' }).expect(200);
         assert.deepEqual(sent, ['RELOAD_ENV']);
         sent.length = 0;
-        await request(app).post('/api/settings/save').set('Authorization', superAdmin).send({ PROXY_ENABLED_MODULES: 'Telegram' }).expect(200);
+        await request(app).post('/api/settings/save').set('Authorization', superAdmin).send(v()).send({ PROXY_ENABLED_MODULES: 'Telegram' }).expect(200);
         assert.deepEqual(sent, ['RELOAD_ENV', 'RELOAD_TELEGRAM_LISTENER']);
     } finally {
         delete global.sendWorkerMessage;
@@ -65,7 +68,7 @@ test('provision settings validation: ranges 1-10 / 30-730 / 1-500, whole numbers
 
 test('save rejects out-of-range PROVISION_* values with 400 and writes nothing', async () => {
     fs.writeFileSync(process.env.SOMP_ENV_PATH, 'FOO=1\n');
-    const r = await request(app).post('/api/settings/save').set('Authorization', superAdmin).send({ FOO: '2', PROVISION_HOST_CONCURRENCY: '11' });
+    const r = await request(app).post('/api/settings/save').set('Authorization', superAdmin).send(v()).send({ FOO: '2', PROVISION_HOST_CONCURRENCY: '11' });
     assert.equal(r.status, 400);
     assert.match(r.body.error, /PROVISION_HOST_CONCURRENCY must be a whole number between 1 and 10/);
     assert.equal(fs.readFileSync(process.env.SOMP_ENV_PATH, 'utf8'), 'FOO=1\n');
@@ -74,11 +77,13 @@ test('save rejects out-of-range PROVISION_* values with 400 and writes nothing',
 test('save rejects an invalid detect rule in the master lists with the package name', async () => {
     fs.writeFileSync(process.env.SOMP_ENV_PATH, 'FOO=1\n');
     const r = await request(app).post('/api/settings/save').set('Authorization', superAdmin)
+        .send(v())
         .send({ REMOTE_INSTALL_SOFTWARE_MASTER: 'A|a.exe||@detect:rpm:x\nB|b.exe|', REMOTE_INSTALL_LINUX_SOFTWARE_MASTER: 'L|echo|@detect:reg:x' });
     assert.equal(r.status, 400);
     assert.match(r.body.error, /REMOTE_INSTALL_SOFTWARE_MASTER A: .*not valid for Windows/);
     assert.match(r.body.error, /REMOTE_INSTALL_LINUX_SOFTWARE_MASTER L: .*not valid for Linux/);
     const ok = await request(app).post('/api/settings/save').set('Authorization', superAdmin)
+        .send(v())
         .send({ REMOTE_INSTALL_SOFTWARE_MASTER: 'A|a.exe||@detect:reg:A*>=1.0', REMOTE_INSTALL_LINUX_SOFTWARE_MASTER: 'L|echo|@detect:rpm:l' });
     assert.equal(ok.status, 200);
 });
@@ -88,7 +93,7 @@ test('valid PROVISION_* values are saved and picked up without a restart (the jo
     const keys = ['PROVISION_HOST_CONCURRENCY', 'PROVISION_HISTORY_RETENTION_DAYS', 'PROVISION_MIN_FREE_GB'];
     const old = Object.fromEntries(keys.map(k => [k, process.env[k]]));
     try {
-        await request(app).post('/api/settings/save').set('Authorization', superAdmin).send({ PROVISION_HOST_CONCURRENCY: '7', PROVISION_HISTORY_RETENTION_DAYS: '90', PROVISION_MIN_FREE_GB: '12' }).expect(200);
+        await request(app).post('/api/settings/save').set('Authorization', superAdmin).send(v()).send({ PROVISION_HOST_CONCURRENCY: '7', PROVISION_HISTORY_RETENTION_DAYS: '90', PROVISION_MIN_FREE_GB: '12' }).expect(200);
         const { readEnv } = require('../../lib/envEditor');
         assert.deepEqual(prov.loadProvisionSettings(readEnv(), {}), { hostConcurrency: 7, historyRetentionDays: 90, minFreeGB: 12 });
     } finally {
@@ -110,7 +115,7 @@ test('round trip through the real save route: stored encoding -> readEnv -> shar
     const { readEnv } = require('../../lib/envEditor');
     const win = 'A|\\\\nas01\\soft\\a.exe|/S\nB|b\\setup.exe|\nC|c.msi|/qn||@detect:reg:C*>=1.0';
     const lin = 'L1|echo one|@detect:cmd:test -f /x\nL2|yum install -y foo\nL3|echo three|@detect:rpm:three';
-    await request(app).post('/api/settings/save').set('Authorization', superAdmin).send({
+    await request(app).post('/api/settings/save').set('Authorization', superAdmin).send(v()).send({
         REMOTE_INSTALL_BUS: 'X', REMOTE_INSTALL_SOFTWARE_MASTER: win, REMOTE_INSTALL_SOFTWARE_X: 'A,B,C',
         REMOTE_INSTALL_LINUX_SOFTWARE_MASTER: lin, REMOTE_INSTALL_LINUX_SOFTWARE_X: 'L1,L2,L3'
     }).expect(200);
@@ -129,15 +134,15 @@ test('round trip through the real save route: stored encoding -> readEnv -> shar
 
 test('save rejects a Linux command with a backslash-n sequence', async () => {
     fs.writeFileSync(process.env.SOMP_ENV_PATH, 'FOO=1\n');
-    const r = await request(app).post('/api/settings/save').set('Authorization', superAdmin).send({ REMOTE_INSTALL_LINUX_SOFTWARE_MASTER: 'L|printf "a\\nb"' });
+    const r = await request(app).post('/api/settings/save').set('Authorization', superAdmin).send(v()).send({ REMOTE_INSTALL_LINUX_SOFTWARE_MASTER: 'L|printf "a\\nb"' });
     assert.equal(r.status, 400);
     assert.match(r.body.error, /backslash-n/);
 });
 
 test('M7: an old out-of-range stored value does not block saving other settings; changing it to a bad value does', async () => {
     fs.writeFileSync(process.env.SOMP_ENV_PATH, 'FOO=1\nPROVISION_MIN_FREE_GB=0\n');
-    await request(app).post('/api/settings/save').set('Authorization', superAdmin).send({ FOO: '2', PROVISION_MIN_FREE_GB: '0' }).expect(200);
-    await request(app).post('/api/settings/save').set('Authorization', superAdmin).send({ PROVISION_MIN_FREE_GB: '600' }).expect(400);
+    await request(app).post('/api/settings/save').set('Authorization', superAdmin).send(v()).send({ FOO: '2', PROVISION_MIN_FREE_GB: '0' }).expect(200);
+    await request(app).post('/api/settings/save').set('Authorization', superAdmin).send(v()).send({ PROVISION_MIN_FREE_GB: '600' }).expect(400);
     assert.equal(prov.loadProvisionSettings({ PROVISION_MIN_FREE_GB: '0' }, {}).minFreeGB, 1, 'runtime clamps');
 });
 
@@ -147,7 +152,7 @@ test('N1: save -> GET (decoded) -> edit one line -> save -> GET -> parse; the Nu
     const win = 'A|\\\\nas01\\soft\\a.exe|/S\nB|soft\\notepad\\setup.exe|\nC|c.msi|/qn||@detect:reg:C*>=1.0';
     const lin = 'L1|echo one|@detect:cmd:test -f /x\nL2|yum install -y foo\nL3|echo three|@detect:rpm:three';
     const keys = { REMOTE_INSTALL_BUS: 'X', REMOTE_INSTALL_SOFTWARE_X: 'A,B,C', REMOTE_INSTALL_LINUX_SOFTWARE_X: 'L1,L2,L3', FOO: 'a\\nb|c' };
-    await request(app).post('/api/settings/save').set('Authorization', superAdmin).send({ ...keys, REMOTE_INSTALL_SOFTWARE_MASTER: win, REMOTE_INSTALL_LINUX_SOFTWARE_MASTER: lin }).expect(200);
+    await request(app).post('/api/settings/save').set('Authorization', superAdmin).send(v()).send({ ...keys, REMOTE_INSTALL_SOFTWARE_MASTER: win, REMOTE_INSTALL_LINUX_SOFTWARE_MASTER: lin }).expect(200);
     const g1 = (await request(app).get('/api/settings').set('Authorization', superAdmin).expect(200)).body;
     assert.equal(g1.REMOTE_INSTALL_SOFTWARE_MASTER, win, 'textarea gets real newlines, one entry per line');
     assert.equal(g1.REMOTE_INSTALL_LINUX_SOFTWARE_MASTER, lin);
@@ -155,7 +160,7 @@ test('N1: save -> GET (decoded) -> edit one line -> save -> GET -> parse; the Nu
     // edit one line of each list and save the GET value again
     const win2 = g1.REMOTE_INSTALL_SOFTWARE_MASTER.replace('B|soft\\notepad\\setup.exe|', 'B|soft\\notepad\\setup2.exe|/q');
     const lin2 = g1.REMOTE_INSTALL_LINUX_SOFTWARE_MASTER.replace('yum install -y foo', 'yum install -y bar');
-    await request(app).post('/api/settings/save').set('Authorization', superAdmin).send({ ...keys, REMOTE_INSTALL_SOFTWARE_MASTER: win2, REMOTE_INSTALL_LINUX_SOFTWARE_MASTER: lin2 }).expect(200);
+    await request(app).post('/api/settings/save').set('Authorization', superAdmin).send(v()).send({ ...keys, REMOTE_INSTALL_SOFTWARE_MASTER: win2, REMOTE_INSTALL_LINUX_SOFTWARE_MASTER: lin2 }).expect(200);
     const g2 = (await request(app).get('/api/settings').set('Authorization', superAdmin)).body;
     const stored = require('../../lib/envEditor').readEnv();
     const cfg = cfgMod.loadInstallConfig(stored, {});

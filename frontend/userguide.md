@@ -374,6 +374,12 @@ Server List 是 SOMP Vanguard 的核心伺服器資產資料庫 (CMDB)，自動�
     *   **登出**：系統依登入憑證判斷是誰登出，不能再代替別人登出。
     *   **Dev Tools** 只能呼叫本系統的 `/api/...` 路徑，不接受外部網址；每次呼叫（包含失敗）都會記入稽核，查詢參數中的 key / token 會被遮蔽。
     *   **Incoming Webhook**：外部系統呼叫 `/api/webhooks/incoming/<id>` 時，必須在 `X-Webhook-Secret` header 帶上該 Webhook 的 Secret。請在 Integration Hub 編輯 Webhook，按「產生 Secret 以啟用」，Secret 只會顯示一次；沒有 Secret 的 Webhook 不接受外部呼叫。每個 Webhook 每分鐘最多接受 30 次呼叫。
+    *   **儲存設定不會再遺失資料**：
+        *   System Settings 載入失敗時，頁面會顯示警告並停用儲存，不會再把空白表單存回去而刪掉 AD、Forti、Mail、ELK、SFTP 等設定。
+        *   兩人同時開著頁面時，後存的人會看到「設定已被其他人或其他程序修改」，必須重新整理頁面後再改，不會再蓋掉對方剛存的內容。
+        *   `DB_DATA_DIR` 只能改到已經有 `.system_key`（加密金鑰檔）的目錄，否則改完重啟後所有加密設定與 RBAC 都會無法解密。搬移資料目錄時，請先把整個目錄（含 `.system_key`）複製過去再修改。
+        *   AI Service 的 API Key 欄位留空儲存時，會保留原本的 Key（之前會被清空）。
+        *   RBAC 新增 AD 對照時，名稱已存在（不分大小寫）會被拒絕，請改用編輯，不會再默默覆蓋原本的對照並清空其功能設定。
     *   **NAS 共用資料夾權限查詢**：共用資料夾名稱不可包含 `` ` ``、`$`、`"`、`;`、`|`、`&`、`<`、`>` 等字元。
 *   **資料存取與保留（v1.7.7，維運人員參考）**：
     *   多個服務會同時修改的設定與清單（CMDB 補充資料、排程任務、Prometheus 目標、Webhooks、RBAC、IPAM、SSL 等）一律以資料庫鎖定方式「讀最新資料再寫回」，網頁服務與背景服務不會再互相覆蓋。

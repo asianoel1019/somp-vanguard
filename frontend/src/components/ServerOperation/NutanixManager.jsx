@@ -3,7 +3,14 @@ import api from '../../api';
 import NutanixCloneVM from './NutanixCloneVM';
 import WebRemoteModal from '../Shared/WebRemoteModal';
 import { shouldFallbackToConfig } from '../Shared/webRemoteUtils';
+import { csvCell } from '../../utils/exportUtils';
 
+
+// Prism reports ON / OFF / PAUSED / SUSPENDED / UNKNOWN ... : show what it says, colour only ON and OFF as normal
+const powerColor = (state) => state === 'ON' ? 'var(--success)' : state === 'OFF' ? 'var(--text-muted)' : 'var(--warning)';
+
+// Power actions reach Prism before the VM changes state: refresh again after these delays (ms)
+const POST_ACTION_REFRESH_MS = [10000, 30000];
 
 const S = {
     page: { padding: '24px 32px', fontFamily: "'Inter', sans-serif", color: 'var(--text-primary)', minHeight: '100%' },
@@ -70,6 +77,9 @@ const NutanixManager = () => {
     const [selectedVmIds, setSelectedVmIds] = useState([]);
     const [exportOpen, setExportOpen] = useState(false);
     const exportRef = React.useRef(null);
+    const loadedRef = React.useRef(false);
+    const refreshTimers = React.useRef([]);
+    useEffect(() => () => refreshTimers.current.forEach(clearTimeout), []);
     const [viewMode, setViewMode] = useState('list'); // 'list' or 'clone'
     const [modal, setModal] = useState({ show: false, type: 'info', title: '', message: '', onConfirm: null, onCancel: null, confirmText: 'Confirm', cancelText: 'Cancel' });
 
@@ -91,8 +101,9 @@ const NutanixManager = () => {
         setModal(prev => ({ ...prev, show: false }));
     };
 
-    const fetchVms = async () => {
-        setLoading(true); setError(''); setWarnings([]);
+    // silent: background refresh after a power action (no spinner, a failure keeps the current list)
+    const fetchVms = async ({ silent = false } = {}) => {
+        if (!silent) { setLoading(true); setError(''); setWarnings([]); }
         try {
             const res = await api.post('/nutanix/vms');
             const data = res.data.vms || [];
@@ -115,10 +126,16 @@ const NutanixManager = () => {
             const uH = [...new Set(formatted.map(v => v.host))].sort();
             const uP = [...new Set(formatted.map(v => v.powerState))].sort();
             setClusters(uC); setHosts(uH); setPowerStates(uP);
-            if (uC.length > 0) setFilterCluster(uC[0]);
+            // First load opens on the first cluster; later refreshes keep the chosen filters while their value still exists
+            setFilterCluster(prev => (loadedRef.current ? (prev && !uC.includes(prev) ? '' : prev) : (uC[0] || '')));
+            setFilterHost(prev => (prev && !uH.includes(prev) ? '' : prev));
+            setFilterPower(prev => (prev && !uP.includes(prev) ? '' : prev));
+            loadedRef.current = true;
             setLoaded(true);
             setPcStatus('online');
-        } catch (err) { setError(err.response?.data?.error || err.message); } finally { setLoading(false); }
+        } catch (err) {
+            if (!silent) setError(err.response?.data?.error || err.message);
+        } finally { if (!silent) setLoading(false); }
     };
 
     const checkConnection = async () => {
@@ -190,12 +207,22 @@ const NutanixManager = () => {
                     if (res.data.success) {
                         const errs = (res.data.results || []).filter(r => r.status !== 'Success');
                         if (errs.length > 0) {
-                            showModal('warning', 'Action Completed with Errors', `Completed with ${errs.length} errors.`);
+                            const nameOf = (uuid) => vms.find(v => v.id === uuid)?.name || uuid;
+                            showModal('warning', 'Action Completed with Errors', (
+                                <div>
+                                    <div style={{ marginBottom: 8 }}>{actionType}: {res.data.results.length - errs.length} succeeded, {errs.length} failed.</div>
+                                    <div style={{ maxHeight: 240, overflowY: 'auto', fontSize: 12 }}>
+                                        {errs.map(r => <div key={r.uuid} style={{ padding: '3px 0' }}><b>{nameOf(r.uuid)}</b>: {r.message || r.status}</div>)}
+                                    </div>
+                                </div>
+                            ));
                         } else {
                             showModal('success', 'Action Succeeded', `✅ ${actionType} triggered for all selected VMs.`);
                         }
                         setSelectedVmIds([]);
                         fetchVms();
+                        refreshTimers.current.forEach(clearTimeout);
+                        refreshTimers.current = POST_ACTION_REFRESH_MS.map(ms => setTimeout(() => fetchVms({ silent: true }), ms));
                     }
                 } catch (err) {
                     showModal('error', 'Action Failed', 'Failed: ' + (err.response?.data?.error || err.message));
@@ -216,7 +243,9 @@ const NutanixManager = () => {
             showModal('warning', 'No Data to Export', 'There are no virtual machine entries matching this scope to export.');
             return;
         }
-        const rows = ['Name,IP,Cluster,Host,PowerState', ...items.map(v => `"${v.name}","${v.ips}","${v.cluster}","${v.host}","${v.powerState}"`)];
+        const diskGB = (v) => Math.round((v.diskList || []).filter(d => d.device_properties?.device_type !== 'CDROM').reduce((n, d) => n + (d.disk_size_mib || 0), 0) / 1024 * 10) / 10;
+        const header = ['Name', 'IP', 'Cluster', 'Host', 'PowerState', 'vCPU', 'MemoryGB', 'DiskGB', 'UUID'];
+        const rows = [header.join(','), ...items.map(v => [v.name, v.ips, v.cluster, v.host, v.powerState, v.vcpuCount, v.memoryGB, diskGB(v), v.id].map(csvCell).join(','))];
         const blob = new Blob(["\uFEFF" + rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
         const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `VM_List_${scope}_${new Date().toLocaleDateString()}.csv`; a.click();
         setExportOpen(false);
@@ -341,10 +370,10 @@ const NutanixManager = () => {
                             <select style={S.sel} onChange={e => { if (e.target.value) { handleBatchAction(e.target.value); e.target.value = ''; } }}>
                                 <option value="">— Action —</option>
                                 <option value="OFF">PowerOff</option>
-                                <option value="POWER_CYCLE">PowerCycle</option>
-                                <option value="RESET">Reset</option>
+                                {isPeMode && <option value="POWER_CYCLE">PowerCycle</option>}
+                                {isPeMode && <option value="RESET">Reset</option>}
                                 <option value="ACPI_SHUTDOWN">GuestShutdown</option>
-                                <option value="ACPI_REBOOT">GuestReboot</option>
+                                {isPeMode && <option value="ACPI_REBOOT">GuestReboot</option>}
                             </select>
                         </div>
                     )}
@@ -361,7 +390,7 @@ const NutanixManager = () => {
                     </div>
                     <button
                         style={{ ...S.btnP, opacity: (loading || pcStatus !== 'online') && !loaded ? 0.5 : 1 }}
-                        onClick={fetchVms}
+                        onClick={() => fetchVms()}
                         disabled={(loading || pcStatus !== 'online') && !loaded}
                     >
                         {loading ? '⏳ Loading...' : loaded ? '🔄 Refresh' : '🔍 Get All VM List'}
@@ -381,7 +410,7 @@ const NutanixManager = () => {
             {error && (
                 <div style={{ padding: '14px 24px', borderRadius: 16, background: 'var(--danger)', color: '#fff', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: 700, fontSize: 13 }}>
                     <span>⚠️ {error}</span>
-                    <button style={{ ...S.btnO, color: '#fff', borderColor: 'rgba(255,255,255,0.4)', padding: '6px 14px', fontSize: 12 }} onClick={fetchVms}>Retry</button>
+                    <button style={{ ...S.btnO, color: '#fff', borderColor: 'rgba(255,255,255,0.4)', padding: '6px 14px', fontSize: 12 }} onClick={() => fetchVms()}>Retry</button>
                 </div>
             )}
 
@@ -448,7 +477,7 @@ const NutanixManager = () => {
                                                     <span style={{ fontWeight: 800, fontSize: 15, color: '#4ade80' }}>Nutanix {isPeMode ? 'Prism Element' : 'Prism Central'} is Online</span>
                                                     <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Connection established successfully. Click below to load the live list of virtual machines.</span>
                                                 </div>
-                                                <button style={{ ...S.btnP, padding: '10px 24px', fontSize: 13, gap: 10, width: 'fit-content', marginTop: 8 }} onClick={fetchVms}>
+                                                <button style={{ ...S.btnP, padding: '10px 24px', fontSize: 13, gap: 10, width: 'fit-content', marginTop: 8 }} onClick={() => fetchVms()}>
                                                     🔍 Get All VM List
                                                 </button>
                                             </>
@@ -498,7 +527,7 @@ const NutanixManager = () => {
                                     <td style={{ ...S.td, fontFamily: 'monospace', fontSize: 12 }}>{vm.ips}</td>
                                     <td style={{ ...S.td, color: 'var(--text-secondary)', fontWeight: 600 }}>{vm.cluster}</td>
                                     <td style={{ ...S.td, color: 'var(--text-muted)' }}>{vm.host}</td>
-                                    <td style={{ ...S.td, textAlign: 'center' }}><span style={{ fontWeight: 900, letterSpacing: '0.08em', color: vm.powerState === 'ON' ? 'var(--success)' : 'var(--text-muted)' }}>{vm.powerState === 'ON' ? 'ON' : 'OFF'}</span></td>
+                                    <td style={{ ...S.td, textAlign: 'center' }}><span style={{ fontWeight: 900, letterSpacing: '0.08em', color: powerColor(vm.powerState) }}>{vm.powerState}</span></td>
                                 </tr>
                                 {expandedVmId === vm.id && (
                                     <tr style={{ background: 'var(--bg-secondary)' }}>

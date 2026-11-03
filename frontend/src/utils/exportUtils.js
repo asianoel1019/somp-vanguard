@@ -1,5 +1,12 @@
 // Helper utilities to export JSON data to CSV and JSON files in browser
 
+// One CSV cell: quotes doubled, and a leading = + - @ neutralised so Excel does not evaluate it as a formula
+export function csvCell(value) {
+    let text = value === null || value === undefined ? '' : String(value);
+    if (/^[=+\-@]/.test(text)) text = `'${text}`;
+    return `"${text.replace(/"/g, '""')}"`;
+}
+
 export function downloadJSON(data, filename = 'export.json') {
     const jsonStr = JSON.stringify(data, null, 2);
     const blob = new Blob([jsonStr], { type: 'application/json;charset=utf-8;' });

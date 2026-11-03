@@ -1,7 +1,5 @@
 const express = require('express');
 const router = express.Router();
-const axios = require('axios');
-const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const { requireAuth, checkRole, checkFeature } = require('../middleware/auth');
@@ -12,6 +10,7 @@ const provisioningConfig = require('../lib/provisioningConfig');
 const envRegistry = require('../lib/environmentRegistry');
 const nutanixValidation = require('../lib/nutanixValidation');
 const { getCloneTask } = require('../lib/nutanixCloneTask');
+const nutanixClient = require('../lib/nutanixClient');
 
 // Overridable in tests
 let cloneTask = getCloneTask;
@@ -22,35 +21,28 @@ router.use(checkFeature('nutanix')); // only NutanixManager / NutanixCloneVM cal
 // Power actions, cloning and the mapping tables change infrastructure: Viewer is read-only here
 const canOperate = checkRole(['SuperAdmin', 'Operator']);
 
+// Partial failures (one PE or cluster unreachable) are reported instead of silently shrinking the list.
+// Array responses carry them in this header (URI-encoded JSON) so the response shape stays unchanged.
+function setWarningsHeader(res, warnings) {
+    if (warnings.length > 0) res.set('X-Nutanix-Warnings', encodeURIComponent(JSON.stringify(warnings)));
+}
+
 // GET /connection-status
 router.get('/connection-status', async (req, res) => {
-    const isPeMode = process.env.NUTANIX_MODE === 'PE' || (!process.env.NUTANIX_PC_IP && process.env.NUTANIX_PE_IP);
-    const peIpsStr = process.env.NUTANIX_PE_IP || '';
-    const ip = isPeMode ? peIpsStr.split(',')[0].trim() : process.env.NUTANIX_PC_IP;
-    const account = isPeMode ? process.env.NUTANIX_PE_ACCOUNT : process.env.NUTANIX_PC_ACCOUNT;
-    const pwd = isPeMode ? process.env.NUTANIX_PE_PWD : process.env.NUTANIX_PC_PWD;
+    const cfg = nutanixClient.resolveConfig();
+    const shownIp = cfg.isPeMode ? cfg.peIps.join(',') : cfg.pcIp;
 
-    if (!ip || !account || !pwd) {
-        return res.json({ success: false, status: 'Offline', error: 'Settings are incomplete.', ip: isPeMode ? peIpsStr : ip, isPeMode });
+    if (!cfg.primaryIp || !cfg.account || !cfg.pwd) {
+        return res.json({ success: false, status: 'Offline', error: 'Settings are incomplete.', ip: shownIp, isPeMode: cfg.isPeMode });
     }
 
     try {
-        const url = isPeMode 
-            ? `https://${ip}:9440/api/nutanix/v2.0/cluster`
-            : `https://${ip}:9440/api/nutanix/v3/users/me`;
-        const auth = Buffer.from(`${account}:${pwd}`).toString('base64');
-        const httpsAgent = new https.Agent({ rejectUnauthorized: false });
-
-        const headers = {
-            'Authorization': `Basic ${auth}`,
-            'Content-Type': 'application/json'
-        };
-
-        await axios.get(url, { headers, httpsAgent, proxy: false, timeout: 20000 });
-        res.json({ success: true, status: 'Online', ip: isPeMode ? peIpsStr : ip, isPeMode });
+        const client = nutanixClient.createClient(cfg.primaryIp, cfg);
+        await client.get(cfg.isPeMode ? '/v2.0/cluster' : '/v3/users/me', { timeout: 20000 });
+        res.json({ success: true, status: 'Online', ip: shownIp, isPeMode: cfg.isPeMode });
     } catch (err) {
         console.error('[Nutanix] Connection check failed:', err.message);
-        res.json({ success: false, status: 'Offline', error: err.message, ip: isPeMode ? peIpsStr : ip, isPeMode });
+        res.json({ success: false, status: 'Offline', error: err.message, ip: shownIp, isPeMode: cfg.isPeMode });
     }
 });
 
@@ -108,197 +100,121 @@ router.post('/template-bu-map', canOperate, async (req, res) => {
     }
 });
 
+const vmName = (vm) => vm.spec?.name || vm.status?.name || vm.name;
+
 // GET /templates
 router.get('/templates', async (req, res) => {
-    const isPeMode = process.env.NUTANIX_MODE === 'PE' || (!process.env.NUTANIX_PC_IP && process.env.NUTANIX_PE_IP);
-    const ip = isPeMode ? process.env.NUTANIX_PE_IP.split(',')[0].trim() : process.env.NUTANIX_PC_IP;
-    let account = isPeMode ? process.env.NUTANIX_PE_ACCOUNT : process.env.NUTANIX_PC_ACCOUNT;
-    let pwd = isPeMode ? process.env.NUTANIX_PE_PWD : process.env.NUTANIX_PC_PWD;
-    const { cluster } = req.query;
+    const cfg = nutanixClient.resolveConfig();
+    const cluster = String(req.query.cluster || '').trim();
 
-    if (account && account.startsWith('enc:')) {
-        try { const { decryptText } = require('../lib/crypto'); account = decryptText(account.substring(4)); } catch(e){}
-    }
-    if (pwd && pwd.startsWith('enc:')) {
-        try { const { decryptText } = require('../lib/crypto'); pwd = decryptText(pwd.substring(4)); } catch(e){}
-    }
-
-    if (!ip || !account || !pwd) {
+    if (!cfg.primaryIp || !cfg.account || !cfg.pwd) {
         return res.json([]);
     }
 
-    try {
-        const auth = Buffer.from(`${account}:${pwd}`).toString('base64');
-        const httpsAgent = new https.Agent({ rejectUnauthorized: false });
-        const headers = {
-            'Authorization': `Basic ${auth}`,
-            'Content-Type': 'application/json'
-        };
+    const warnings = [];
+    const isTemplate = (name) => !!name && name.toLowerCase().startsWith('template_');
 
-        if (isPeMode) {
-            // PE Mode: fetch local VMs from all configured PE IPs using GET /vms
-            const peIps = process.env.NUTANIX_PE_IP.split(',').map(s => s.trim()).filter(s => s);
-            let aggregatedTemplates = [];
-            
-            const fetchPromises = peIps.map(async (peIp) => {
-                try {
-                    const url = `https://${peIp}:9440/api/nutanix/v2.0/vms`;
-                    const response = await axios.get(url, { headers, httpsAgent, proxy: false, timeout: 20000 });
-                    const entities = response.data.entities || [];
-                    const templates = entities
-                        .map(vm => vm.name)
-                        .filter(name => name && name.toLowerCase().startsWith('template_'));
-                    aggregatedTemplates = aggregatedTemplates.concat(templates);
-                } catch (err) {
-                    console.error(`[Nutanix] Error fetching templates from PE ${peIp}:`, err.message);
-                }
-            });
-            await Promise.all(fetchPromises);
-            const uniqueTemplates = [...new Set(aggregatedTemplates)].sort();
-            return res.json(uniqueTemplates);
-        } else {
-            // PC Mode: fetch using v3 /vms/list with cluster_name filter if cluster is provided
-            const url = `https://${ip}:9440/api/nutanix/v3/vms/list`;
-            const pcAgent = new https.Agent({ rejectUnauthorized: false, keepAlive: true });
-            let entities = [];
-
-            if (cluster && cluster.trim()) {
-                const targetCluster = cluster.trim();
-                try {
-                    const payload = { kind: "vm", length: 1000, filter: `cluster_name==${targetCluster}` };
-                    const response = await axios.post(url, payload, { headers, httpsAgent: pcAgent, proxy: false, timeout: 15000 });
-                    if (response.data && response.data.entities) {
-                        entities = response.data.entities;
-                    }
-                } catch (clusterErr) {}
-            } else {
-                // If no cluster provided, query clusters first, then fetch VMs per cluster in parallel (50ms per cluster)
-                try {
-                    const clustersRes = await axios.post(`https://${ip}:9440/api/nutanix/v3/clusters/list`, { kind: "cluster", length: 500 }, { headers, httpsAgent: pcAgent, proxy: false, timeout: 10000 });
-                    const clusterEntities = clustersRes.data?.entities || [];
-
-                    if (clusterEntities.length > 0) {
-                        const clusterFetchPromises = clusterEntities.map(async (c) => {
-                            const clusterName = c.spec?.name;
-                            const clusterUuid = c.metadata?.uuid;
-                            try {
-                                const filterExpr = clusterName ? `cluster_name==${clusterName}` : `cluster_uuid==${clusterUuid}`;
-                                const res = await axios.post(url, { kind: "vm", length: 1000, filter: filterExpr }, { headers, httpsAgent: pcAgent, proxy: false, timeout: 10000 });
-                                return res.data?.entities || [];
-                            } catch (err) { return []; }
-                        });
-                        const results = await Promise.all(clusterFetchPromises);
-                        results.forEach(list => { entities = entities.concat(list); });
-                    }
-                } catch (cErr) {}
+    if (cfg.isPeMode) {
+        // PE Mode: template VMs from every configured PE
+        const perPe = await Promise.all(cfg.peIps.map(async (peIp) => {
+            try {
+                const entities = await nutanixClient.listV2(nutanixClient.createClient(peIp, cfg), '/v2.0/vms', { timeout: 20000 });
+                return entities.map(vm => vm.name).filter(isTemplate);
+            } catch (err) {
+                const error = nutanixClient.errorMessage(err);
+                console.error(`[Nutanix] Error fetching templates from PE ${peIp}:`, error);
+                warnings.push({ source: `PE ${peIp}`, error });
+                return [];
             }
-
-            // Fallback: If EVERYTHING failed (e.g. cluster query threw 400), try single light payload
-            if (entities.length === 0) {
-                try {
-                    const payload = { kind: "vm", length: 1000 };
-                    const response = await axios.post(url, payload, { headers, httpsAgent: pcAgent, proxy: false, timeout: 45000 });
-                    entities = response.data.entities || [];
-                } catch (err2) {
-                    console.error('[Nutanix] PC mode v3 list retry failed:', err2.message);
-                }
-            }
-
-
-            const templates = entities
-                .filter(vm => {
-                    const name = vm.spec?.name || vm.status?.name || vm.name;
-                    if (!name || !name.toLowerCase().startsWith('template_')) {
-                        return false;
-                    }
-                    if (cluster && cluster.trim()) {
-                        const targetCluster = cluster.trim().toLowerCase();
-                        const cName = (vm.spec?.cluster_reference?.name || vm.status?.cluster_reference?.name || vm.cluster_name || '').toLowerCase();
-                        const cUuid = (vm.spec?.cluster_reference?.uuid || vm.status?.cluster_reference?.uuid || vm.cluster_uuid || '').toLowerCase();
-
-                        if (cName || cUuid) {
-                            const isMatch = cName === targetCluster || cUuid === targetCluster;
-                            if (!isMatch) {
-                                return false;
-                            }
-                        }
-                    }
-                    return true;
-                })
-                .map(vm => vm.spec?.name || vm.status?.name || vm.name);
-
-            const uniqueTemplates = [...new Set(templates)].sort();
-            res.json(uniqueTemplates);
-        }
-    } catch (err) {
-        console.error('[Nutanix] Error fetching templates:', err.response?.data || err.message);
-        res.json([]);
+        }));
+        setWarningsHeader(res, warnings);
+        return res.json([...new Set(perPe.flat())].sort());
     }
+
+    // PC Mode: v3 vms/list, filtered by cluster when one is given, otherwise cluster by cluster
+    const pc = nutanixClient.createClient(cfg.pcIp, cfg);
+    let entities = [];
+    const clusterWarnings = [];
+    try {
+        const clusterNames = cluster
+            ? [cluster]
+            : (await nutanixClient.listV3(pc, 'cluster', { timeout: 10000 })).map(c => c.spec?.name).filter(Boolean);
+        const lists = await nutanixClient.mapLimit(clusterNames, 5, (name) =>
+            nutanixClient.listV3(pc, 'vm', { filter: `cluster_name==${name}`, timeout: 15000 }).catch((err) => {
+                clusterWarnings.push({ source: `cluster ${name}`, error: nutanixClient.errorMessage(err) });
+                return [];
+            }));
+        entities = lists.flat();
+    } catch (err) {
+        console.warn('[Nutanix] Could not list clusters for the template query:', nutanixClient.errorMessage(err));
+    }
+
+    if (entities.length === 0) {
+        // Fallback: one unfiltered list (cluster filter rejected or cluster list unavailable)
+        try {
+            entities = await nutanixClient.listV3(pc, 'vm', { timeout: 45000 });
+        } catch (err) {
+            const error = nutanixClient.errorMessage(err);
+            console.error('[Nutanix] PC mode v3 list retry failed:', error);
+            warnings.push({ source: `PC ${cfg.pcIp}`, error });
+        }
+    } else {
+        warnings.push(...clusterWarnings);
+    }
+
+    const target = cluster.toLowerCase();
+    const templates = entities
+        .filter(vm => {
+            if (!isTemplate(vmName(vm))) return false;
+            if (!target) return true;
+            const cName = (vm.spec?.cluster_reference?.name || vm.status?.cluster_reference?.name || vm.cluster_name || '').toLowerCase();
+            const cUuid = (vm.spec?.cluster_reference?.uuid || vm.status?.cluster_reference?.uuid || vm.cluster_uuid || '').toLowerCase();
+            return !(cName || cUuid) || cName === target || cUuid === target;
+        })
+        .map(vmName);
+
+    setWarningsHeader(res, warnings);
+    res.json([...new Set(templates)].sort());
 });
 
 // GET /clusters
 router.get('/clusters', async (req, res) => {
-    const isPeMode = process.env.NUTANIX_MODE === 'PE' || (!process.env.NUTANIX_PC_IP && process.env.NUTANIX_PE_IP);
-    const ip = isPeMode ? process.env.NUTANIX_PE_IP.split(',')[0].trim() : process.env.NUTANIX_PC_IP;
-    const account = isPeMode ? process.env.NUTANIX_PE_ACCOUNT : process.env.NUTANIX_PC_ACCOUNT;
-    const pwd = isPeMode ? process.env.NUTANIX_PE_PWD : process.env.NUTANIX_PC_PWD;
+    const cfg = nutanixClient.resolveConfig();
 
-    if (!ip || !account || !pwd) {
+    if (!cfg.primaryIp || !cfg.account || !cfg.pwd) {
         return res.json([]);
     }
 
+    if (cfg.isPeMode) {
+        // PE Mode: one cluster per configured PE
+        const warnings = [];
+        const names = await Promise.all(cfg.peIps.map(async (peIp) => {
+            try {
+                const cluster = await nutanixClient.createClient(peIp, cfg).get('/v2.0/cluster', { timeout: 20000 });
+                return (cluster && cluster.name) || `PE_Cluster_${peIp}`;
+            } catch (err) {
+                const error = nutanixClient.errorMessage(err);
+                console.error(`[Nutanix] Error fetching cluster from PE ${peIp}:`, error);
+                warnings.push({ source: `PE ${peIp}`, error });
+                return null;
+            }
+        }));
+        setWarningsHeader(res, warnings);
+        return res.json([...new Set(names.filter(Boolean))].sort());
+    }
+
     try {
-        const auth = Buffer.from(`${account}:${pwd}`).toString('base64');
-        const httpsAgent = new https.Agent({ rejectUnauthorized: false });
-        const headers = {
-            'Authorization': `Basic ${auth}`,
-            'Content-Type': 'application/json'
-        };
-
-        if (isPeMode) {
-            // PE Mode: Fetch all configured PE clusters in parallel
-            const peIps = process.env.NUTANIX_PE_IP.split(',').map(s => s.trim()).filter(s => s);
-            let aggregatedClusters = [];
-            
-            const fetchPromises = peIps.map(async (peIp) => {
-                try {
-                    const url = `https://${peIp}:9440/api/nutanix/v2.0/cluster`;
-                    const response = await axios.get(url, { headers, httpsAgent, proxy: false, timeout: 20000 });
-                    const clusterName = response.data.name || `PE_Cluster_${peIp}`;
-                    aggregatedClusters.push(clusterName);
-                } catch (err) {
-                    console.error(`[Nutanix] Error fetching cluster from PE ${peIp}:`, err.message);
-                }
-            });
-            await Promise.all(fetchPromises);
-            const uniqueClusters = [...new Set(aggregatedClusters)].sort();
-            return res.json(uniqueClusters);
-        } else {
-            // PC Mode
-            const url = `https://${ip}:9440/api/nutanix/v3/clusters/list`;
-            const payload = {
-                kind: "cluster",
-                length: 500
-            };
-
-            const response = await axios.post(url, payload, { headers, httpsAgent, proxy: false, timeout: 20000 });
-            const entities = response.data.entities || [];
-            const clusters = entities
-                .map(c => c.spec?.name)
-                .filter(name => name);
-
-            const uniqueClusters = [...new Set(clusters)].sort();
-            res.json(uniqueClusters);
-        }
+        const entities = await nutanixClient.listV3(nutanixClient.createClient(cfg.pcIp, cfg), 'cluster', { timeout: 20000 });
+        res.json([...new Set(entities.map(c => c.spec?.name).filter(Boolean))].sort());
     } catch (err) {
         console.error('[Nutanix] Error fetching clusters:', err.message);
-        res.status(500).json({ error: 'Failed to fetch clusters: ' + err.message });
+        res.status(500).json({ error: 'Failed to fetch clusters: ' + nutanixClient.errorMessage(err) });
     }
 });
 
 // GET /settings-check
 router.get('/settings-check', (req, res) => {
-    const isPeMode = process.env.NUTANIX_MODE === 'PE' || (!process.env.NUTANIX_PC_IP && process.env.NUTANIX_PE_IP);
+    const isPeMode = nutanixClient.resolveConfig().isPeMode;
     res.json({
         pcIp: !!process.env.NUTANIX_PC_IP,
         pcAccount: !!process.env.NUTANIX_PC_ACCOUNT,
@@ -369,7 +285,7 @@ router.post('/clone', canOperate, async (req, res) => {
         return res.status(400).json({ error: 'Local Administrator password is required for Windows VM customization.' });
     }
 
-    const isPeMode = process.env.NUTANIX_MODE === 'PE' || (!process.env.NUTANIX_PC_IP && process.env.NUTANIX_PE_IP);
+    const isPeMode = nutanixClient.resolveConfig().isPeMode;
     const ip = isPeMode ? process.env.NUTANIX_PE_IP : process.env.NUTANIX_PC_IP;
     const account = isPeMode ? process.env.NUTANIX_PE_ACCOUNT : process.env.NUTANIX_PC_ACCOUNT;
     const pwd = isPeMode ? process.env.NUTANIX_PE_PWD : process.env.NUTANIX_PC_PWD;
@@ -475,276 +391,105 @@ router.get('/clone-logs', (req, res) => {
     }
 });
 
+/** All non-CVM VMs of one PE (v2.0), normalized to the v3 shape. Throws if the VM list itself fails. */
+async function fetchPeVms(peIp, creds) {
+    const client = nutanixClient.createClient(peIp, creds);
+    const params = { include_vm_disk_config: true, include_vm_nic_config: true };
+    const [entities, hosts, cluster] = await Promise.all([
+        nutanixClient.listV2(client, '/v2.0/vms', { params, timeout: 30000 }),
+        nutanixClient.listV2(client, '/v2.0/hosts', { timeout: 15000 }).catch(() => []),
+        client.get('/v2.0/cluster', { timeout: 10000 }).catch((err) => {
+            console.warn(`[Nutanix] Could not fetch cluster name for ${peIp}:`, err.message);
+            return null;
+        }),
+    ]);
+    const hostMap = {};
+    hosts.forEach(h => { if (h.uuid && h.name) hostMap[h.uuid] = h.name; });
+    const clusterName = (cluster && cluster.name) || `PE_Cluster_${peIp}`;
+    return entities
+        .filter(vm => !nutanixClient.isCvm(vm.name))
+        .map(vm => nutanixClient.normalizeV2Vm(vm, { clusterName, hostMap }));
+}
+
+/** VMs from every PE; failures become warnings so the caller can tell which PE is missing. */
+async function fetchAllPeVms(peIps, creds) {
+    const warnings = [];
+    const lists = await Promise.all(peIps.map(peIp => fetchPeVms(peIp, creds).catch((err) => {
+        const error = nutanixClient.errorMessage(err);
+        console.error(`[Nutanix] Error fetching from PE IP ${peIp}:`, error);
+        warnings.push({ source: `PE ${peIp}`, error });
+        return [];
+    })));
+    return { vms: lists.flat(), warnings };
+}
+
 router.post('/vms', async (req, res) => {
-    const isPeMode = process.env.NUTANIX_MODE === 'PE' || (!process.env.NUTANIX_PC_IP && process.env.NUTANIX_PE_IP);
-    const ip = isPeMode ? process.env.NUTANIX_PE_IP.split(',')[0].trim() : process.env.NUTANIX_PC_IP;
-    let account = isPeMode ? process.env.NUTANIX_PE_ACCOUNT : process.env.NUTANIX_PC_ACCOUNT;
-    let pwd = isPeMode ? process.env.NUTANIX_PE_PWD : process.env.NUTANIX_PC_PWD;
+    const cfg = nutanixClient.resolveConfig();
 
-    if (account && account.startsWith('enc:')) {
-        try { const { decryptText } = require('../lib/crypto'); account = decryptText(account.substring(4)); } catch(e){}
-    }
-    if (pwd && pwd.startsWith('enc:')) {
-        try { const { decryptText } = require('../lib/crypto'); pwd = decryptText(pwd.substring(4)); } catch(e){}
-    }
-
-    if (!ip || !account || !pwd) {
-        return res.status(400).json({ error: `Nutanix ${isPeMode ? 'Prism Element' : 'Prism Central'} credentials are not configured in Settings.` });
+    if (!cfg.primaryIp || !cfg.account || !cfg.pwd) {
+        return res.status(400).json({ error: `Nutanix ${cfg.isPeMode ? 'Prism Element' : 'Prism Central'} credentials are not configured in Settings.` });
     }
 
     try {
-        const auth = Buffer.from(`${account}:${pwd}`).toString('base64');
-        const httpsAgent = new https.Agent({ rejectUnauthorized: false });
-
-        const headers = {
-            'Authorization': `Basic ${auth}`,
-            'Content-Type': 'application/json'
-        };
-
-        if (isPeMode) {
-            // PE Mode: call PE v2.0 VMs API for each configured PE IP in parallel
-            const peIps = process.env.NUTANIX_PE_IP.split(',').map(s => s.trim()).filter(s => s);
-            let aggregatedVms = [];
-
-            const fetchPromises = peIps.map(async (peIp) => {
-                try {
-                    const urlVms = `https://${peIp}:9440/api/nutanix/v2.0/vms`;
-                    const urlHosts = `https://${peIp}:9440/api/nutanix/v2.0/hosts`;
-                    
-                    const [vmsResponse, hostsResponse] = await Promise.all([
-                        axios.get(urlVms, { headers, httpsAgent, proxy: false, timeout: 30000 }),
-                        axios.get(urlHosts, { headers, httpsAgent, proxy: false, timeout: 15000 }).catch(e => ({ data: { entities: [] } }))
-                    ]);
-
-                    let entities = vmsResponse.data.entities || [];
-                    const hostsList = hostsResponse.data.entities || [];
-
-                    const hostMap = {};
-                    hostsList.forEach(h => {
-                        if (h.uuid && h.name) {
-                            hostMap[h.uuid] = h.name;
-                        }
-                    });
-
-                    // Try fetching actual cluster name
-                    let clusterName = 'Local_PE_Cluster';
-                    try {
-                        const clusterRes = await axios.get(`https://${peIp}:9440/api/nutanix/v2.0/cluster`, { headers, httpsAgent, proxy: false, timeout: 10000 });
-                        if (clusterRes.data?.name) {
-                            clusterName = clusterRes.data.name;
-                        }
-                    } catch (err) {
-                        console.warn(`[Nutanix] Could not fetch cluster name for ${peIp}:`, err.message);
-                    }
-
-                    // Filter CVMs
-                    entities = entities.filter(vm => {
-                        const name = (vm.name || '').toUpperCase();
-                        return !(name.startsWith('NTNX') || name.endsWith('CVM'));
-                    });
-
-                    // Normalize to V3 PC format so the React client is fully compatible
-                    const mapped = entities.map(vm => {
-                        const ipAddresses = vm.ip_addresses || [];
-                        const nic_list = ipAddresses.map(ipAddr => ({
-                            ip_endpoint_list: [{ ip: ipAddr }]
-                        }));
-
-                        const disk_list = (vm.disk_list || []).map(disk => {
-                            let sizeMib = 0;
-                            if (disk.disk_size_in_bytes) {
-                                sizeMib = Math.round(disk.disk_size_in_bytes / (1024 * 1024));
-                            } else if (disk.disk_size_mib) {
-                                sizeMib = disk.disk_size_mib;
-                            }
-                            return {
-                                disk_size_mib: sizeMib,
-                                device_properties: {
-                                    device_type: disk.device_properties?.device_type || 'disk'
-                                }
-                            };
-                        });
-
-                        return {
-                            uuid: vm.uuid,
-                            metadata: {
-                                uuid: vm.uuid
-                            },
-                            spec: {
-                                name: vm.name,
-                                resources: {
-                                    num_vcpus_per_socket: vm.num_vcpus || 1,
-                                    num_sockets: 1,
-                                    memory_size_mib: vm.memory_mb || 2048
-                                }
-                            },
-                            status: {
-                                name: vm.name,
-                                power_state: (vm.power_state || 'UNKNOWN').toUpperCase(),
-                                cluster_reference: {
-                                    name: clusterName,
-                                    uuid: vm.cluster_uuid || ''
-                                },
-                                resources: {
-                                    power_state: (vm.power_state || 'UNKNOWN').toUpperCase(),
-                                    num_vcpus_per_socket: vm.num_vcpus || 1,
-                                    num_sockets: 1,
-                                    memory_size_mib: vm.memory_mb || 2048,
-                                    host_reference: {
-                                        name: (vm.host_uuid && hostMap[vm.host_uuid]) ? hostMap[vm.host_uuid] : 'N/A',
-                                        uuid: vm.host_uuid || ''
-                                    },
-                                    nic_list: nic_list,
-                                    disk_list: disk_list
-                                }
-                            }
-                        };
-                    });
-
-                    aggregatedVms = aggregatedVms.concat(mapped);
-                } catch (err) {
-                    console.error(`[Nutanix] Error fetching from PE IP ${peIp}:`, err.message);
-                }
-            });
-
-            await Promise.all(fetchPromises);
-
-            return res.json({ success: true, vms: aggregatedVms, pcIp: process.env.NUTANIX_PE_IP, isPeMode: true });
-        } else {
-            // PC Mode: Try fast PE IP parallel fetch first if PE IPs are configured, or use PC v3 list with is_cvm==false filter
-            const peIpsStr = process.env.NUTANIX_PE_IP || '';
-            const peIps = peIpsStr.split(',').map(s => s.trim()).filter(s => s);
-
-            if (peIps.length > 0) {
-                let aggregatedVms = [];
-                const pcAgent = new https.Agent({ rejectUnauthorized: false, keepAlive: true });
-
-                const fetchPromises = peIps.map(async (peIp) => {
-                    try {
-                        const urlVms = `https://${peIp}:9440/api/nutanix/v2.0/vms`;
-                        const urlHosts = `https://${peIp}:9440/api/nutanix/v2.0/hosts`;
-                        
-                        const [vmsResponse, hostsResponse] = await Promise.all([
-                            axios.get(urlVms, { headers, httpsAgent: pcAgent, proxy: false, timeout: 15000 }),
-                            axios.get(urlHosts, { headers, httpsAgent: pcAgent, proxy: false, timeout: 15000 }).catch(e => ({ data: { entities: [] } }))
-                        ]);
-
-                        let entities = vmsResponse.data.entities || [];
-                        const hostsList = hostsResponse.data.entities || [];
-                        const hostMap = {};
-                        hostsList.forEach(h => { if (h.uuid && h.name) hostMap[h.uuid] = h.name; });
-
-                        let clusterName = 'PE_Cluster';
-                        try {
-                            const clusterRes = await axios.get(`https://${peIp}:9440/api/nutanix/v2.0/cluster`, { headers, httpsAgent: pcAgent, proxy: false, timeout: 15000 });
-                            if (clusterRes.data?.name) clusterName = clusterRes.data.name;
-                        } catch (err) {}
-
-                        entities = entities.filter(vm => {
-                            const name = (vm.name || '').toUpperCase();
-                            return !(name.startsWith('NTNX') || name.endsWith('CVM'));
-                        });
-
-                        const mapped = entities.map(vm => {
-                            const ipAddresses = vm.ip_addresses || [];
-                            const nic_list = ipAddresses.map(ipAddr => ({ ip_endpoint_list: [{ ip: ipAddr }] }));
-                            const disk_list = (vm.disk_list || []).map(disk => ({
-                                disk_size_bytes: disk.disk_size_bytes || ((disk.container_max_capacity_bytes || 0)),
-                                device_properties: { disk_address: { device_bus: disk.device_bus || 'SCSI' } }
-                            }));
-
-                            return {
-                                metadata: { uuid: vm.uuid },
-                                spec: { name: vm.name },
-                                status: {
-                                    name: vm.name,
-                                    cluster_reference: { name: clusterName, uuid: vm.cluster_uuid || '' },
-                                    resources: {
-                                        power_state: (vm.power_state || 'UNKNOWN').toUpperCase(),
-                                        num_vcpus_per_socket: vm.num_vcpus || 1,
-                                        num_sockets: 1,
-                                        memory_size_mib: vm.memory_mb || 2048,
-                                        host_reference: { name: (vm.host_uuid && hostMap[vm.host_uuid]) ? hostMap[vm.host_uuid] : 'N/A', uuid: vm.host_uuid || '' },
-                                        nic_list: nic_list,
-                                        disk_list: disk_list
-                                    }
-                                }
-                            };
-                        });
-                        aggregatedVms = aggregatedVms.concat(mapped);
-                    } catch (err) {
-                        console.error(`[Nutanix] Error fetching from PE IP ${peIp}:`, err.message);
-                    }
-                });
-
-                await Promise.all(fetchPromises);
-                if (aggregatedVms.length > 0) {
-                    return res.json({ success: true, vms: aggregatedVms, pcIp: ip, isPeMode: false });
-                }
+        if (cfg.isPeMode) {
+            const { vms, warnings } = await fetchAllPeVms(cfg.peIps, cfg);
+            if (vms.length === 0 && warnings.length > 0) {
+                return res.status(502).json({ error: 'No Prism Element answered: ' + warnings.map(w => `${w.source}: ${w.error}`).join('; '), warnings });
             }
-
-            // PC Mode fallback: Query clusters first, then fetch VMs per cluster in parallel (50ms per cluster)
-            const pcAgent = new https.Agent({ rejectUnauthorized: false, keepAlive: true });
-            let vmsEntities = [];
-
-            try {
-                const clustersRes = await axios.post(`https://${ip}:9440/api/nutanix/v3/clusters/list`, { kind: "cluster", length: 500 }, { headers, httpsAgent: pcAgent, proxy: false, timeout: 10000 });
-                const clusterEntities = clustersRes.data?.entities || [];
-
-                if (clusterEntities.length > 0) {
-                    const clusterFetchPromises = clusterEntities.map(async (c) => {
-                        const clusterName = c.spec?.name;
-                        const clusterUuid = c.metadata?.uuid;
-
-                        try {
-                            const vmsUrl = `https://${ip}:9440/api/nutanix/v3/vms/list`;
-                            const filterExpr = clusterName ? `cluster_name==${clusterName}` : `cluster_uuid==${clusterUuid}`;
-                            const res = await axios.post(vmsUrl, { kind: "vm", length: 1000, filter: filterExpr }, { headers, httpsAgent: pcAgent, proxy: false, timeout: 10000 });
-                            return res.data?.entities || [];
-                        } catch (err) {
-                            return [];
-                        }
-                    });
-
-                    const results = await Promise.all(clusterFetchPromises);
-                    results.forEach(list => { vmsEntities = vmsEntities.concat(list); });
-                }
-            } catch (cErr) {
-                console.warn('[Nutanix] Could not fetch clusters list for cluster-by-cluster VM query:', cErr.message);
-            }
-
-            // Secondary fallback: single light payload if cluster query returned empty
-            if (vmsEntities.length === 0) {
-                try {
-                    const payload = { kind: "vm", length: 1000 };
-                    const response = await axios.post(`https://${ip}:9440/api/nutanix/v3/vms/list`, payload, { headers, httpsAgent: pcAgent, proxy: false, timeout: 15000 });
-                    vmsEntities = response.data.entities || [];
-                } catch (e) {}
-            }
-
-            // Filter CVMs
-            let vms = vmsEntities.filter(vm => {
-                const name = (vm.spec?.name || '').toUpperCase();
-                return !(name.startsWith('NTNX') || name.endsWith('CVM'));
-            });
-
-            // Resolve hostnames
-            const hostMap = {}; // define empty map to prevent ReferenceError
-            vms = vms.map(vm => {
-                const hUuid = vm.status?.resources?.host_reference?.uuid || vm.status?.host_reference?.uuid;
-                if (hUuid && hostMap[hUuid]) {
-                    if (vm.status?.resources?.host_reference) {
-                        vm.status.resources.host_reference.name = hostMap[hUuid];
-                    }
-                    if (vm.status?.host_reference) {
-                        vm.status.host_reference.name = hostMap[hUuid];
-                    }
-                }
-                return vm;
-            });
-
-            return res.json({ success: true, vms, pcIp: ip });
+            return res.json({ success: true, vms, warnings, pcIp: cfg.peIps.join(','), isPeMode: true });
         }
+
+        // PC Mode: the per-PE v2 list is faster when PE IPs are configured; fall back to PC v3 when it returns nothing
+        if (cfg.peIps.length > 0) {
+            const { vms, warnings } = await fetchAllPeVms(cfg.peIps, cfg);
+            if (vms.length > 0) {
+                return res.json({ success: true, vms, warnings, pcIp: cfg.pcIp, isPeMode: false });
+            }
+        }
+
+        const pc = nutanixClient.createClient(cfg.pcIp, cfg);
+        let entities = [];
+        const clusterWarnings = [];
+        try {
+            const clusters = await nutanixClient.listV3(pc, 'cluster', { timeout: 10000 });
+            const lists = await nutanixClient.mapLimit(clusters, 5, (c) => {
+                const name = c.spec?.name;
+                const filter = name ? `cluster_name==${name}` : `cluster_uuid==${c.metadata?.uuid}`;
+                return nutanixClient.listV3(pc, 'vm', { filter, timeout: 15000 }).catch((err) => {
+                    clusterWarnings.push({ source: `cluster ${name || c.metadata?.uuid}`, error: nutanixClient.errorMessage(err) });
+                    return [];
+                });
+            });
+            entities = lists.flat();
+        } catch (err) {
+            console.warn('[Nutanix] Could not fetch clusters list for cluster-by-cluster VM query:', nutanixClient.errorMessage(err));
+        }
+
+        const warnings = [];
+        if (entities.length === 0) {
+            // Secondary fallback: one unfiltered list; if this fails too the request fails
+            entities = await nutanixClient.listV3(pc, 'vm', { timeout: 45000 });
+        } else {
+            warnings.push(...clusterWarnings);
+        }
+
+        const vms = entities.filter(vm => !nutanixClient.isCvm(vm.spec?.name));
+
+        // v3 host_reference usually carries only the uuid: resolve names from the host list
+        if (vms.some(vm => vm.status?.resources?.host_reference?.uuid && !vm.status.resources.host_reference.name)) {
+            const hosts = await nutanixClient.listV3(pc, 'host', { timeout: 15000 }).catch((err) => {
+                warnings.push({ source: 'host names', error: nutanixClient.errorMessage(err) });
+                return [];
+            });
+            const hostMap = {};
+            hosts.forEach(h => { const n = h.spec?.name || h.status?.name; if (h.metadata?.uuid && n) hostMap[h.metadata.uuid] = n; });
+            vms.forEach(vm => {
+                const ref = vm.status?.resources?.host_reference;
+                if (ref && ref.uuid && !ref.name && hostMap[ref.uuid]) ref.name = hostMap[ref.uuid];
+            });
+        }
+
+        return res.json({ success: true, vms, warnings, pcIp: cfg.pcIp });
     } catch (err) {
         console.error('[Nutanix] Error fetching VMs:', err.message);
         res.status(500).json({ error: err.response?.data ? JSON.stringify(err.response.data) : err.message });
@@ -765,88 +510,83 @@ router.post('/detect-os', async (req, res) => {
 });
 
 
+// Power requests in flight at once, so a large selection does not hit Prism with hundreds of parallel calls
+const VM_ACTION_CONCURRENCY = 5;
+const PC_PUT_ATTEMPTS = 3;
+
+// Prism Central v3 only knows power_state ON/OFF; the mechanism picks hard vs. guest (ACPI) shutdown
+const PC_POWER_SPEC = {
+    OFF: { power_state: 'OFF', mechanism: 'HARD' },
+    ACPI_SHUTDOWN: { power_state: 'OFF', mechanism: 'ACPI' },
+};
+
+/**
+ * One PC v3 power change. The PUT sends back metadata.spec_version from the GET, so Prism rejects it with 409
+ * when the VM was changed in between instead of overwriting that change; the GET/PUT is then repeated.
+ */
+async function setPcPowerState(pc, uuid, actionType) {
+    const target = PC_POWER_SPEC[actionType];
+    if (!target) {
+        return { uuid, status: 'Error', message: `${actionType} is not available through Prism Central v3 (only OFF and ACPI_SHUTDOWN)` };
+    }
+    for (let attempt = 1; ; attempt++) {
+        try {
+            const vm = await pc.get(`/v3/vms/${uuid}`, { timeout: 10000 });
+            if (!vm || !vm.spec || !vm.spec.resources) {
+                return { uuid, status: 'Error', message: 'Invalid VM structure returned' };
+            }
+            vm.spec.resources.power_state = target.power_state;
+            vm.spec.resources.power_state_mechanism = { ...(vm.spec.resources.power_state_mechanism || {}), mechanism: target.mechanism };
+            // status is read-only in v3 and must not be sent back
+            await pc.put(`/v3/vms/${uuid}`, { spec: vm.spec, metadata: vm.metadata }, { timeout: 10000 });
+            return { uuid, status: 'Success' };
+        } catch (err) {
+            if (err.response?.status === 409 && attempt < PC_PUT_ATTEMPTS) continue;
+            return { uuid, status: 'Error', message: nutanixClient.errorMessage(err) };
+        }
+    }
+}
+
 router.post('/vm-action', canOperate, async (req, res) => {
     const { uuids, actionType } = req.body || {};
-    const isPeMode = process.env.NUTANIX_MODE === 'PE' || (!process.env.NUTANIX_PC_IP && process.env.NUTANIX_PE_IP);
-    const account = isPeMode ? process.env.NUTANIX_PE_ACCOUNT : process.env.NUTANIX_PC_ACCOUNT;
-    const pwd = isPeMode ? process.env.NUTANIX_PE_PWD : process.env.NUTANIX_PC_PWD;
+    const cfg = nutanixClient.resolveConfig();
 
     const { errors } = nutanixValidation.validateVmAction(uuids, actionType);
     if (errors.length > 0) {
         return res.status(400).json({ error: nutanixValidation.describeErrors('VM action rejected', errors), rows: errors });
     }
 
-    if (isPeMode) {
-        const peIps = process.env.NUTANIX_PE_IP.split(',').map(s => s.trim()).filter(s => s);
-        if (peIps.length === 0 || !account || !pwd) {
+    if (cfg.isPeMode) {
+        if (cfg.peIps.length === 0 || !cfg.account || !cfg.pwd) {
             return res.status(400).json({ error: 'Nutanix PE credentials not configured.' });
         }
+        const clients = cfg.peIps.map(peIp => nutanixClient.createClient(peIp, cfg));
 
-        const auth = Buffer.from(`${account}:${pwd}`).toString('base64');
-        const headers = { 'Authorization': `Basic ${auth}`, 'Content-Type': 'application/json' };
-        const httpsAgent = new https.Agent({ rejectUnauthorized: false });
-
-        const tasks = uuids.map(async (uuid) => {
+        // The UUID is not tied to a PE in the request: try each PE until one accepts it
+        const results = await nutanixClient.mapLimit(uuids, VM_ACTION_CONCURRENCY, async (uuid) => {
             let lastError = 'VM not found on configured PE IPs';
-            for (const peIp of peIps) {
+            for (const client of clients) {
                 try {
-                    const url = `https://${peIp}:9440/api/nutanix/v2.0/vms/${uuid}/set_power_state`;
-                    const payload = { transition: actionType };
-                    await axios.post(url, payload, { headers, httpsAgent, proxy: false, timeout: 10000 });
+                    await client.post(`/v2.0/vms/${uuid}/set_power_state`, { transition: actionType }, { timeout: 10000 });
                     return { uuid, status: 'Success' };
                 } catch (err) {
-                    lastError = err.response?.data?.message || err.message;
+                    lastError = nutanixClient.errorMessage(err);
                 }
             }
             return { uuid, status: 'Error', message: lastError };
         });
 
-        const results = await Promise.all(tasks);
         auditLog(req.user.username, 'Nutanix Manager', `Executed ${actionType} on ${uuids.length} VMs (PE Mode)`);
         return res.json({ success: true, results });
-    } else {
-        const pcIp = process.env.NUTANIX_PC_IP;
-        if (!pcIp || !account || !pwd) {
-            return res.status(400).json({ error: 'Nutanix credentials not configured.' });
-        }
-
-        const auth = Buffer.from(`${account}:${pwd}`).toString('base64');
-        const headers = { 'Authorization': `Basic ${auth}`, 'Content-Type': 'application/json' };
-        const httpsAgent = new https.Agent({ rejectUnauthorized: false });
-
-        // Parallel processing with limited concurrency might be safer, but for now simple Promise.all
-        const tasks = uuids.map(async (uuid) => {
-            try {
-                const url = `https://${pcIp}:9440/api/nutanix/v3/vms/${uuid}`;
-                // 1. GET current spec
-                const getRes = await axios.get(url, { headers, httpsAgent, proxy: false, timeout: 10000 });
-                const vm = getRes.data;
-
-                if (!vm.spec || !vm.spec.resources) {
-                    return { uuid, status: 'Failed', message: 'Invalid VM structure returned' };
-                }
-
-                // 2. Set new power state
-                vm.spec.resources.power_state = actionType;
-
-                // 3. PUT updated spec (exclude status as per Nutanix v3 rules)
-                const payload = {
-                    spec: vm.spec,
-                    metadata: vm.metadata
-                };
-
-                await axios.put(url, payload, { headers, httpsAgent, proxy: false, timeout: 10000 });
-                return { uuid, status: 'Success' };
-            } catch (err) {
-                const msg = err.response?.data?.message || err.message;
-                return { uuid, status: 'Error', message: msg };
-            }
-        });
-
-        const results = await Promise.all(tasks);
-        auditLog(req.user.username, 'Nutanix Manager', `Executed ${actionType} on ${uuids.length} VMs`);
-        res.json({ success: true, results });
     }
+
+    if (!cfg.pcIp || !cfg.account || !cfg.pwd) {
+        return res.status(400).json({ error: 'Nutanix credentials not configured.' });
+    }
+    const pc = nutanixClient.createClient(cfg.pcIp, cfg);
+    const results = await nutanixClient.mapLimit(uuids, VM_ACTION_CONCURRENCY, (uuid) => setPcPowerState(pc, uuid, actionType));
+    auditLog(req.user.username, 'Nutanix Manager', `Executed ${actionType} on ${uuids.length} VMs`);
+    res.json({ success: true, results });
 });
 
 

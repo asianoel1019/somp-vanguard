@@ -51,6 +51,7 @@ const NutanixManager = () => {
     const [isPeMode, setIsPeMode] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+    const [warnings, setWarnings] = useState([]); // PEs / clusters that could not be read on the last refresh
     const [currentPage, setCurrentPage] = useState(1);
     const PAGE_SIZE = 50;
     const [searchName, setSearchName] = useState('');
@@ -91,11 +92,12 @@ const NutanixManager = () => {
     };
 
     const fetchVms = async () => {
-        setLoading(true); setError('');
+        setLoading(true); setError(''); setWarnings([]);
         try {
             const res = await api.post('/nutanix/vms');
             const data = res.data.vms || [];
             if (res.data.pcIp) setPcIp(res.data.pcIp);
+            setWarnings(res.data.warnings || []);
             setIsPeMode(!!res.data.isPeMode);
             const formatted = data.map(vm => {
                 const name = vm.spec?.name || 'Unknown';
@@ -380,6 +382,14 @@ const NutanixManager = () => {
                 <div style={{ padding: '14px 24px', borderRadius: 16, background: 'var(--danger)', color: '#fff', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: 700, fontSize: 13 }}>
                     <span>⚠️ {error}</span>
                     <button style={{ ...S.btnO, color: '#fff', borderColor: 'rgba(255,255,255,0.4)', padding: '6px 14px', fontSize: 12 }} onClick={fetchVms}>Retry</button>
+                </div>
+            )}
+
+            {/* Partial-result Banner: the list is missing the VMs of these sources */}
+            {!error && warnings.length > 0 && (
+                <div style={{ padding: '14px 24px', borderRadius: 16, background: 'var(--warning)', color: '#000', marginBottom: 20, fontWeight: 700, fontSize: 13 }}>
+                    <div>⚠️ The VM list is incomplete: {warnings.length} source(s) could not be read.</div>
+                    {warnings.map((w, i) => <div key={i} style={{ fontWeight: 500, marginTop: 4 }}>• {w.source}: {w.error}</div>)}
                 </div>
             )}
 

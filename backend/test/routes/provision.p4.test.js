@@ -535,14 +535,16 @@ test('supervisor exit handler: closes the backup status, adopts the exited worke
     const backupService = { readLastResult: async () => ({ startedAt: '2026-10-21T00:00:00Z' }), writeLastResult: async (x) => { backupWrites.push(x); } };
     const own = insertJob({ ownerId: 'worker:4242:x', heartbeatAt: new Date().toISOString(), request: linuxRequest(['10.20.0.1', '10.20.0.2']), hosts: [['10.20.0.1', 'running'], ['10.20.0.2', 'queued']] });
     const other = insertJob({ ownerId: `worker:${process.pid}:y`, heartbeatAt: new Date().toISOString(), request: {}, hosts: [['10.20.2.1', 'running']] });
-    // a job waiting for the ack of the worker that just died
+    // a job waiting for the ack of the worker that just died; the ack timeout is far above the bound below,
+    // so a slow machine (full suite under load) cannot be mistaken for a fallback that waited
+    jobs._config.ackTimeoutMs = 60000;
     wire({ deliver: false });
     const t0 = Date.now();
     const pendingId = await submitLinux(op, ['10.20.0.3']);
     await tick(10);
     await exitHandler.handleWorkerExit({ pid: 4242, jobs, backupService });
     await jobs.whenIdle();
-    assert.ok(Date.now() - t0 < 2000, 'fallback did not wait for the ack timeout');
+    assert.ok(Date.now() - t0 < 20000, `fallback did not wait for the ack timeout (took ${Date.now() - t0} ms)`);
     assert.equal(backupWrites.length, 1);
     assert.equal(backupWrites[0].error, 'Background worker exited during backup');
     let j = await getJob(own);

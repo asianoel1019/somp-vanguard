@@ -70,6 +70,13 @@ const formatOuDisplay = (ouLayer) => {
     return ouLayer;
 };
 
+// /nutanix/templates and /nutanix/clusters return arrays; skipped PEs / clusters come in this header
+const readNutanixWarnings = (res) => {
+    const raw = res?.headers?.['x-nutanix-warnings'];
+    if (!raw) return [];
+    try { return JSON.parse(decodeURIComponent(raw)); } catch { return []; }
+};
+
 const NutanixCloneVM = ({ onClose }) => {
     const user = JSON.parse(localStorage.getItem('user') || '{}');
     const role = user.role || 'Viewer';
@@ -108,6 +115,7 @@ const NutanixCloneVM = ({ onClose }) => {
     // --- Template-BU Mapping Tab States ---
     const [templateBuMap, setTemplateBuMap] = useState([]);
     const [templates, setTemplates] = useState([]);
+    const [templateWarnings, setTemplateWarnings] = useState([]); // PEs / clusters skipped while listing templates
     const [isLoadingTemplates, setIsLoadingTemplates] = useState(false);
     const [editingTemplateMap, setEditingTemplateMap] = useState(null);
     const [searchTemplateQuery, setSearchTemplateQuery] = useState('');
@@ -231,10 +239,12 @@ const NutanixCloneVM = ({ onClose }) => {
 
     const fetchTemplates = async (clusterName) => {
         setIsLoadingTemplates(true);
+        setTemplateWarnings([]);
         try {
             const url = clusterName ? `/nutanix/templates?cluster=${encodeURIComponent(clusterName)}` : '/nutanix/templates';
             const res = await api.get(url);
             setTemplates(res.data || []);
+            setTemplateWarnings(readNutanixWarnings(res));
         } catch (err) {
             console.error('Failed to load VM templates from Prism Central:', err);
         } finally {
@@ -1507,6 +1517,11 @@ const NutanixCloneVM = ({ onClose }) => {
                                             ) : (
                                                 <div style={{ color: 'var(--text-muted)', fontSize: 12, padding: '8px 12px', border: '1px dashed var(--border-color)', borderRadius: 8, background: 'rgba(255,255,255,0.01)' }}>
                                                     ⚠️ {editingTemplateMap.cluster && editingTemplateMap.cluster !== 'All' ? `No templates starting with "Template_" found in cluster "${editingTemplateMap.cluster}".` : 'Please select a cluster above to load its templates.'}
+                                                </div>
+                                            )}
+                                            {!isLoadingTemplates && templateWarnings.length > 0 && (
+                                                <div style={{ color: 'var(--warning)', fontSize: 12, marginTop: 6 }}>
+                                                    {templateWarnings.map((w, i) => <div key={i}>⚠️ Not read: {w.source} ({w.error})</div>)}
                                                 </div>
                                             )}
                                         </div>

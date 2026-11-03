@@ -335,10 +335,19 @@ export default function NasManager() {
                                     </div>
                                     <div style={{ fontSize: 12, color: 'var(--text-muted)', display: 'flex', justifyContent: 'space-between' }}>
                                         <span>IP: {dev.ip}</span>
-                                        <span style={{ color: dev.status === 'offline' ? 'var(--danger)' : 'var(--success)', fontWeight: 800 }}>
-                                            {dev.status === 'offline' ? '● Offline' : '● Online'}
+                                        <span style={{ color: dev.status === 'offline' ? 'var(--danger)' : dev.status === 'online' ? 'var(--success)' : 'var(--text-muted)', fontWeight: 800 }}>
+                                            {dev.status === 'offline' ? '● Offline' : dev.status === 'online' ? '● Online' : '● Not checked'}
                                         </span>
                                     </div>
+                                    {dev.status === 'offline' && dev.lastError && (
+                                        <div style={{ fontSize: 11, color: 'var(--danger)', marginTop: 4 }} title={dev.lastError}>{dev.lastError}</div>
+                                    )}
+                                    {dev.status === 'online' && Array.isArray(dev.syncNotes) && dev.syncNotes.length > 0 && (
+                                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>{dev.syncNotes.join('; ')}</div>
+                                    )}
+                                    {dev.lastSyncAt && (
+                                        <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>Last sync: {new Date(dev.lastSyncAt).toLocaleString()}</div>
+                                    )}
                                     
                                     <div style={{ marginTop: 14 }}>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, fontWeight: 700 }}>
@@ -572,6 +581,11 @@ export default function NasManager() {
                             <button style={{ ...S.btnO, alignSelf: 'flex-end', padding: '6px 12px', fontSize: 11 }} onClick={handleAddPermission}>+ Add Entry</button>
                         </div>}
 
+                        {canEditShares && (
+                            <div style={{ fontSize: 11, color: 'var(--warning)', marginTop: 8 }}>
+                                目前沒有任何 NAS 類型支援從 Vanguard 修改共用資料夾權限，儲存會被拒絕；請直接在 NAS 上修改。這裡顯示的是從 NAS 讀到的權限。
+                            </div>
+                        )}
                         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 8 }}>
                             <button style={S.btnO} onClick={() => setShowPermissionModal(false)}>{canEditShares ? 'Cancel' : 'Close'}</button>
                             {canEditShares && <button style={S.btnP} onClick={handleSavePermissions}>Save ACLs</button>}

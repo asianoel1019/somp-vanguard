@@ -50,26 +50,49 @@ router.get('/config', async (req, res) => {
 
         if (req.query.sync === 'true') {
             // Query drivers outside the write chain (slow), then apply results to the fresh list by id.
+            // A device is online only when it answered; an unreachable one keeps its last real data and is marked
+            // offline with the error. Parts a driver does not support (QNAP volumes / shares) are left empty with a note.
+            const withTimeout = (p) => Promise.race([p, new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 6000))]);
             const results = await Promise.all(devices.map(async (dev) => {
+                const notes = [];
+                const part = async (fn) => {
+                    try { return await withTimeout(fn()); } catch (e) {
+                        if (e && e.code === 'NOT_SUPPORTED') { notes.push(e.message); return []; }
+                        throw e;
+                    }
+                };
                 try {
                     const driver = nasDrivers.getDriver(dev);
-                    const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 6000));
-                    const volumes = await Promise.race([driver.getStorageInfo(), timeout]);
-                    const shares = await Promise.race([driver.listShares(), timeout]);
-                    return { id: dev.id, volumes, shares };
+                    if (typeof driver.testConnection === 'function') await withTimeout(driver.testConnection());
+                    const volumes = await part(() => driver.getStorageInfo());
+                    const shares = await part(() => driver.listShares());
+                    return { id: dev.id, ok: true, volumes, shares, notes };
                 } catch (e) {
                     console.warn(`[NAS Manager] Failed to dynamically sync device ${dev.name}: ${e.message}`);
-                    return { id: dev.id };
+                    return { id: dev.id, ok: false, error: e && e.userSafe ? e.message : 'Connection failed (see the server log)' };
                 }
             }));
+            const syncedAt = new Date().toISOString();
             devices = await store.mutate((list) => {
                 for (const r of results) {
                     const dev = list.find(x => x.id === r.id);
                     if (!dev) continue;
-                    if (r.volumes && r.volumes.length > 0) dev.volumes = r.volumes;
-                    if (r.shares && r.shares.length > 0) dev.shares = r.shares;
-                    else if (!dev.shares) dev.shares = [];
-                    dev.status = 'online';
+                    if (r.ok) {
+                        dev.volumes = r.volumes;
+                        // shares keep the permissions cached from earlier lookups when the driver lists none
+                        dev.shares = r.shares.map(s => {
+                            const before = (dev.shares || []).find(x => String(x.name).toLowerCase() === String(s.name).toLowerCase());
+                            return s.permissions && s.permissions.length ? s : { ...s, permissions: (before && before.permissions) || [] };
+                        });
+                        dev.status = 'online';
+                        dev.lastSyncAt = syncedAt;
+                        dev.lastError = null;
+                        dev.syncNotes = r.notes;
+                    } else {
+                        dev.status = 'offline';
+                        dev.lastError = r.error;
+                        if (!dev.shares) dev.shares = [];
+                    }
                 }
                 return { value: list.map(d => ({ ...d })) };
             });
@@ -207,7 +230,8 @@ router.post('/test-connection', superAdmin, async (req, res) => {
             if (plain) store.applyPassword(probe, plain);
         }
         const driver = nasDrivers.getDriver(probe);
-        await driver.getStorageInfo();
+        if (typeof driver.testConnection === 'function') await driver.testConnection();
+        else await driver.getStorageInfo();
         res.json({ success: true, status: 'online', message: `Connected to ${fields.type} successfully.` });
     } catch (e) {
         console.error('[NAS Manager] Connection test failed:', e && e.message);
@@ -285,15 +309,16 @@ router.post('/set-permissions', operatorUp, async (req, res) => {
         return res.status(400).json({ error: 'Missing deviceId, shareName or permissions' });
     }
     try {
-        const devName = await store.mutate((list) => {
-            const dev = list.find(x => x.id === deviceId);
-            if (!dev) throw new store.NasValidationError('Device not found', 404);
-            const share = dev.shares?.find(x => String(x.name).toLowerCase() === String(shareName).toLowerCase());
-            if (!share) throw new store.NasValidationError('Share not found', 404);
-            share.permissions = permissions;
-            return { value: dev.name };
-        });
-        audit(req, `Updated permissions for share "${shareName}" on NAS device "${devName}". ACL count: ${permissions.length}`);
+        const dev = (await store.readDevices()).find(x => x.id === deviceId);
+        if (!dev) return res.status(404).json({ error: 'Device not found' });
+        // Earlier versions only rewrote the cached list and reported success while the NAS kept its ACL.
+        // Until a driver can apply share ACLs, the change is refused and nothing is stored.
+        const driver = nasDrivers.getDriver(dev);
+        if (typeof driver.setSharePermissions !== 'function') {
+            return res.status(501).json({ error: `Changing share permissions from Vanguard is not supported for ${dev.type} devices yet. Change them on the NAS itself.` });
+        }
+        await driver.setSharePermissions(shareName, permissions);
+        audit(req, `Updated permissions for share "${shareName}" on NAS device "${dev.name}". ACL count: ${permissions.length}`);
         res.json({ success: true, message: `Permissions updated successfully for "${shareName}"` });
     } catch (e) {
         fail(res, e);

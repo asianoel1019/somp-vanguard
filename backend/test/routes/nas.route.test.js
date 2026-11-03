@@ -320,7 +320,7 @@ test('M2/M3/M5/M8: 409 duplicates, duplicate ids, case-insensitive shares, clear
     await as('post', '/api/nas/delete-share', op).send({ deviceId: all[0].id, name: 'finance' }).expect(200);
     assert.deepEqual(stored()[0].shares, []);
     const all2 = stored(); all2[0].shares = [{ name: 'Finance', permissions: [] }]; writeDataSync(KEY, all2);
-    await as('post', '/api/nas/set-permissions', op).send({ deviceId: all2[0].id, shareName: 'FINANCE', permissions: [] }).expect(200);
+    await as('post', '/api/nas/set-permissions', op).send({ deviceId: all2[0].id, shareName: 'FINANCE', permissions: [] }).expect(501); // no driver applies share ACLs yet: refused, not faked
     // driver errors are not echoed
     nasDrivers.getDriver.mock.restore();
     t.mock.method(nasDrivers, 'getDriver', () => fakeDriver({ createShare: async () => { throw new Error('ENOENT C:\\secret\\path'); } }));
@@ -358,19 +358,18 @@ test('device and share/permission changes are audited without secrets', async (t
     const c = await as('post', '/api/nas/devices', admin).send(dev()).expect(201);
     await as('put', `/api/nas/devices/${c.body.id}`, admin).send({ name: 'NAS-X', password: 'secret2' }).expect(200);
     await as('post', '/api/nas/create-share', op).send({ deviceId: c.body.id, name: 'Sh1', path: '/v/sh1' }).expect(200);
-    await as('post', '/api/nas/set-permissions', op).send({ deviceId: c.body.id, shareName: 'Sh1', permissions: [{ name: 'g', access: 'r' }] }).expect(200);
+    await as('post', '/api/nas/set-permissions', op).send({ deviceId: c.body.id, shareName: 'Sh1', permissions: [{ name: 'g', access: 'r' }] }).expect(501); // refused, so not audited
     await as('post', '/api/nas/delete-share', op).send({ deviceId: c.body.id, name: 'Sh1' }).expect(200);
     await as('delete', `/api/nas/devices/${c.body.id}`, admin).expect(200);
     await as('post', '/api/nas/config', admin).send([]).expect(200);
-    assert.equal(logged.length, 7);
+    assert.equal(logged.length, 6);
     assert.ok(logged.every(l => l[1] === 'NAS Manager' && typeof l[2] === 'string' && l.length === 3));
     assert.equal(logged[0][0], 'superadmin');
     assert.match(logged[0][2], /Created NAS device "NAS-1"/);
     assert.match(logged[1][2], /NAS-1.*NAS-X.*password changed/i);
     assert.match(logged[2][2], /share "Sh1".*NAS-X/);
     assert.equal(logged[2][0], 'operator');
-    assert.match(logged[3][2], /permissions.*"Sh1".*NAS-X/i);
-    assert.match(logged[4][2], /Deleted share "Sh1".*NAS-X/);
-    assert.match(logged[5][2], /Deleted NAS device "NAS-X"/);
+    assert.match(logged[3][2], /Deleted share "Sh1".*NAS-X/);
+    assert.match(logged[4][2], /Deleted NAS device "NAS-X"/);
     assert.doesNotMatch(JSON.stringify(logged), /p@ss|secret2/);
 });

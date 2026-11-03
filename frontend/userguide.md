@@ -385,6 +385,14 @@ Server List 是 SOMP Vanguard 的核心伺服器資產資料庫 (CMDB)，自動�
         *   Webhook 清單中的 Authorization 等 header 與網址裡的 token 會遮蔽顯示；編輯時不動遮蔽的值就保持原值，輸入新值會取代。
         *   SFTP 伺服器的 API Key 改為加密儲存，頁面只顯示 `********`；按「Test」時，主機、Port、協定沒變才會使用已儲存的 Key，改了就要重新輸入。SFTP 主機欄只接受主機名稱或 IP。
         *   RBAC 查詢 AD 成員、NAS 的帳號 / 網域 / 共用資料夾名稱 / 路徑，送進 PowerShell 或遠端 shell 前都會先跳脫；NAS 帳號只接受英數字、空白、`.` `_` `-` 與一個 `\` 或 `@`。
+    *   **不再顯示假的結果**：
+        *   NAS 的「測試連線」改成實際登入（Synology / QNAP 登入 API、Windows 讀取磁碟、Linux 以 SSH 登入），帳密錯誤或主機不通時會顯示失敗原因。以前一律顯示成功，並帶出寫死的容量。
+        *   NAS Manager 同步時，連不上的裝置會標示 Offline 並顯示錯誤，保留上次成功取得的資料；連得上才是 Online。尚未同步過的裝置顯示「Not checked」。
+        *   QNAP 目前只支援測試登入；容量與共用資料夾清單尚未支援，會顯示說明，不再顯示假的 DataVol1 / QNAPPublic。
+        *   目前沒有任何 NAS 類型支援從 Vanguard 修改共用資料夾權限，按儲存會被拒絕（以前只改了 Vanguard 內的記錄就回報成功，NAS 上並沒有變），請直接在 NAS 上修改。
+        *   Scout Open API 的「MAX QUERY TIME RANGE (DAYS)」（`SCOUT_OPEN_API_MAX_DAYS`，預設 30，1–365）現在會生效：metrics / 日誌查詢最早只能從這麼多天前開始，沒有指定 `from` 時也一樣。
+        *   System Settings 移除了從未生效的 `BACKEND_ALLOWED_IPS` 欄位；限制 API 來源請用 `API_ALLOWED_IPS`。
+        *   Dev Tools 的內建範本改為實際存在的 API；Open API 範本會切到 Visual Builder 並帶入 `X-API-Key` header，請換成自己的 Open API Key。
     *   **NAS 共用資料夾權限查詢**：共用資料夾名稱不可包含 `` ` ``、`$`、`"`、`;`、`|`、`&`、`<`、`>` 等字元。
 *   **資料存取與保留（v1.7.7，維運人員參考）**：
     *   多個服務會同時修改的設定與清單（CMDB 補充資料、排程任務、Prometheus 目標、Webhooks、RBAC、IPAM、SSL 等）一律以資料庫鎖定方式「讀最新資料再寫回」，網頁服務與背景服務不會再互相覆蓋。

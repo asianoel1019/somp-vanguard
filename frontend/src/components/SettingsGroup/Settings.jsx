@@ -1136,10 +1136,6 @@ const Settings = ({ mode = 'system' }) => {
                                             <label style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-muted)' }}>FRONTEND_ALLOWED_IPS <span style={{ color: 'var(--text-muted)', fontWeight: 'normal' }}>(comma-separated)</span></label>
                                             <input type="text" style={S.input} value={sysConfig.FRONTEND_ALLOWED_IPS || ''} onChange={e => handleConfigChange('FRONTEND_ALLOWED_IPS', e.target.value)} />
                                         </div>
-                                        <div style={S.fieldBlock}>
-                                            <label style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-muted)' }}>BACKEND_ALLOWED_IPS <span style={{ color: 'var(--text-muted)', fontWeight: 'normal' }}>(comma-separated)</span></label>
-                                            <input type="text" style={S.input} value={sysConfig.BACKEND_ALLOWED_IPS || ''} onChange={e => handleConfigChange('BACKEND_ALLOWED_IPS', e.target.value)} />
-                                        </div>
                                     </div>
                                     <div style={S.gridRow}>
                                         <div style={S.fieldBlock}>
@@ -1714,7 +1710,7 @@ const Settings = ({ mode = 'system' }) => {
                                             </div>
                                         </div>
                                         <div style={S.fieldBlock}>
-                                            <label style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-muted)' }}>MAX QUERY TIME RANGE (DAYS)</label>
+                                            <label style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-muted)' }}>MAX QUERY TIME RANGE (DAYS) <span style={{ fontWeight: 'normal' }}>(查詢最早只能從幾天前開始，1-365)</span></label>
                                             <input 
                                                 type="number" 
                                                 style={S.input} 

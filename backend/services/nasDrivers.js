@@ -7,6 +7,20 @@ const shSq = (value) => `'${String(value == null ? '' : value).replace(/'/g, `'\
 const { executeSSH } = require('../lib/ssh');
 const { decryptPassword, decryptText } = require('../lib/crypto');
 
+// A driver call that failed: the message is shown to the admin, so it says what went wrong instead of inventing data
+function driverError(what, e) {
+    const err = new Error(`${what}: ${e && e.message ? e.message : e}`);
+    err.userSafe = true;
+    return err;
+}
+
+function notSupported(what) {
+    const err = new Error(`${what} is not supported for this NAS type yet`);
+    err.userSafe = true;
+    err.code = 'NOT_SUPPORTED';
+    return err;
+}
+
 function resetError() {
     const err = new Error('The stored NAS password cannot be decrypted. A SuperAdmin must re-enter it in Settings > File Services > NAS Devices.');
     err.userSafe = true; // safe to show to the client
@@ -67,11 +81,14 @@ class SynologyDriver {
                 }));
                 return volumes;
             }
-            return [{ name: 'Volume 1', totalGB: 8192, usedGB: 5120 }];
+            throw new Error(JSON.stringify(res.data && res.data.error || 'unexpected response'));
         } catch (e) {
-            console.warn(`[Synology] Fallback storage info: ${e.message}`);
-            return [{ name: 'Volume 1', totalGB: 8192, usedGB: 5120 }];
+            throw driverError('Synology storage info failed', e);
         }
+    }
+
+    async testConnection() {
+        try { await this.getSid(); } catch (e) { throw driverError('Synology login failed', e); }
     }
 
     async listShares() {
@@ -87,12 +104,9 @@ class SynologyDriver {
                     permissions: []
                 }));
             }
-            return [];
+            throw new Error(JSON.stringify(res.data && res.data.error || 'unexpected response'));
         } catch (e) {
-            console.warn(`[Synology] Fallback list shares: ${e.message}`);
-            return [
-                { name: 'Public', path: '/volume1/Public', description: 'Public Share Folder', permissions: [] }
-            ];
+            throw driverError('Synology share list failed', e);
         }
     }
 
@@ -136,25 +150,16 @@ class QnapDriver {
         throw new Error('QNAP login failed');
     }
 
+    async testConnection() {
+        try { await this.getSid(); } catch (e) { throw driverError('QNAP login failed', e); }
+    }
+
     async getStorageInfo() {
-        try {
-            const sid = await this.getSid();
-            // QNAP storage info API
-            const url = `http://${this.ip}:${this.port}/cgi-bin/sysinfoReq.cgi?sid=${sid}`;
-            // Map simulated/actual volumes
-            return [{ name: 'DataVol1', totalGB: 16384, usedGB: 14000 }];
-        } catch (e) {
-            return [{ name: 'DataVol1', totalGB: 16384, usedGB: 14000 }];
-        }
+        throw notSupported('Reading QNAP volumes');
     }
 
     async listShares() {
-        try {
-            const sid = await this.getSid();
-            return [{ name: 'QNAPPublic', path: '/DataVol1/Public', description: 'Public QNAP share', permissions: [] }];
-        } catch (e) {
-            return [{ name: 'QNAPPublic', path: '/DataVol1/Public', description: 'Public QNAP share', permissions: [] }];
-        }
+        throw notSupported('Listing QNAP shares');
     }
 
     async createShare(name, path, description) {
@@ -190,6 +195,10 @@ class WindowsSmbDriver {
         return this.ip === 'localhost' || this.ip === '127.0.0.1' || this.ip === '::1';
     }
 
+    async testConnection() {
+        await this.getStorageInfo();
+    }
+
     async getStorageInfo() {
         if (this.isLocal()) {
             try {
@@ -204,7 +213,7 @@ class WindowsSmbDriver {
                     usedGB: Math.round((v.Size - v.SizeRemaining) / 1024 / 1024 / 1024)
                 }));
             } catch (e) {
-                return [{ name: 'C:\\', totalGB: 150, usedGB: 80 }];
+                throw driverError('Reading local volumes failed', e);
             }
         }
 
@@ -261,7 +270,7 @@ class WindowsSmbDriver {
             `;
 
             const res = await runPowerShell(psScript);
-            if (!res || !res.trim()) return [{ name: 'C:\\', totalGB: 100, usedGB: 50 }];
+            if (!res || !res.trim()) return [];
             const data = JSON.parse(res);
             const list = Array.isArray(data) ? data : [data];
             return list.map(v => ({
@@ -270,8 +279,7 @@ class WindowsSmbDriver {
                 usedGB: Math.round(((v.Size || 0) - (v.SizeRemaining || 0)) / 1024 / 1024 / 1024)
             }));
         } catch (e) {
-            console.warn(`[Windows SMB] Remote storage info failed for ${this.ip}: ${e.message}`);
-            return [{ name: 'C:\\', totalGB: 100, usedGB: 50 }];
+            throw driverError(`Reading volumes of ${this.ip} failed`, e);
         }
     }
 
@@ -290,8 +298,7 @@ class WindowsSmbDriver {
                     permissions: []
                 }));
             } catch (e) {
-                console.warn(`[Windows SMB] Local list shares fallback: ${e.message}`);
-                return [];
+                throw driverError('Listing local shares failed', e);
             }
         }
 
@@ -399,8 +406,7 @@ class WindowsSmbDriver {
 
             return sharesWithPerms;
         } catch (e) {
-            console.warn(`[Windows SMB] Remote list shares failed for ${this.ip}: ${e.message}`);
-            return [];
+            throw driverError(`Listing shares of ${this.ip} failed`, e);
         }
     }
 
@@ -578,6 +584,10 @@ class LinuxSmbDriver {
         this.password = getDecryptedPassword(config);
     }
 
+    async testConnection() {
+        try { await this.sshExec('true'); } catch (e) { throw driverError('SSH login failed', e); }
+    }
+
     async sshExec(cmd) {
         const result = await executeSSH(this.ip, this.username, this.password, cmd, { timeout: 5000 });
         if (!result.success) {
@@ -605,8 +615,7 @@ class LinuxSmbDriver {
                 }
             }).filter(Boolean);
         } catch (e) {
-            console.warn(`[Linux SMB] Storage info fallback: ${e.message}`);
-            return [{ name: '/', totalGB: 500, usedGB: 250 }];
+            throw driverError('Linux storage info failed', e);
         }
     }
 
@@ -621,8 +630,7 @@ class LinuxSmbDriver {
                 permissions: []
             }));
         } catch (e) {
-            console.warn(`[Linux SMB] List shares fallback: ${e.message}`);
-            return [];
+            throw driverError('Linux share list failed', e);
         }
     }
 

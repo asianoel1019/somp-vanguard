@@ -15,6 +15,16 @@ function parseTime(val) {
     return isNaN(d.getTime()) ? null : d.toISOString();
 }
 
+// SCOUT_OPEN_API_MAX_DAYS (Settings > Scout Open API, default 30, 1-365): how far back a query may reach.
+// A missing or earlier 'from' starts at that limit, so one call can never read the whole history.
+function cappedFrom(val) {
+    const n = parseInt(process.env.SCOUT_OPEN_API_MAX_DAYS || '30', 10);
+    const maxDays = Number.isInteger(n) ? Math.min(365, Math.max(1, n)) : 30;
+    const earliest = new Date(Date.now() - maxDays * 24 * 60 * 60 * 1000).toISOString();
+    const asked = parseTime(val);
+    return asked && asked > earliest ? asked : earliest;
+}
+
 // Helper: Resolve host parameter which could be an IP, ID, Hostname, or partial/variant name
 function resolveHostFilter(hostOrIp) {
     if (!hostOrIp) return null;
@@ -387,7 +397,7 @@ router.get('/metrics/history', validateQueryParams(['host', 'ip', 'id', 'from', 
         let query = "SELECT timestamp, metrics FROM metrics WHERE monitorId = ?";
         const params = [monitor.id];
 
-        const fromIso = parseTime(from);
+        const fromIso = cappedFrom(from);
         const toIso = parseTime(to);
 
         if (fromIso) {
@@ -498,7 +508,7 @@ router.get('/logs/windows', validateQueryParams(['host', 'ip', 'level', 'eventID
             countParams.push(`%${keyword}%`);
         }
 
-        const fromIso = parseTime(from);
+        const fromIso = cappedFrom(from);
         const toIso = parseTime(to);
         if (fromIso) {
             query += " AND timestamp >= ?";
@@ -597,7 +607,7 @@ router.get('/logs/linux', validateQueryParams(['host', 'ip', 'filePath', 'level'
             countParams.push(`%${keyword}%`);
         }
 
-        const fromIso = parseTime(from);
+        const fromIso = cappedFrom(from);
         const toIso = parseTime(to);
         if (fromIso) {
             query += " AND timestamp >= ?";
@@ -687,7 +697,7 @@ router.get('/logs/events', validateQueryParams(['host', 'ip', 'os', 'level', 'ke
                 }
             }
             if (keyword) { winQuery += " AND message LIKE ?"; winParams.push(`%${keyword}%`); }
-            if (from) { const f = parseTime(from); if (f) { winQuery += " AND timestamp >= ?"; winParams.push(f); } }
+            { winQuery += " AND timestamp >= ?"; winParams.push(cappedFrom(from)); }
             if (to) { const t = parseTime(to); if (t) { winQuery += " AND timestamp <= ?"; winParams.push(t); } }
             winQuery += " ORDER BY timestamp DESC LIMIT ?";
             winParams.push(limit);
@@ -720,7 +730,7 @@ router.get('/logs/events', validateQueryParams(['host', 'ip', 'os', 'level', 'ke
                 }
             }
             if (keyword) { nixQuery += " AND message LIKE ?"; nixParams.push(`%${keyword}%`); }
-            if (from) { const f = parseTime(from); if (f) { nixQuery += " AND timestamp >= ?"; nixParams.push(f); } }
+            { nixQuery += " AND timestamp >= ?"; nixParams.push(cappedFrom(from)); }
             if (to) { const t = parseTime(to); if (t) { nixQuery += " AND timestamp <= ?"; nixParams.push(t); } }
             nixQuery += " ORDER BY timestamp DESC LIMIT ?";
             nixParams.push(limit);
@@ -786,5 +796,8 @@ router.get('/prometheus', validateQueryParams([]), (req, res) => {
         res.status(500).send(`# ERROR: ${err.message}`);
     }
 });
+
+// Test hook
+router._test = { cappedFrom };
 
 module.exports = router;

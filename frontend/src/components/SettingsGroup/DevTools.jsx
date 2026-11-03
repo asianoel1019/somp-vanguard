@@ -6,11 +6,11 @@ const API_SNIPPETS = [
   {
     category: '🌐 Scout Open API',
     items: [
-      { name: 'List All Monitored Servers', method: 'GET', path: '/api/v1/open/servers', body: '' },
-      { name: 'Get OS & Hardware Metrics', method: 'GET', path: '/api/v1/open/os?host=127.0.0.1', body: '' },
-      { name: 'Get Windows Event Logs', method: 'GET', path: '/api/v1/open/events?host=127.0.0.1&level=error&limit=10', body: '' },
-      { name: 'Get Linux Syslog Records', method: 'GET', path: '/api/v1/open/syslog?host=127.0.0.1&limit=10', body: '' },
-      { name: 'Query All CMDB Servers', method: 'GET', path: '/api/v1/open/cmdb/servers', body: '' }
+      { name: 'List All Monitored Servers', method: 'GET', path: '/api/v1/open/servers', body: '', headers: { 'X-API-Key': '<YOUR_OPEN_API_KEY>' } },
+      { name: 'Get Realtime Metrics', method: 'GET', path: '/api/v1/open/metrics/realtime?host=127.0.0.1', body: '', headers: { 'X-API-Key': '<YOUR_OPEN_API_KEY>' } },
+      { name: 'Get Windows Event Logs', method: 'GET', path: '/api/v1/open/logs/windows?host=127.0.0.1&level=Error&limit=10', body: '', headers: { 'X-API-Key': '<YOUR_OPEN_API_KEY>' } },
+      { name: 'Get Linux Log Records', method: 'GET', path: '/api/v1/open/logs/linux?host=127.0.0.1&limit=10', body: '', headers: { 'X-API-Key': '<YOUR_OPEN_API_KEY>' } },
+      { name: 'List Hosts (CMDB)', method: 'GET', path: '/api/v1/open/hosts', body: '', headers: { 'X-API-Key': '<YOUR_OPEN_API_KEY>' } }
     ]
   },
   {
@@ -42,7 +42,7 @@ const API_SNIPPETS = [
     category: '☸️ Kubernetes Control Plane',
     items: [
       { name: 'List K8s Clusters', method: 'GET', path: '/api/kubernetes/clusters', body: '' },
-      { name: 'Get Cluster Health / Nodes', method: 'GET', path: '/api/kubernetes/cluster/default/nodes', body: '' }
+      { name: 'Get Cluster Nodes', method: 'POST', path: '/api/kubernetes/nodes', body: JSON.stringify({ clusterId: '<CLUSTER_ID from List K8s Clusters>' }, null, 2) }
     ]
   },
   {
@@ -60,7 +60,7 @@ const API_SNIPPETS = [
       { 
         name: 'AI Prompt-to-Workflow Generator', 
         method: 'POST', 
-        path: '/api/ai/generate-workflow', 
+        path: '/api/workflow/ai-generate', 
         body: JSON.stringify({
           prompt: "Check disk usage on /var/log on 192.0.2.56, if > 85% clean tmp and send webhook alert"
         }, null, 2)
@@ -358,7 +358,7 @@ GET /api/kubernetes/clusters
 
 GET /api/workflow
 
-POST /api/health
+GET /api/health
 `
   );
 
@@ -548,6 +548,17 @@ POST /api/health
   };
 
   const loadSnippet = (snippet) => {
+    if (snippet.headers) {
+      setEditorMode('visual');
+      setMethod(snippet.method);
+      setPathInput(snippet.path);
+      setBodyText(snippet.body || '');
+      setRequestHeaders([
+        { key: 'Content-Type', value: 'application/json' },
+        ...Object.entries(snippet.headers).map(([key, value]) => ({ key, value }))
+      ]);
+      return;
+    }
     if (editorMode === 'console') {
       const snippetBlock = `\n${snippet.method} ${snippet.path}\n${snippet.body ? snippet.body + '\n' : ''}`;
       setConsoleCode(prev => prev.trim() + '\n' + snippetBlock);
@@ -1154,7 +1165,7 @@ POST /api/health
                       color: currentTheme.textMuted
                     }}>
                       <span>💡 <b>提示:</b> 將游標移至任一 HTTP 區塊，點擊 <b>▶ 執行</b> 或按 <b>Ctrl + Enter</b></span>
-                      <span style={{ fontFamily: 'monospace' }}>Target: 127.0.0.1:5000</span>
+                      <span style={{ fontFamily: 'monospace' }}>Target: this server (/api/...)</span>
                     </div>
 
                     <textarea
@@ -1571,7 +1582,7 @@ POST /api/health
               }}>
                 <div style={{ display: 'flex', gap: 16 }}>
                   <span>就緒 (Ready)</span>
-                  <span>主機: 127.0.0.1:5000</span>
+                  <span>目標: 本系統 API（只能呼叫 /api/...）</span>
                   <span>模式: {editorMode.toUpperCase()}</span>
                 </div>
                 <div style={{ display: 'flex', gap: 10 }}>

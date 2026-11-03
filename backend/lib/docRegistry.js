@@ -37,6 +37,8 @@ const ENTRIES = [
         writers: ['services/webhookService.js', 'routes/webhooks.js'], notes: 'single writer today (worker only reads); converted as defence' },
     { key: 'system/rbac.json', mode: 'mutate', owner: 'both', description: 'RBAC config (encrypted string document)',
         writers: ['lib/rbac.js', 'routes/rbac.js'], notes: 'routes in web; the built-in SuperAdmin upgrade write can happen in any process that reads it; docStore codec (decode/encode)' },
+    { key: 'system/session_revocations.json', mode: 'replace', owner: 'web', description: 'Login tokens refused after an RBAC role change (per user / mapping group)',
+        writers: ['lib/sessionRevocation.js'], notes: 'synchronous, web only; in-memory copy, entries older than the 24 h token lifetime are dropped' },
     { key: 'server_operation/inventory_credential_profiles.json', mode: 'mutate', owner: 'web', description: 'Inventory credential profiles (encrypted passwords)',
         writers: ['lib/inventoryCredentials.js'], notes: 'single writer (web, serialised by runExclusive); converted as defence' },
     { key: 'server_operation/ssh_known_hosts.json', mode: 'mutate', owner: 'both', description: 'SSH host key pins (TOFU)',

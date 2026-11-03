@@ -1,6 +1,7 @@
 const scoutDb = require('../services/scoutDb');
 const { readEnv } = require('../lib/envEditor');
 const { auditLog } = require('../lib/logger');
+const { clientIp: getClientIp } = require('../lib/clientIp');
 
 // In-memory rate limiter for Open API
 const openApiRateLimitMap = new Map();
@@ -14,7 +15,7 @@ const DEFAULT_RATE_LIMIT = 120; // 120 req / min default
 function openApiAuth(options = {}) {
     return (req, res, next) => {
         const startTime = Date.now();
-        const clientIp = req.headers['x-forwarded-for']?.split(',')[0] || req.socket.remoteAddress || 'unknown';
+        const clientIp = getClientIp(req);
         const cleanIp = clientIp.startsWith('::ffff:') ? clientIp.substring(7) : clientIp;
         
         try {

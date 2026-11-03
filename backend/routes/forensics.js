@@ -1,4 +1,5 @@
 const express = require('express');
+const { clientIp: getClientIp } = require('../lib/clientIp');
 const router = express.Router();
 const crypto = require('crypto');
 const db = require('../services/scoutDb');
@@ -693,7 +694,7 @@ setInterval(() => {
 router.post('/upload', async (req, res) => {
     try {
         // IP Rate Limiting Check
-        const clientIp = req.headers['x-forwarded-for']?.split(',')[0] || req.socket.remoteAddress || 'unknown';
+        const clientIp = getClientIp(req);
         const now = Date.now();
         if (!uploadRateLimits.has(clientIp)) {
             uploadRateLimits.set(clientIp, { count: 1, resetAt: now + UPLOAD_WINDOW_MS });

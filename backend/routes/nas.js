@@ -306,6 +306,10 @@ router.post('/get-permissions', async (req, res) => {
     if (!deviceId || !shareName) {
         return res.status(400).json({ error: 'Missing deviceId or shareName' });
     }
+    // The name reaches PowerShell; drivers escape it, and anything that cannot be a share name is refused here
+    if (typeof shareName !== 'string' || shareName.length > 80 || /[\x00-\x1f`$"“”„;|&<>]/.test(shareName)) {
+        return res.status(400).json({ error: 'Invalid share name' });
+    }
     try {
         const dev = (await store.readDevices()).find(x => x.id === deviceId);
         if (!dev) return res.status(404).json({ error: 'Device not found' });

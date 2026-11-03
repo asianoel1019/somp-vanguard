@@ -1,8 +1,39 @@
 const express = require('express');
+const { clientIp: getClientIp } = require('../lib/clientIp');
 const router = express.Router();
 const { requireAuth, checkFeature, checkAnyFeature } = require('../middleware/auth');
 const webhookService = require('../services/webhookService');
 const { auditLog } = require('../lib/logger');
+const crypto = require('crypto');
+
+const INCOMING_SECRET_HEADER = 'X-Webhook-Secret';
+const INCOMING_LIMIT = 30; // calls per webhook per minute
+const incomingWindows = new Map(); // id -> { start, count }
+
+const hashSecret = (secret) => crypto.createHash('sha256').update(String(secret)).digest('hex');
+
+function secretMatches(given, storedHash) {
+    if (!given || !storedHash) return false;
+    const a = Buffer.from(hashSecret(given), 'hex');
+    const b = Buffer.from(String(storedHash), 'hex');
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+function takeIncomingSlot(id, now = Date.now()) {
+    const w = incomingWindows.get(id);
+    if (!w || now - w.start >= 60000) {
+        incomingWindows.set(id, { start: now, count: 1 });
+        return true;
+    }
+    w.count++;
+    return w.count <= INCOMING_LIMIT;
+}
+
+// The stored hash never leaves the server; the page only needs to know whether incoming calls are enabled
+const forClient = (w) => {
+    const { incomingSecretHash, ...rest } = w;
+    return { ...rest, incomingEnabled: !!incomingSecretHash };
+};
 
 // Middleware to verify the user is SuperAdmin or Operator
 function requireAdminOrOperator(req, res, next) {
@@ -22,8 +53,7 @@ const webhookWriteGate = checkFeature('settings');
 
 router.get('/', requireAuth, webhookListGate, requireAdminOrOperator, (req, res) => {
     try {
-        const webhooks = webhookService.loadWebhooks();
-        res.json(webhooks);
+        res.json(webhookService.loadWebhooks().map(forClient));
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -53,7 +83,7 @@ router.post('/', requireAuth, webhookWriteGate, requireAdminOrOperator, (req, re
         const webhooks = webhookService.mutateWebhooks((list) => { list.push(newWebhook); return list.map(w => ({ ...w })); });
 
         auditLog(req.user.username, 'Integration Hub', `Created Webhook: "${newWebhook.name}"`);
-        res.json({ success: true, webhook: newWebhook, webhooks });
+        res.json({ success: true, webhook: forClient(newWebhook), webhooks: webhooks.map(forClient) });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -85,7 +115,7 @@ router.put('/:id', requireAuth, webhookWriteGate, requireAdminOrOperator, (req, 
         const { index, webhooks } = out;
 
         auditLog(req.user.username, 'Integration Hub', `Updated Webhook: "${webhooks[index].name}"`);
-        res.json({ success: true, webhook: webhooks[index], webhooks });
+        res.json({ success: true, webhook: forClient(webhooks[index]), webhooks: webhooks.map(forClient) });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -109,7 +139,7 @@ router.delete('/:id', requireAuth, webhookWriteGate, requireAdminOrOperator, (re
         const { name, webhooks } = out;
 
         auditLog(req.user.username, 'Integration Hub', `Deleted Webhook: "${name}"`);
-        res.json({ success: true, webhooks });
+        res.json({ success: true, webhooks: webhooks.map(forClient) });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -148,13 +178,47 @@ router.post('/test/:id', requireAuth, webhookWriteGate, requireAdminOrOperator, 
     }
 });
 
-// POST /api/webhooks/incoming/:id - Receive incoming webhook payload from external systems
+// POST /api/webhooks/:id/incoming-secret - (Re)generate the secret external systems must send to /incoming/:id.
+// Only a hash is stored; the secret is shown once in this response.
+router.post('/:id/incoming-secret', requireAuth, webhookWriteGate, requireAdminOrOperator, (req, res) => {
+    try {
+        const secret = crypto.randomBytes(24).toString('hex');
+        const found = webhookService.mutateWebhooks((list) => {
+            const w = list.find(x => x.id === req.params.id);
+            if (!w) return null;
+            w.incomingSecretHash = hashSecret(secret);
+            return w.name;
+        });
+        if (!found) return res.status(404).json({ error: 'Webhook not found.' });
+        auditLog(req.user.username, 'Integration Hub', `Generated a new incoming secret for webhook "${found}"`);
+        res.json({ success: true, secret, header: INCOMING_SECRET_HEADER });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST /api/webhooks/incoming/:id - Receive incoming webhook payload from external systems.
+// No login, so the caller proves itself with the webhook's secret (header X-Webhook-Secret); a webhook without a
+// secret does not accept incoming calls, and each webhook takes at most INCOMING_LIMIT calls per minute.
 router.post('/incoming/:id', async (req, res) => {
     try {
         const { id } = req.params;
         const payload = req.body;
-        const sourceIp = req.headers['x-forwarded-for']?.split(',')[0] || req.socket.remoteAddress || 'unknown';
-        
+        const sourceIp = getClientIp(req);
+
+        const webhook = webhookService.loadWebhooks().find(w => w.id === id);
+        if (!webhook) return res.status(404).json({ error: 'Webhook not found' });
+        if (!webhook.incomingSecretHash) {
+            return res.status(403).json({ error: 'Incoming calls are not enabled for this webhook (no secret generated)' });
+        }
+        if (!secretMatches(req.get(INCOMING_SECRET_HEADER), webhook.incomingSecretHash)) {
+            console.warn(`[Webhooks] Rejected incoming call for ${id} from ${sourceIp}: wrong or missing secret`);
+            return res.status(401).json({ error: `Missing or wrong ${INCOMING_SECRET_HEADER}` });
+        }
+        if (!takeIncomingSlot(id)) {
+            return res.status(429).json({ error: `Too many calls: at most ${INCOMING_LIMIT} per minute` });
+        }
+
         await webhookService.handleIncomingWebhook(id, payload, sourceIp);
         
         auditLog('SYSTEM', 'Integration Hub', `Received incoming webhook for ID: ${id} from ${sourceIp}`);

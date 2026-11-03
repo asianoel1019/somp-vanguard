@@ -1,4 +1,5 @@
 const express = require('express');
+const { clientIp: getClientIp } = require('../lib/clientIp');
 const router = express.Router();
 const { isValidApiKey } = require('../lib/inventoryValidation');
 const crypto = require('crypto');
@@ -43,7 +44,7 @@ router.post('/report', async (req, res) => {
             return res.status(400).json({ error: 'Invalid payload' });
         }
 
-        const clientIp = req.headers['x-forwarded-for']?.split(',')[0] || req.socket.remoteAddress || 'unknown';
+        const clientIp = getClientIp(req);
         const rateKey = `${clientIp}-${payload.apiKey}`;
         const now = Date.now();
 

@@ -13,8 +13,18 @@ router.use(checkRole(['SuperAdmin']));
  * POST /api/devtools/execute
  * Execute arbitrary API commands against local backend or internal endpoints
  */
+// Query values whose name looks like a credential are replaced before the path is written to the audit log
+const SECRET_PARAM = /key|token|secret|pass|pwd|auth|sig/i;
+function auditPath(url, params) {
+    const shown = new URL(url.href);
+    for (const [k, v] of Object.entries(params && typeof params === 'object' ? params : {})) shown.searchParams.set(k, String(v));
+    for (const k of [...shown.searchParams.keys()]) if (SECRET_PARAM.test(k)) shown.searchParams.set(k, '***');
+    return `${shown.pathname}${shown.search}`;
+}
+
 router.post('/execute', async (req, res) => {
     const startTime = Date.now();
+    let auditTarget = null;
     try {
         const configEnv = readEnv();
         if (configEnv.ENABLE_DEV_TOOLS === 'false') {
@@ -33,9 +43,20 @@ router.post('/execute', async (req, res) => {
         }
 
         const port = process.env.PORT || 5000;
-        let targetUrl = path.startsWith('http://') || path.startsWith('https://') 
-            ? path 
-            : `http://127.0.0.1:${port}${path.startsWith('/') ? path : '/' + path}`;
+        const base = `http://127.0.0.1:${port}`;
+        // Only this server's own API: an absolute or protocol-relative URL would turn the console into a proxy
+        // to anywhere (internal admin pages, metadata services) that also carries the caller's login token
+        let target;
+        try {
+            target = new URL(path.startsWith('/') ? path : '/' + path, base);
+        } catch (e) {
+            return res.status(400).json({ error: 'Invalid endpoint path' });
+        }
+        if (target.origin !== base || !target.pathname.startsWith('/api/') || target.pathname.startsWith('/api/devtools')) {
+            return res.status(400).json({ error: 'Dev Tools only calls this server\'s own API: use a path that starts with /api/ (absolute URLs are not allowed)' });
+        }
+        const targetUrl = target.href;
+        auditTarget = `${method} ${auditPath(target, params)}`;
 
         // Forward caller's auth token if not explicitly provided
         const requestHeaders = { ...headers };
@@ -53,6 +74,8 @@ router.post('/execute', async (req, res) => {
             data: body,
             headers: requestHeaders,
             timeout: 30000,
+            maxRedirects: 0,
+            maxContentLength: 10 * 1024 * 1024,
             validateStatus: () => true // Allow receiving non-2xx status codes without throwing
         };
 
@@ -67,11 +90,7 @@ router.post('/execute', async (req, res) => {
             sizeBytes = Buffer.byteLength(rawBody || '', 'utf8');
         } catch (e) {}
 
-        auditLog(
-            req.user.username,
-            'Dev Tools',
-            `Executed ${method} ${path} [${targetResponse.status}] (${durationMs}ms)`
-        );
+        auditLog(req.user.username, 'Dev Tools', `Executed ${auditTarget} [${targetResponse.status}] (${durationMs}ms)`);
 
         return res.json({
             success: true,
@@ -84,7 +103,8 @@ router.post('/execute', async (req, res) => {
         });
     } catch (err) {
         const durationMs = Date.now() - startTime;
-        console.error('[DevTools Execution Error]', err);
+        console.error('[DevTools Execution Error]', err.message);
+        if (auditTarget) auditLog(req.user.username, 'Dev Tools', `Executed ${auditTarget} [failed: ${err.code || err.message}] (${durationMs}ms)`);
         return res.status(500).json({
             success: false,
             error: err.message,

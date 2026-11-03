@@ -366,6 +366,15 @@ Server List 是 SOMP Vanguard 的核心伺服器資產資料庫 (CMDB)，自動�
 *   **環境變數透明加密**：所有敏感資訊 (`_PWD`, `_SECRET`, API Token) 儲存時自動加密 (AES-256-CBC)。
 *   **SQLite 自動備份與設定快照**：定時產出資料庫備份檔案與系統輕量快照。
 *   **RBAC 權限矩陣與 Dev Tools**：AD 網域群組對應、JWT 測試簽發與系統運行診斷。
+*   **安全強化**：
+    *   **機密不再送到瀏覽器**：System Settings 的密碼、Token、Secret 欄位只會顯示 `********`。不修改就保持原值，輸入新值會取代，清空欄位會清除。`JWT_SECRET` 完全不經過網頁，只能在主機的 `.env` 修改（改完需重啟服務）。
+    *   **IP 白名單**（`API_ALLOWED_IPS` / `FRONTEND_ALLOWED_IPS`）：只有當連線來自信任的反向代理時，才採用 `X-Forwarded-For`；預設只信任本機。Vanguard 前面若有其他主機上的反向代理，請把它的 IP 加到 `TRUSTED_PROXY_IPS`（以逗號分隔），否則所有請求都會被當成代理本身的 IP。
+    *   **角色變更立即生效**：在 RBAC 變更或移除某人（或某個 AD 對應群組）的角色後，對方已登入的畫面會在下一次操作時被要求重新登入。修改 AD 對應群組的目標、類型或啟用狀態，或刪除群組時，該群組的成員也會被要求重新登入；只調整功能開關則不受影響（功能開關本來就即時生效）。
+    *   **稽核紀錄一律寫入**：所有使用者的操作都會寫入 Audit log。RBAC 群組編輯器中原本的「AUDIT LOG」欄改名為「NOTIFY」，只決定該操作是否另外推送 Telegram / Webhook 通知。每筆紀錄固定一行，使用者名稱等內容中的換行不會再被當成新的紀錄。
+    *   **登出**：系統依登入憑證判斷是誰登出，不能再代替別人登出。
+    *   **Dev Tools** 只能呼叫本系統的 `/api/...` 路徑，不接受外部網址；每次呼叫（包含失敗）都會記入稽核，查詢參數中的 key / token 會被遮蔽。
+    *   **Incoming Webhook**：外部系統呼叫 `/api/webhooks/incoming/<id>` 時，必須在 `X-Webhook-Secret` header 帶上該 Webhook 的 Secret。請在 Integration Hub 編輯 Webhook，按「產生 Secret 以啟用」，Secret 只會顯示一次；沒有 Secret 的 Webhook 不接受外部呼叫。每個 Webhook 每分鐘最多接受 30 次呼叫。
+    *   **NAS 共用資料夾權限查詢**：共用資料夾名稱不可包含 `` ` ``、`$`、`"`、`;`、`|`、`&`、`<`、`>` 等字元。
 *   **資料存取與保留（v1.7.7，維運人員參考）**：
     *   多個服務會同時修改的設定與清單（CMDB 補充資料、排程任務、Prometheus 目標、Webhooks、RBAC、IPAM、SSL 等）一律以資料庫鎖定方式「讀最新資料再寫回」，網頁服務與背景服務不會再互相覆蓋。
     *   排程執行紀錄、CMDB 變更紀錄、DNS 變更紀錄、Workflow 執行紀錄與版本歷史改存資料表；升級後第一次啟動自動搬移舊資料，舊文件保留不刪。保留期限可在 `.env` 調整：`RETENTION_SCHEDULER_LOGS_DAYS`（預設 90）、`RETENTION_WORKFLOW_EXECUTIONS_DAYS`（90）、`RETENTION_CMDB_HISTORY_DAYS`（365）、`RETENTION_DNS_CHANGES_DAYS`（365）、`RETENTION_WORKFLOW_HISTORY_DAYS`（預設 0 = 不依天數刪除，每個 Workflow 仍最多保留 10 個版本）；設為 0 表示不依天數清除，另有筆數上限。清除由背景服務每日執行。

@@ -14,10 +14,42 @@ const LISTENER_ENV_KEY = /^(TELEGRAM_|PROXY_|SYSTEM_PROXY$|HTTPS?_PROXY$)/i;
 router.use(requireAuth);
 router.use(checkRole(['SuperAdmin']));
 
-// GET /api/settings - Read current .env configuration variables
+// Secrets never travel to the browser. A stored secret is shown as SECRET_MASK; saving the mask back keeps the
+// stored value, typing a new value replaces it, and clearing the field clears it.
+const SECRET_MASK = '********';
+// Not readable or writable from the UI at all: whoever holds it can sign login tokens for any user
+const SERVER_ONLY_KEYS = ['JWT_SECRET'];
+const SECRET_KEY_PARTS = ['_PWD', '_PASS', '_TOKEN', '_SECRET'];
+const SECRET_KEY_EXACT = ['JWT_SECRET', 'TELEGRAM_BOT_TOKEN', 'LOCAL_ADMIN_PWD'];
+const isSecretKey = (key) => SECRET_KEY_EXACT.includes(key) || SECRET_KEY_PARTS.some(p => key.includes(p));
+
+function maskSecrets(config) {
+    const out = { ...config };
+    for (const key of Object.keys(out)) {
+        if (SERVER_ONLY_KEYS.includes(key)) delete out[key];
+        else if (isSecretKey(key) && out[key]) out[key] = SECRET_MASK;
+    }
+    return out;
+}
+
+/** Undo the masking on a save request: server-only keys are dropped, masked secrets get their stored value back. */
+function unmaskSecrets(rawConfig, stored) {
+    const out = {};
+    for (const [key, value] of Object.entries(rawConfig || {})) {
+        if (SERVER_ONLY_KEYS.includes(key)) continue;
+        if (isSecretKey(key) && value === SECRET_MASK) {
+            if (stored[key] !== undefined) out[key] = stored[key];
+            continue;
+        }
+        out[key] = value;
+    }
+    return out;
+}
+
+// GET /api/settings - Read current .env configuration variables (secrets masked)
 router.get('/', (req, res) => {
     try {
-        const config = readEnv();
+        const config = maskSecrets(readEnv());
         // Software master lists are stored with a two-backslash separator: hand the textarea one entry per line.
         // Only these two keys change; the save route encodes real newlines exactly as before.
         if (config.REMOTE_INSTALL_SOFTWARE_MASTER) config.REMOTE_INSTALL_SOFTWARE_MASTER = decodeMasterList(config.REMOTE_INSTALL_SOFTWARE_MASTER, 'windows');
@@ -31,12 +63,12 @@ router.get('/', (req, res) => {
 // POST /api/settings/save - Save updated configuration settings
 router.post('/save', (req, res) => {
     try {
-        const rawConfig = req.body || {};
+        const stored = readEnv();
+        const rawConfig = unmaskSecrets(req.body, stored);
         const prunedConfig = {};
 
         // Server Provision: range-check the PROVISION_* numbers and the detect rules of the master lists before anything is written.
         // Only fields this request actually changes are validated, so an old out-of-range stored value never blocks saving other settings.
-        const stored = readEnv();
         const changedValue = (key) => {
             if (rawConfig[key] === undefined || rawConfig[key] === null) return false;
             const v = Array.isArray(rawConfig[key]) ? rawConfig[key].join(',') : rawConfig[key];

@@ -359,7 +359,9 @@ async function handleIncomingWebhook(id, payload, sourceIp) {
         webhookName = `Custom_Webhook_${id}`;
     }
     
-    logWebhookResult(webhookName, 'INCOMING', `Source IP: ${sourceIp} | Payload: ${JSON.stringify(payload)}`);
+    // the body can be up to the server's JSON limit: keep only the start in the log
+    const payloadText = JSON.stringify(payload) || '';
+    logWebhookResult(webhookName, 'INCOMING', `Source IP: ${sourceIp} | Payload: ${payloadText.slice(0, 2000)}${payloadText.length > 2000 ? ` … (${payloadText.length} chars)` : ''}`);
     
     const { auditLog, sendTelegramAlert } = require('../lib/logger');
     auditLog('API', 'Webhook Hub', `Received incoming webhook: ${webhookName} from ${sourceIp}`);

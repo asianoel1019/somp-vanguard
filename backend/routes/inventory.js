@@ -1,4 +1,5 @@
 const express = require('express');
+const { clientIp: getClientIp } = require('../lib/clientIp');
 const router = express.Router();
 const { requireAuth, checkRole, checkFeature, checkAnyFeature } = require('../middleware/auth');
 const { auditLog } = require('../lib/logger');
@@ -179,7 +180,7 @@ const installTokens = new Map();
 
 // Public route for downloading the agent during deployment
 router.get('/download-scout-win', (req, res) => {
-    const clientIp = req.headers['x-forwarded-for']?.split(',')[0] || req.socket.remoteAddress || 'unknown';
+    const clientIp = getClientIp(req);
     console.log(`[Download Scout Win] Incoming request from: ${clientIp} (Host: ${req.headers.host})`);
     const agent = router.getLatestWinAgent();
     if (fs.existsSync(agent.fullPath)) {

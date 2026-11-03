@@ -5,6 +5,19 @@ const { readRbacConfig, updateUserRole, removeUserRole, mutateRbacConfig, isRese
 const { runPowerShell, getADCredentialHeader } = require('../lib/powershell');
 const { auditLog } = require('../lib/logger');
 const { BUILTIN_SUPERADMIN_MAPPING, FEATURE_KEYS, SUPERADMIN_LOCKED_FEATURES } = require('../lib/featureCatalog');
+const sessionRevocation = require('../lib/sessionRevocation');
+
+// A role assignment targets either a user (name@domain) or a mapping group ('[group] Name'): tokens issued
+// before the change are refused, so the new role applies at once instead of when the 24 h token expires.
+function revokeRoleHolder(username, domain) {
+    const groupKey = String(username).match(/^\[group\]\s*(.*)$/i);
+    try {
+        if (groupKey) sessionRevocation.revokeGroup(groupKey[1].trim());
+        else sessionRevocation.revokeUser(username, domain);
+    } catch (e) {
+        console.error('[RBAC] Could not revoke existing sessions:', e.message);
+    }
+}
 
 const RESERVED_NAME_ERROR = `"${BUILTIN_SUPERADMIN_MAPPING}" is a reserved built-in mapping name`;
 // Exactly the keys the built-in editor shows (frontend rbacBuiltinUtils getEditorCategories(true))
@@ -219,6 +232,7 @@ router.post('/groups', (req, res) => {
             const domain = getAllowedAdDomain() || req.user.domain || 'local';
             const userRole = role || 'None';
             updateUserRole(accountName, domain, userRole, name || '');
+            revokeRoleHolder(accountName, domain);
             auditLog(req.user.username, 'AD User Control', `Defined AD Account Mapping: ${accountName}@${domain} (Input: ${mappingTarget}, Default Role: ${userRole})`);
             try { require('../lib/websocket').broadcastEvent('USER_ROLE_CHANGED', { username: accountName, domain, role: userRole }); } catch(e) {}
             const config = readRbacConfig();
@@ -230,8 +244,12 @@ router.post('/groups', (req, res) => {
             return res.status(400).json({ error: 'Mapping Name and Target are required' });
         }
         // atomic read-modify-write of the CURRENT document
+        let membershipChanged = false;
         const groups = mutateRbacConfig((config) => {
             if (!config.groups) config.groups = {};
+            const before = config.groups[name];
+            // who belongs to the mapping (and so who holds its role) changes with its type, target or enabled flag
+            membershipChanged = !!before && (before.type !== mappingType || before.target !== mappingTarget || (before.enabled !== false) !== (enabled !== false));
             config.groups[name] = {
                 type: mappingType,
                 target: mappingTarget,
@@ -242,6 +260,7 @@ router.post('/groups', (req, res) => {
             };
             return JSON.parse(JSON.stringify(config.groups));
         });
+        if (membershipChanged) revokeRoleHolder(`[group] ${name}`);
         auditLog(req.user.username, 'AD User Control', `Added/Updated AD Mapping (${mappingType}): ${name} -> ${mappingTarget}`);
         res.json({ success: true, groups });
     } catch (e) {
@@ -264,6 +283,7 @@ router.delete('/groups/:name', (req, res) => {
                 if (config.groups && config.groups[name]) delete config.groups[name];
                 return JSON.parse(JSON.stringify(config.groups || {}));
             });
+            revokeRoleHolder(`[group] ${name}`);
             auditLog(req.user.username, 'AD User Control', `Deleted Group: ${name}`);
         }
         res.json({ success: true, groups });
@@ -286,6 +306,7 @@ router.post('/', (req, res) => {
             return res.status(400).json({ error: RESERVED_NAME_ERROR });
         }
         updateUserRole(username, domain, role, groupName);
+        revokeRoleHolder(username, domain);
         auditLog(req.user.username, 'AD User Control', `Assigned role ${role} to ${username}@${domain}`);
         try { require('../lib/websocket').broadcastEvent('USER_ROLE_CHANGED', { username, domain, role }); } catch(e) {}
         res.json({ success: true, message: `Updated ${username}@${domain} to ${role}` });
@@ -303,6 +324,7 @@ router.delete('/', (req, res) => {
             return res.status(400).json({ error: 'username and domain are required' });
         }
         removeUserRole(username, domain);
+        revokeRoleHolder(username, domain);
         auditLog(req.user.username, 'AD User Control', `Removed custom role for ${username}@${domain}`);
         try { require('../lib/websocket').broadcastEvent('USER_ROLE_CHANGED', { username, domain, role: null }); } catch(e) {}
         res.json({ success: true, message: `Removed custom role for ${username}@${domain}` });

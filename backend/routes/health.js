@@ -1,4 +1,5 @@
 const express = require('express');
+const { clientIp: getClientIp } = require('../lib/clientIp');
 const router = express.Router();
 const os = require('os');
 
@@ -8,7 +9,7 @@ const WINDOW_MS = 30 * 1000;
 const MAX_REQUESTS = 5;
 
 const rateLimiter = (req, res, next) => {
-    const ip = req.headers['x-forwarded-for']?.split(',')[0] || req.socket.remoteAddress || 'unknown';
+    const ip = getClientIp(req);
     const now = Date.now();
     
     if (!healthCheckLimits.has(ip)) {

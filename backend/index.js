@@ -17,6 +17,7 @@ const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
 const path = require('path');
+const { clientIp: getClientIp } = require('./lib/clientIp');
 
 // Initialize dotenv BEFORE loading any internal modules that depend on env vars
 dotenv.config({ path: path.join(__dirname, '.env'), override: true });
@@ -297,7 +298,7 @@ app.use((req, res, next) => {
     if (!allowedIpsStr.trim()) return next(); // Allow all if specific list is empty
 
     const allowedIps = allowedIpsStr.split(',').map(ip => ip.trim());
-    const clientIp = req.headers['x-forwarded-for']?.split(',')[0] || req.socket.remoteAddress || 'unknown';
+    const clientIp = getClientIp(req);
     const cleanIp = clientIp.startsWith('::ffff:') ? clientIp.substring(7) : clientIp;
     
     // Always allow localhost for safety

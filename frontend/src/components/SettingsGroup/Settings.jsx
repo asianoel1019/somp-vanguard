@@ -78,6 +78,7 @@ const Settings = ({ mode = 'system' }) => {
     const [devicesText, setDevicesText] = useState('');
     const [webhooks, setWebhooks] = useState([]);
     const [isEditingWebhook, setIsEditingWebhook] = useState(false);
+    const [incomingSecret, setIncomingSecret] = useState(''); // shown once, right after it is generated
     const [webhookForm, setWebhookForm] = useState({ id: '', name: '', url: '', method: 'POST', headers: '{\n  "Content-Type": "application/json"\n}', bodyTemplate: '{\n  "text": "{{message}}"\n}', enabled: true, enabledLogs: DEFAULT_LOG_TYPE_KEYS });
     const [testingWebhookId, setTestingWebhookId] = useState(null);
     const [deletingWebhook, setDeletingWebhook] = useState(null);
@@ -798,6 +799,18 @@ const Settings = ({ mode = 'system' }) => {
         }
     };
 
+    const handleGenerateIncomingSecret = async () => {
+        if (!webhookForm.id) return;
+        try {
+            const res = await api.post(`/webhooks/${webhookForm.id}/incoming-secret`);
+            setIncomingSecret(res.data.secret);
+            setWebhookForm(prev => ({ ...prev, incomingEnabled: true }));
+            setWebhooks(prev => prev.map(w => (w.id === webhookForm.id ? { ...w, incomingEnabled: true } : w)));
+        } catch (err) {
+            setError(err.response?.data?.error || err.message);
+        }
+    };
+
     const openEditWebhook = (wh) => {
         setWebhookForm({
             id: wh.id,
@@ -807,8 +820,10 @@ const Settings = ({ mode = 'system' }) => {
             headers: JSON.stringify(wh.headers || {}, null, 2),
             bodyTemplate: wh.bodyTemplate,
             enabled: wh.enabled !== false,
-            enabledLogs: Array.isArray(wh.enabledLogs) ? wh.enabledLogs : DEFAULT_LOG_TYPE_KEYS
+            enabledLogs: Array.isArray(wh.enabledLogs) ? wh.enabledLogs : DEFAULT_LOG_TYPE_KEYS,
+            incomingEnabled: !!wh.incomingEnabled
         });
+        setIncomingSecret('');
         setIsWebhookLogsExpanded(false);
         setIsEditingWebhook(true);
     };
@@ -917,7 +932,8 @@ const Settings = ({ mode = 'system' }) => {
                                     <div style={S.gridRow}>
                                         <div style={S.fieldBlock}>
                                             <label style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-muted)' }}>JWT_SECRET</label>
-                                            <input type="password" style={S.input} value={sysConfig.JWT_SECRET || ''} onChange={e => handleConfigChange('JWT_SECRET', e.target.value)} />
+                                            {/* never sent to the browser: whoever holds it can sign any login token */}
+                                            <input type="text" style={{ ...S.input, opacity: 0.6 }} value="只能在主機的 .env 修改（修改後需重啟服務）" disabled />
                                         </div>
                                         <div style={S.fieldBlock}>
                                             <label style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-muted)' }}>ALLOWED_AD_DOMAIN</label>
@@ -3045,6 +3061,26 @@ curl -H "Authorization: Bearer <YOUR_API_KEY>" "${window.location.origin}/api/v1
                                 <label style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-muted)' }}>BODY TEMPLATE <span style={{ color: 'var(--text-muted)', fontWeight: 'normal' }}>(Use placeholders: {"{{message}}"}, {"{{module}}"}, {"{{timestamp}}"})</span></label>
                                 <textarea style={S.textarea} rows="5" value={webhookForm.bodyTemplate} onChange={e => setWebhookForm({ ...webhookForm, bodyTemplate: e.target.value })} placeholder='{"text": "{{message}}"}' />
                             </div>
+                            {webhookForm.id && (
+                                <div style={S.fieldBlock}>
+                                    <label style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-muted)' }}>INCOMING WEBHOOK <span style={{ fontWeight: 'normal' }}>(外部系統呼叫此網址時，必須帶 X-Webhook-Secret header)</span></label>
+                                    <input type="text" style={{ ...S.input, fontFamily: 'monospace' }} readOnly value={`${window.location.origin}/api/webhooks/incoming/${webhookForm.id}`} />
+                                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 6 }}>
+                                        <button type="button" style={{ ...S.btnO, padding: '6px 14px', fontSize: 12 }} onClick={handleGenerateIncomingSecret}>
+                                            {webhookForm.incomingEnabled ? '重新產生 Secret（舊的立即失效）' : '產生 Secret 以啟用'}
+                                        </button>
+                                        <span style={{ fontSize: 11, color: webhookForm.incomingEnabled ? 'var(--success)' : 'var(--text-muted)' }}>
+                                            {webhookForm.incomingEnabled ? '已啟用' : '未啟用：外部呼叫會被拒絕'}
+                                        </span>
+                                    </div>
+                                    {incomingSecret && (
+                                        <div style={{ marginTop: 6, fontSize: 11, color: 'var(--warning)' }}>
+                                            Secret（只顯示這一次，請立即複製）：
+                                            <input type="text" style={{ ...S.input, fontFamily: 'monospace', marginTop: 4 }} readOnly value={incomingSecret} onFocus={e => e.target.select()} />
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                             <div style={S.fieldBlock}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                                     <label style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-muted)' }}>
@@ -3466,7 +3502,7 @@ const GroupFeatureEditor = ({ isBuiltin = false, initialFeatures, initialAuditLo
                         <tr>
                             <th style={{ ...S.th, padding: '10px 16px' }}>FEATURE NAME</th>
                             <th style={{ ...S.th, padding: '10px 16px', textAlign: 'center', width: 80 }}>ENABLE</th>
-                            {showAudit && <th style={{ ...S.th, padding: '10px 16px', textAlign: 'center', width: 90 }}>AUDIT LOG</th>}
+                            {showAudit && <th style={{ ...S.th, padding: '10px 16px', textAlign: 'center', width: 90 }} title="操作一律寫入稽核紀錄；這裡只決定是否另外推送 Telegram / Webhook 通知">NOTIFY</th>}
                         </tr>
                     </thead>
                     <tbody>
@@ -3500,7 +3536,7 @@ const GroupFeatureEditor = ({ isBuiltin = false, initialFeatures, initialAuditLo
                                                 setAuditLogs(newAuditLogs);
                                             }}
                                             style={{ cursor: 'pointer', accentColor: 'var(--danger)', transform: 'scale(1.2)' }}
-                                            title="Toggle All Audit Logs"
+                                            title="Toggle All Notifications"
                                         />
                                     </td>
                                     )}

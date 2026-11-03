@@ -2,6 +2,7 @@ const jwt = require('jsonwebtoken');
 const { decryptPassword } = require('../lib/crypto');
 const { hasFeature, isFeatureGloballyDisabled } = require('../lib/permissions');
 const sessionService = require('../services/sessionService');
+const sessionRevocation = require('../lib/sessionRevocation');
 
 function requireAuth(req, res, next) {
     const authHeader = req.headers.authorization;
@@ -17,6 +18,9 @@ function requireAuth(req, res, next) {
     
     try {
         const decoded = jwt.verify(token, secret);
+        if (sessionRevocation.isRevoked(decoded)) {
+            return res.status(401).json({ error: 'Your role was changed: please sign in again', code: 'SESSION_REVOKED' });
+        }
         if (sessionService.isSessionTimedOut(token)) {
             return res.status(401).json({ error: 'Session timed out due to inactivity', code: 'SESSION_TIMEOUT' });
         }

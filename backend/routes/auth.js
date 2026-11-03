@@ -1,4 +1,5 @@
 const express = require('express');
+const { clientIp: getClientIp } = require('../lib/clientIp');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
 const path = require('path');
@@ -11,7 +12,7 @@ const { encryptPassword } = require('../lib/crypto');
 const { getUserRole, readRbacConfig, getAllowedAdDomain } = require('../lib/rbac');
 const { buildFeatureMap } = require('../lib/permissions');
 const { FEATURE_KEYS, SUPERADMIN_LOCKED_FEATURES } = require('../lib/featureCatalog');
-const { requireAuth } = require('../middleware/auth');
+const { requireAuth, checkRole } = require('../middleware/auth');
 
 const { appendLog, getTodayLogFile, sendTelegramAlert, auditLog } = require('../lib/logger');
 const sessionService = require('../services/sessionService');
@@ -27,7 +28,7 @@ const IP_MAX_REQUESTS = 5;
 const LOCKOUT_MS = 5 * 60 * 1000;
 
 const loginRateLimiter = (req, res, next) => {
-    const ip = req.headers['x-forwarded-for']?.split(',')[0] || req.socket.remoteAddress || 'unknown';
+    const ip = getClientIp(req);
     const now = Date.now();
 
     if (ipLockouts.has(ip)) {
@@ -106,7 +107,7 @@ router.post('/login', loginRateLimiter, async (req, res) => {
             return res.status(400).json({ error: 'Username and password are required' });
         }
 
-        const userIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+        const userIp = getClientIp(req);
         const attemptKey = `${username}:${userIp}`;
 
         if (loginAttempts.has(attemptKey)) {
@@ -317,7 +318,8 @@ try {
 });
 
 // View logs
-router.get('/logs', requireAuth, (req, res) => {
+// Same file as the Audit Log viewer, so the same SuperAdmin-only rule
+router.get('/logs', requireAuth, checkRole(['SuperAdmin']), (req, res) => {
     try {
         const currentLogFile = getTodayLogFile();
         if (!fs.existsSync(currentLogFile)) return res.json({ logs: '(no log today yet)' });
@@ -332,13 +334,23 @@ router.get('/logs', requireAuth, (req, res) => {
 });
 
 // Explicit logout, timeout, or cold-start cleanup event
+// Who is logging out comes from the signed token, never from the body: otherwise anyone could end any user's
+// sessions and write audit lines in their name. An expired token still identifies its owner (timeout cleanup).
 router.post('/logout', (req, res) => {
     try {
-        const { username, type, token } = req.body;
-        if (token) {
-            sessionService.removeSession(token);
+        const { type, token } = req.body || {};
+        let username = null;
+        if (token && process.env.JWT_SECRET) {
+            try {
+                const decoded = jwt.verify(token, process.env.JWT_SECRET, { ignoreExpiration: true });
+                if (decoded && decoded.username) username = decoded.domain ? `${decoded.username}@${decoded.domain}` : decoded.username;
+            } catch (e) {
+                // not a token this server signed
+            }
         }
-        if (username) {
+        if (!username) return res.status(401).json({ ok: false, error: 'A valid session token is required' });
+        sessionService.removeSession(token);
+        {
             // Cold-start stale session cleanup when opening browser: SILENT, no delayed alert!
             if (type === 'cold_start_cleanup' || type === 'silent_cleanup' || type === 'browser_open') {
                 appendLog(`[Auth] Cold-start stale session cleaned up silently for ${username} (no delayed alert)`);

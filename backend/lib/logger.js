@@ -42,10 +42,14 @@ function getTodayLogFile() {
     return path.join(LOG_DIR, `auth_${todayStr}.log`);
 }
 
+// One log entry is one line: a line break inside a value (a username, a stack trace) would start a new line that
+// the audit viewer reads as a separate, genuine entry
+const oneLine = (text) => String(text).replace(/[\r\n\u2028\u2029]+/g, ' \u23CE ').replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
+
 function appendLog(msg) {
     const todayStr = getTodayStr();
     const logFile = path.join(LOG_DIR, `auth_${todayStr}.log`);
-    const line = `[${getLocaleTimestamp()}] ${msg}`;
+    const line = `[${getLocaleTimestamp()}] ${oneLine(msg)}`;
     
     try {
         fs.appendFileSync(logFile, line + '\n');
@@ -264,6 +268,8 @@ const MODULE_TO_FEATURE_KEY = {
     'Task Scheduler': 'scheduler'
 };
 
+// Whether an audit event of this module is also pushed as a Telegram / Webhook notification. The audit file itself
+// is always written: the group's audit toggles (rbac groups.*.auditLogs) only choose which actions notify.
 function isLoggingEnabledForModule(moduleName, username) {
     if (!username) return true;
     if (username.toUpperCase() === 'SYSTEM' || username.startsWith('OpenAPI')) return true;
@@ -297,17 +303,21 @@ function isLoggingEnabledForModule(moduleName, username) {
     }
 }
 
+// '|' separates the fields the audit viewer parses, so it may not appear inside the user or module
+const auditField = (v) => oneLine(v).replace(/\|/g, '/');
+const auditLine = (user, moduleName, actionDescription) =>
+    `[Audit] User: ${auditField(user)} | Module: ${auditField(moduleName)} | Action: ${oneLine(actionDescription)}`;
+
 function auditLog(user, moduleName, actionDescription) {
+    appendLog(auditLine(user, moduleName, actionDescription));
     if (!isLoggingEnabledForModule(moduleName, user)) return;
-    const rawMessage = `[Audit] User: ${user} | Module: ${moduleName} | Action: ${actionDescription.replace(/\n/g, ' ')}`;
-    appendLog(rawMessage);
     sendTelegramAlert(formatAuditMessage(user, moduleName, actionDescription), moduleName);
 }
 
 /** Audit line to the log file and webhooks but NOT Telegram: for events that already send their own summary notification. */
 function auditLogFileOnly(user, moduleName, actionDescription) {
+    appendLog(auditLine(user, moduleName, actionDescription));
     if (!isLoggingEnabledForModule(moduleName, user)) return;
-    appendLog(`[Audit] User: ${user} | Module: ${moduleName} | Action: ${String(actionDescription).replace(/\n/g, ' ')}`);
     // webhooks still get it (like every other audit line); only the Telegram push is skipped
     sendTelegramAlert(formatAuditMessage(user, moduleName, actionDescription), moduleName, { skipTelegram: true });
 }
@@ -374,8 +384,8 @@ function summarizeLines(lines, max = 20) {
 
 /** Like auditLog, but the notification is merged with other actions of the same user+module in a short window. */
 function auditLogBatched(user, moduleName, actionDescription) {
+    appendLog(auditLine(user, moduleName, actionDescription));
     if (!isLoggingEnabledForModule(moduleName, user)) return;
-    appendLog(`[Audit] User: ${user} | Module: ${moduleName} | Action: ${actionDescription.replace(/\n/g, ' ')}`);
     queueNotification(`audit\u0000${user}\u0000${moduleName}`, moduleName, actionDescription, (actions) => actions.length === 1
         ? formatAuditMessage(user, moduleName, actions[0])
         : formatBatchAuditMessage(user, moduleName, actions));
@@ -383,12 +393,10 @@ function auditLogBatched(user, moduleName, actionDescription) {
 
 function batchAuditLog(user, moduleName, actions) {
     if (!actions || actions.length === 0) return;
-    if (!isLoggingEnabledForModule(moduleName, user)) return;
-    
     const count = actions.length;
-    const actionText = actions.join(' | ');
-    appendLog(`[Audit-Batch] User: ${user} | Module: ${moduleName} | Actions (${count}): ${actionText}`);
-
+    const actionText = actions.map(oneLine).join(' | ');
+    appendLog(`[Audit-Batch] User: ${auditField(user)} | Module: ${auditField(moduleName)} | Actions (${count}): ${actionText}`);
+    if (!isLoggingEnabledForModule(moduleName, user)) return;
     sendTelegramAlert(formatBatchAuditMessage(user, moduleName, actions), moduleName);
 }
 

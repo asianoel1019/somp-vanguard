@@ -3,6 +3,12 @@ const { runPowerShell } = require('../lib/powershell');
 const { executeSSH } = require('../lib/ssh');
 const { decryptPassword, decryptText } = require('../lib/crypto');
 
+// Text placed inside a PowerShell double-quoted string: escape what PowerShell would otherwise expand or end the
+// string on (backtick, $, and straight or typographic double quotes) with a backtick.
+function psDq(value) {
+    return String(value == null ? '' : value).replace(/[`$"“”„]/g, (c) => '`' + c);
+}
+
 function resetError() {
     const err = new Error('The stored NAS password cannot be decrypted. A SuperAdmin must re-enter it in Settings > File Services > NAS Devices.');
     err.userSafe = true; // safe to show to the client
@@ -406,7 +412,7 @@ class WindowsSmbDriver {
         if (this.isLocal()) {
             try {
                 const psCmd = `
-                    $acl = Get-SmbShareAccess -Name "${shareName}" -ErrorAction SilentlyContinue
+                    $acl = Get-SmbShareAccess -Name "${psDq(shareName)}" -ErrorAction SilentlyContinue
                     $perms = @()
                     if ($acl) {
                         foreach ($a in $acl) {
@@ -447,10 +453,10 @@ class WindowsSmbDriver {
 
             const psScript = `
                 $ip = "${safeIp}"
-                $user = "${user}"
-                $domain = "${domain}"
+                $user = "${psDq(user)}"
+                $domain = "${psDq(domain)}"
                 $pass = '${safePassword}'
-                $share = "${shareName}"
+                $share = "${psDq(shareName)}"
                 
                 $perms = @()
                 $cred = $null
@@ -652,5 +658,6 @@ function getDriver(device) {
 }
 
 module.exports = {
+    psDq,
     getDriver
 };

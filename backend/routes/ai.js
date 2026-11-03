@@ -223,7 +223,8 @@ async function callAiEngine(config, messages, promptOptions = {}) {
     else if (provider === 'gemini') {
         if (!apiKey) throw new Error('API Key is required for Google Gemini.');
         const targetModel = model.replace(/^models\//, '');
-        const url = `${baseUrl}/v1beta/models/${targetModel}:generateContent?key=${apiKey}`;
+        // key in a header, not the query string: the URL ends up in error logs
+        const url = `${baseUrl}/v1beta/models/${targetModel}:generateContent`;
         
         // Format messages for Gemini
         const systemMsg = messages.find(m => m.role === 'system');
@@ -260,7 +261,7 @@ async function callAiEngine(config, messages, promptOptions = {}) {
         }
 
         try {
-            const res = await axios.post(url, body, axiosBaseOptions);
+            const res = await axios.post(url, body, { ...axiosBaseOptions, headers: { 'x-goog-api-key': apiKey } });
             const text = res.data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
             return {
                 content: text,
@@ -484,11 +485,30 @@ router.get('/config', requireAuth, aiConfigReadGate, checkRole(['SuperAdmin', 'O
     }
 });
 
+// The stored API key only ever goes to the provider and endpoint it was entered for. A request that points at another
+// provider or base URL must bring its own key; otherwise the key would be sent to whatever URL was typed in.
+const KEY_DEFAULT_URLS = {
+    opencode: 'https://opencode.ai/zen/v1', openai: 'https://api.openai.com/v1', anthropic: 'https://api.anthropic.com',
+    deepseek: 'https://api.deepseek.com', gemini: 'https://generativelanguage.googleapis.com', ollama: 'http://localhost:11434'
+};
+const endpointOf = (provider, baseUrl) => {
+    const p = String(provider || 'opencode').toLowerCase();
+    return `${p} ${String(baseUrl || KEY_DEFAULT_URLS[p] || '').trim().replace(/\/+$/, '').toLowerCase()}`;
+};
+function storedKeyAllowed(current, provider, baseUrl) {
+    return endpointOf(provider || current.provider, baseUrl !== undefined && baseUrl !== '' ? baseUrl : current.baseUrl)
+        === endpointOf(current.provider, current.baseUrl);
+}
+const KEY_REQUIRED_ERROR = '變更了 Provider 或 Base URL 時，請重新輸入 API Key（已儲存的 Key 只會送往原本的服務）';
+
 // POST /api/ai/config - Save AI settings (encrypts key)
-router.post('/config', requireAuth, aiSettingsGate, checkRole(['SuperAdmin', 'Operator']), (req, res) => {
+router.post('/config', requireAuth, aiSettingsGate, checkRole(['SuperAdmin']), (req, res) => {
     try {
         const { enabled, provider, baseUrl, apiKey, model, temperature, timeout, maxTokens, enableThinking, reasoningEffort, systemPrompt, agentEnabled, agentModel, agentRateLimitPerHour } = req.body;
         const current = getAiConfig();
+        if (!apiKey && req.body.clearApiKey !== true && current.apiKey_enc && !storedKeyAllowed(current, provider, baseUrl)) {
+            return res.status(400).json({ error: KEY_REQUIRED_ERROR });
+        }
 
         const updated = {
             enabled: typeof enabled === 'boolean' ? enabled : current.enabled,
@@ -523,13 +543,16 @@ router.post('/config', requireAuth, aiSettingsGate, checkRole(['SuperAdmin', 'Op
 });
 
 // POST /api/ai/fetch-models - Dynamically fetch available models from provider
-router.post('/fetch-models', requireAuth, aiSettingsGate, checkRole(['SuperAdmin', 'Operator']), async (req, res) => {
+router.post('/fetch-models', requireAuth, aiSettingsGate, checkRole(['SuperAdmin']), async (req, res) => {
     try {
         const { provider, baseUrl, apiKey } = req.body;
         const current = getAiConfig();
 
         const p = (provider || current.provider || 'opencode').toLowerCase();
         let key = apiKey;
+        if (!key && current.apiKey_enc && !storedKeyAllowed(current, provider, baseUrl)) {
+            return res.status(400).json({ error: KEY_REQUIRED_ERROR });
+        }
         if (!key && current.apiKey_enc) {
             try { key = decryptText(current.apiKey_enc); } catch {}
         }
@@ -561,7 +584,7 @@ router.post('/fetch-models', requireAuth, aiSettingsGate, checkRole(['SuperAdmin
             models = (resp.data?.models || []).map(m => m.name || m.model).filter(Boolean);
         } else if (p === 'gemini') {
             if (!key) return res.status(400).json({ error: 'API Key is required to fetch Google Gemini models.' });
-            const resp = await axios.get(`${url}/v1beta/models?key=${key}`, axiosOpts);
+            const resp = await axios.get(`${url}/v1beta/models`, { ...axiosOpts, headers: { 'x-goog-api-key': key } });
             models = (resp.data?.models || [])
                 .filter(m => (m.supportedGenerationMethods || []).includes('generateContent'))
                 .map(m => (m.name || '').replace(/^models\//, ''))
@@ -603,11 +626,14 @@ router.post('/fetch-models', requireAuth, aiSettingsGate, checkRole(['SuperAdmin
 });
 
 // POST /api/ai/test - Test connection to AI provider
-router.post('/test', requireAuth, aiSettingsGate, checkRole(['SuperAdmin', 'Operator']), async (req, res) => {
+router.post('/test', requireAuth, aiSettingsGate, checkRole(['SuperAdmin']), async (req, res) => {
     const startTime = Date.now();
     try {
         const { provider, baseUrl, apiKey, model, enableThinking, reasoningEffort } = req.body;
         const current = getAiConfig();
+        if (!apiKey && current.apiKey_enc && !storedKeyAllowed(current, provider, baseUrl)) {
+            return res.status(400).json({ error: KEY_REQUIRED_ERROR });
+        }
 
         const testConfig = {
             enabled: true,

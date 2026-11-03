@@ -4,6 +4,7 @@ const { requireAuth, checkRole } = require('../middleware/auth');
 const fs = require('fs');
 const path = require('path');
 const { readEnv, writeEnv, envVersion } = require('../lib/envEditor');
+const { encryptText } = require('../lib/crypto');
 const { auditLog } = require('../lib/logger');
 const { validateProvisionSettings } = require('../lib/provisioning');
 const { validateMasterListText, decodeMasterList } = require('../lib/provisioningConfig');
@@ -22,8 +23,35 @@ const SECRET_MASK = '********';
 // Not readable or writable from the UI at all: whoever holds it can sign login tokens for any user
 const SERVER_ONLY_KEYS = ['JWT_SECRET'];
 const SECRET_KEY_PARTS = ['_PWD', '_PASS', '_TOKEN', '_SECRET'];
-const SECRET_KEY_EXACT = ['JWT_SECRET', 'TELEGRAM_BOT_TOKEN', 'LOCAL_ADMIN_PWD'];
+const SECRET_KEY_EXACT = ['JWT_SECRET', 'TELEGRAM_BOT_TOKEN', 'LOCAL_ADMIN_PWD', 'SFTP_API_KEY'];
 const isSecretKey = (key) => SECRET_KEY_EXACT.includes(key) || SECRET_KEY_PARTS.some(p => key.includes(p));
+
+// SFTP_SERVERS is a JSON list whose entries carry their own apiKey: masked towards the page, stored as enc: values
+const parseServers = (text) => { try { const v = JSON.parse(text || '[]'); return Array.isArray(v) ? v : null; } catch (e) { return null; } };
+
+function maskSftpServers(text) {
+    const list = parseServers(text);
+    if (!list) return text;
+    return JSON.stringify(list.map(s => (s && s.apiKey ? { ...s, apiKey: SECRET_MASK } : s)));
+}
+
+function unmaskSftpServers(text, storedText, storedLegacyKey) {
+    const list = parseServers(text);
+    if (!list) return text;
+    const stored = parseServers(storedText) || [];
+    return JSON.stringify(list.map((s, i) => {
+        if (!s || !s.apiKey) return s;
+        if (s.apiKey === SECRET_MASK) {
+            // same id; entries saved without ids match by position; a list built from the old single-server
+            // SFTP_HOST settings takes SFTP_API_KEY
+            const before = stored.find(x => x && x.id !== undefined && x.id === s.id) || (stored[i] && stored[i].id === undefined ? stored[i] : null);
+            const key = before ? before.apiKey : (stored.length === 0 ? storedLegacyKey : '');
+            if (!key) return { ...s, apiKey: '' };
+            return { ...s, apiKey: String(key).startsWith('enc:') ? key : `enc:${encryptText(key)}` };
+        }
+        return String(s.apiKey).startsWith('enc:') ? s : { ...s, apiKey: `enc:${encryptText(s.apiKey)}` };
+    }));
+}
 
 function maskSecrets(config) {
     const out = { ...config };
@@ -31,6 +59,7 @@ function maskSecrets(config) {
         if (SERVER_ONLY_KEYS.includes(key)) delete out[key];
         else if (isSecretKey(key) && out[key]) out[key] = SECRET_MASK;
     }
+    if (out.SFTP_SERVERS) out.SFTP_SERVERS = maskSftpServers(out.SFTP_SERVERS);
     return out;
 }
 
@@ -41,6 +70,10 @@ function unmaskSecrets(rawConfig, stored) {
         if (SERVER_ONLY_KEYS.includes(key)) continue;
         if (isSecretKey(key) && value === SECRET_MASK) {
             if (stored[key] !== undefined) out[key] = stored[key];
+            continue;
+        }
+        if (key === 'SFTP_SERVERS') {
+            out[key] = unmaskSftpServers(value, stored.SFTP_SERVERS, stored.SFTP_API_KEY);
             continue;
         }
         out[key] = value;

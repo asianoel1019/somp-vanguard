@@ -380,6 +380,11 @@ Server List 是 SOMP Vanguard 的核心伺服器資產資料庫 (CMDB)，自動�
         *   `DB_DATA_DIR` 只能改到已經有 `.system_key`（加密金鑰檔）的目錄，否則改完重啟後所有加密設定與 RBAC 都會無法解密。搬移資料目錄時，請先把整個目錄（含 `.system_key`）複製過去再修改。
         *   AI Service 的 API Key 欄位留空儲存時，會保留原本的 Key（之前會被清空）。
         *   RBAC 新增 AD 對照時，名稱已存在（不分大小寫）會被拒絕，請改用編輯，不會再默默覆蓋原本的對照並清空其功能設定。
+    *   **機密不再外洩**：
+        *   AI Service：已儲存的 API Key 只會送往當初輸入時的 Provider 與 Base URL。變更 Provider 或 Base URL（包含「Test」與「Fetch Models」）時必須重新輸入 Key。修改、測試、取得模型改為只限 SuperAdmin。Gemini 的 Key 改放在 header（`x-goog-api-key`），不再出現在網址與錯誤 log。
+        *   Webhook 清單中的 Authorization 等 header 與網址裡的 token 會遮蔽顯示；編輯時不動遮蔽的值就保持原值，輸入新值會取代。
+        *   SFTP 伺服器的 API Key 改為加密儲存，頁面只顯示 `********`；按「Test」時，主機、Port、協定沒變才會使用已儲存的 Key，改了就要重新輸入。SFTP 主機欄只接受主機名稱或 IP。
+        *   RBAC 查詢 AD 成員、NAS 的帳號 / 網域 / 共用資料夾名稱 / 路徑，送進 PowerShell 或遠端 shell 前都會先跳脫；NAS 帳號只接受英數字、空白、`.` `_` `-` 與一個 `\` 或 `@`。
     *   **NAS 共用資料夾權限查詢**：共用資料夾名稱不可包含 `` ` ``、`$`、`"`、`;`、`|`、`&`、`<`、`>` 等字元。
 *   **資料存取與保留（v1.7.7，維運人員參考）**：
     *   多個服務會同時修改的設定與清單（CMDB 補充資料、排程任務、Prometheus 目標、Webhooks、RBAC、IPAM、SSL 等）一律以資料庫鎖定方式「讀最新資料再寫回」，網頁服務與背景服務不會再互相覆蓋。

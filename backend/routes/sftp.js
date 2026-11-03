@@ -75,6 +75,16 @@ function resolveServer(serverId) {
     return servers.find(s => s.id === serverId) || servers[0];
 }
 
+// host is put into a URL: only a host name, an IPv4 address or a bracketed IPv6 address, never a path or query
+const SFTP_HOST_RE = /^(?:[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?|\[[0-9A-Fa-f:.]+\])$/;
+function sftpTargetError(config) {
+    if (!config || !SFTP_HOST_RE.test(String(config.host || ''))) return 'Invalid SFTP server host';
+    if (!['http', 'https'].includes(config.protocol || 'http')) return 'Protocol must be http or https';
+    const port = Number(config.apiPort || 8443);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) return 'API port must be 1-65535';
+    return null;
+}
+
 const httpAgent = new http.Agent({ keepAlive: true, keepAliveMsecs: 15000, maxSockets: 50 });
 const httpsAgent = new https.Agent({ keepAlive: true, keepAliveMsecs: 15000, maxSockets: 50 });
 
@@ -87,6 +97,8 @@ function proxySftpRequest(endpoint, method = 'GET', data = null, customConfig = 
         if (!config || !config.host) {
             return reject(new Error('No SFTP Server target configuration available.'));
         }
+        const targetError = sftpTargetError(config);
+        if (targetError) return reject(new Error(targetError));
 
         const isHttps = config.protocol === 'https';
         const url = `${config.protocol || 'http'}://${config.host}:${config.apiPort || 8443}${endpoint}`;
@@ -210,13 +222,24 @@ router.get('/status', async (req, res) => {
 // POST /api/sftp/test-connection - Test connection with specific credentials
 router.post('/test-connection', checkAnyFeature('sftpManager', 'settings'), checkRole(['Operator', 'SuperAdmin']), async (req, res) => {
     try {
-        const { host, apiPort, apiKey, protocol } = req.body;
+        const { host, apiPort, apiKey, protocol, serverId } = req.body;
         const testConfig = {
             host: host || '127.0.0.1',
             apiPort: parseInt(apiPort || '8443', 10),
             apiKey: apiKey || '',
             protocol: protocol || 'http'
         };
+        const targetError = sftpTargetError(testConfig);
+        if (targetError) return res.status(400).json({ success: false, message: targetError });
+        // The settings page only holds the masked key. The stored key is used for the server it belongs to,
+        // and only while host, port and protocol are unchanged: it is never sent to a newly typed address.
+        if (testConfig.apiKey === '********') {
+            const servers = getSftpServers();
+            const stored = servers.find(s => s.id === serverId) || (servers.length === 1 ? servers[0] : null);
+            const same = stored && stored.host === testConfig.host && stored.apiPort === testConfig.apiPort && stored.protocol === testConfig.protocol;
+            if (!same) return res.status(400).json({ success: false, message: '變更了主機、Port 或協定時，請重新輸入 API Key' });
+            testConfig.apiKey = stored.apiKey;
+        }
 
         const response = await proxySftpRequest('/api/status', 'GET', null, testConfig);
         res.json({

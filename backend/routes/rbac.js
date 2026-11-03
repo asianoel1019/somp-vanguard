@@ -3,6 +3,7 @@ const router = express.Router();
 const { authMiddleware, checkRole } = require('../middleware/auth');
 const { readRbacConfig, updateUserRole, removeUserRole, mutateRbacConfig, isReservedMappingName, normalizeMappingName, getAllowedAdDomain } = require('../lib/rbac');
 const { runPowerShell, getADCredentialHeader } = require('../lib/powershell');
+const { psSq } = require('../lib/psQuote');
 const { auditLog } = require('../lib/logger');
 const { BUILTIN_SUPERADMIN_MAPPING, FEATURE_KEYS, SUPERADMIN_LOCKED_FEATURES } = require('../lib/featureCatalog');
 const sessionRevocation = require('../lib/sessionRevocation');
@@ -102,6 +103,10 @@ router.get('/ad-users', async (req, res) => {
         if (!target) {
             return res.json([]);
         }
+        // goes into a PowerShell string literal (quoted below); an OU / group name never holds control characters
+        if (typeof target !== 'string' || target.length > 512 || /[\x00-\x1f]/.test(target)) {
+            return res.status(400).json({ error: 'Invalid AD target' });
+        }
 
         let username = process.env.AD_ADMIN_USER || req.user.username;
         const password = process.env.AD_ADMIN_PWD || req.user.password;
@@ -123,7 +128,7 @@ router.get('/ad-users', async (req, res) => {
         let queryScript = '';
         if (isGroupQuery) {
             queryScript = `
-$target = "${target}"
+$target = '${psSq(target)}'
 try {
     if ($dcTarget) {
         $members = Get-ADGroupMember -Identity $target -Recursive -Server $dcTarget -Credential $global:AD_CRED -ErrorAction Stop | Where-Object { $_.objectClass -eq 'user' }
@@ -141,7 +146,7 @@ if ($members) {
             `;
         } else {
             queryScript = `
-$target = "${target}"
+$target = '${psSq(target)}'
 try {
     if ($dcTarget) {
         $users = Get-ADUser -Filter * -SearchBase $target -Properties SamAccountName -Server $dcTarget -Credential $global:AD_CRED -ErrorAction Stop
@@ -162,7 +167,7 @@ if ($users) {
         const script = `
 $ErrorActionPreference = "Stop"
 ${credHdr}
-$dcTarget = "${dcHost}"
+$dcTarget = '${psSq(dcHost)}'
 ${queryScript}
         `;
 

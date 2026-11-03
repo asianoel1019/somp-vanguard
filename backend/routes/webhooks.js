@@ -29,11 +29,26 @@ function takeIncomingSlot(id, now = Date.now()) {
     return w.count <= INCOMING_LIMIT;
 }
 
-// The stored hash never leaves the server; the page only needs to know whether incoming calls are enabled
+// What the browser sees of a webhook: credentials in headers and URLs are masked (the list is readable by every
+// Operator with a monitoring feature), and the incoming-secret hash never leaves the server.
 const forClient = (w) => {
     const { incomingSecretHash, ...rest } = w;
-    return { ...rest, incomingEnabled: !!incomingSecretHash };
+    return { ...rest, url: webhookService.maskUrl(w.url), headers: webhookService.maskHeaders(w.headers), incomingEnabled: !!incomingSecretHash };
 };
+
+// The edit form sends back what it was shown: a URL or header value still equal to its masked form keeps the stored value
+function unmaskUrl(sent, stored) {
+    return sent && stored && sent.trim() === webhookService.maskUrl(stored) ? stored : sent;
+}
+function unmaskHeaders(sent, stored) {
+    if (!sent || typeof sent !== 'object') return sent;
+    const masked = webhookService.maskHeaders(stored || {});
+    const out = {};
+    for (const [name, value] of Object.entries(sent)) {
+        out[name] = stored && name in stored && masked[name] === value ? stored[name] : value;
+    }
+    return out;
+}
 
 // Middleware to verify the user is SuperAdmin or Operator
 function requireAdminOrOperator(req, res, next) {
@@ -101,9 +116,9 @@ router.put('/:id', requireAuth, webhookWriteGate, requireAdminOrOperator, (req, 
         if (index === -1) return null;
 
         if (name) webhooks[index].name = name.trim();
-        if (url) webhooks[index].url = url.trim();
+        if (url) webhooks[index].url = unmaskUrl(url, webhooks[index].url).trim();
         if (method) webhooks[index].method = method.toUpperCase();
-        if (headers !== undefined) webhooks[index].headers = headers;
+        if (headers !== undefined) webhooks[index].headers = unmaskHeaders(headers, webhooks[index].headers);
         if (bodyTemplate !== undefined) webhooks[index].bodyTemplate = bodyTemplate;
         if (enabled !== undefined) webhooks[index].enabled = enabled;
         if (enabledLogs !== undefined) webhooks[index].enabledLogs = Array.isArray(enabledLogs) ? enabledLogs : [];

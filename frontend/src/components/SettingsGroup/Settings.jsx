@@ -446,7 +446,8 @@ const Settings = ({ mode = 'system' }) => {
                 host: srv.host || '127.0.0.1',
                 apiPort: srv.apiPort || 8443,
                 apiKey: srv.apiKey || '',
-                protocol: srv.protocol || 'http'
+                protocol: srv.protocol || 'http',
+                serverId: srv.id // lets the server use the stored key when the page only has the masked one
             });
             setSftpServerTestResult({
                 serverId: srv.id,

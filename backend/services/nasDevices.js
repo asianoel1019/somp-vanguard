@@ -168,6 +168,10 @@ function validateDeviceInput(body, { partial = false } = {}) {
     }
     if (has('username')) {
         if (typeof body.username !== 'string' || body.username.length > 128) throw new NasValidationError('Username must be 128 characters or fewer');
+        // user, DOMAIN\user or user@domain; the drivers escape it as well, this keeps script characters out entirely
+        if (body.username && !/^[\w.\- ]+(?:[\\@][\w.\- ]+)?$/.test(body.username)) {
+            throw new NasValidationError('Username may only contain letters, digits, space, . _ - and one \\ or @');
+        }
         out.username = body.username;
     }
     if (has('password')) {

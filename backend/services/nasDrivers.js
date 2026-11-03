@@ -1,13 +1,11 @@
 const axios = require('axios');
 const { runPowerShell } = require('../lib/powershell');
+const { psDq, psSq } = require('../lib/psQuote');
+
+// One single-quoted POSIX shell word: nothing inside expands; an embedded ' is closed, escaped and reopened
+const shSq = (value) => `'${String(value == null ? '' : value).replace(/'/g, `'\\''`)}'`;
 const { executeSSH } = require('../lib/ssh');
 const { decryptPassword, decryptText } = require('../lib/crypto');
-
-// Text placed inside a PowerShell double-quoted string: escape what PowerShell would otherwise expand or end the
-// string on (backtick, $, and straight or typographic double quotes) with a backtick.
-function psDq(value) {
-    return String(value == null ? '' : value).replace(/[`$"“”„]/g, (c) => '`' + c);
-}
 
 function resetError() {
     const err = new Error('The stored NAS password cannot be decrypted. A SuperAdmin must re-enter it in Settings > File Services > NAS Devices.');
@@ -222,9 +220,9 @@ class WindowsSmbDriver {
             const safeIp = this.ip;
 
             const psScript = `
-                $ip = "${safeIp}"
-                $user = "${user}"
-                $domain = "${domain}"
+                $ip = "${psDq(safeIp)}"
+                $user = "${psDq(user)}"
+                $domain = "${psDq(domain)}"
                 $pass = '${safePassword}'
                 
                 $results = @()
@@ -309,9 +307,9 @@ class WindowsSmbDriver {
             const safeIp = this.ip;
 
             const psScript = `
-                $ip = "${safeIp}"
-                $user = "${user}"
-                $domain = "${domain}"
+                $ip = "${psDq(safeIp)}"
+                $user = "${psDq(user)}"
+                $domain = "${psDq(domain)}"
                 $pass = '${safePassword}'
                 
                 $results = @()
@@ -452,7 +450,7 @@ class WindowsSmbDriver {
             const safeIp = this.ip;
 
             const psScript = `
-                $ip = "${safeIp}"
+                $ip = "${psDq(safeIp)}"
                 $user = "${psDq(user)}"
                 $domain = "${psDq(domain)}"
                 $pass = '${safePassword}'
@@ -523,7 +521,7 @@ class WindowsSmbDriver {
 
     async createShare(name, path, description) {
         if (this.isLocal()) {
-            const innerCmd = `New-SmbShare -Name "${name}" -Path "${path}" -Description "${description || ''}" -FullAccess "Everyone"`;
+            const innerCmd = `New-SmbShare -Name "${psDq(name)}" -Path "${psDq(path)}" -Description "${psDq(description || '')}" -FullAccess "Everyone"`;
             await runPowerShell(innerCmd);
             return true;
         }
@@ -537,9 +535,9 @@ class WindowsSmbDriver {
         const safePassword = (this.password || '').replace(/'/g, "''");
         const psScript = `
             $secPass = ConvertTo-SecureString '${safePassword}' -AsPlainText -Force;
-            $cred = New-Object System.Management.Automation.PSCredential ('${domain}\\${user}', $secPass);
-            Invoke-Command -ComputerName "${this.ip}" -Credential $cred -ScriptBlock {
-                New-SmbShare -Name "${name}" -Path "${path}" -Description "${description || ''}" -FullAccess "Everyone"
+            $cred = New-Object System.Management.Automation.PSCredential ('${psSq(domain)}\\${psSq(user)}', $secPass);
+            Invoke-Command -ComputerName "${psDq(this.ip)}" -Credential $cred -ScriptBlock {
+                New-SmbShare -Name "${psDq(name)}" -Path "${psDq(path)}" -Description "${psDq(description || '')}" -FullAccess "Everyone"
             }
         `;
         await runPowerShell(psScript);
@@ -548,7 +546,7 @@ class WindowsSmbDriver {
 
     async deleteShare(name) {
         if (this.isLocal()) {
-            const innerCmd = `Remove-SmbShare -Name "${name}" -Force`;
+            const innerCmd = `Remove-SmbShare -Name "${psDq(name)}" -Force`;
             await runPowerShell(innerCmd);
             return true;
         }
@@ -562,9 +560,9 @@ class WindowsSmbDriver {
         const safePassword = (this.password || '').replace(/'/g, "''");
         const psScript = `
             $secPass = ConvertTo-SecureString '${safePassword}' -AsPlainText -Force;
-            $cred = New-Object System.Management.Automation.PSCredential ('${domain}\\${user}', $secPass);
-            Invoke-Command -ComputerName "${this.ip}" -Credential $cred -ScriptBlock {
-                Remove-SmbShare -Name "${name}" -Force
+            $cred = New-Object System.Management.Automation.PSCredential ('${psSq(domain)}\\${psSq(user)}', $secPass);
+            Invoke-Command -ComputerName "${psDq(this.ip)}" -Credential $cred -ScriptBlock {
+                Remove-SmbShare -Name "${psDq(name)}" -Force
             }
         `;
         await runPowerShell(psScript);
@@ -629,13 +627,13 @@ class LinuxSmbDriver {
     }
 
     async createShare(name, path, description) {
-        const cmd = `net conf addshare "${name}" "${path}" writeable=y guest_ok=n description="${description || ''}"`;
+        const cmd = `net conf addshare ${shSq(name)} ${shSq(path)} writeable=y guest_ok=n description=${shSq(description || '')}`;
         await this.sshExec(cmd);
         return true;
     }
 
     async deleteShare(name) {
-        const cmd = `net conf delshare "${name}"`;
+        const cmd = `net conf delshare ${shSq(name)}`;
         await this.sshExec(cmd);
         return true;
     }

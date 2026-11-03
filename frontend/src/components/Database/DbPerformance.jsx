@@ -45,6 +45,12 @@ const DbPerformance = () => {
     const [processToKill, setProcessToKill] = useState(null);
     const [killing, setKilling] = useState(false);
     const [killResult, setKillResult] = useState(null);
+    const [killMode, setKillMode] = useState(null);
+    const [processError, setProcessError] = useState('');
+
+    // Slow queries & lock waits
+    const [insights, setInsights] = useState(null);
+    const [loadingInsights, setLoadingInsights] = useState(false);
 
     // Database Health & Storage state
     const [healthMap, setHealthMap] = useState({});
@@ -72,11 +78,14 @@ const DbPerformance = () => {
         if (!dbId) return;
         setLoadingProcesses(true);
         try {
+            setProcessError('');
             const res = await api.get(`/database/processes/${dbId}`);
             setProcesses(res.data.processes || []);
+            setKillMode(res.data.killMode || null);
         } catch (e) {
             console.error('Failed to load processes:', e);
             setProcesses([]);
+            setProcessError(e.response?.data?.error || e.message);
         } finally {
             setLoadingProcesses(false);
         }
@@ -89,6 +98,7 @@ const DbPerformance = () => {
             setSelectedDbHealth({ dbId, ...res.data.health });
         } catch (e) {
             console.error('Failed to load health:', e);
+            setSelectedDbHealth({ dbId, status: 'UNREACHABLE', error: e.response?.data?.error || e.message, storage: {}, topTables: [] });
         }
     };
 
@@ -103,6 +113,19 @@ const DbPerformance = () => {
             setVacuumResult(`❌ 執行失敗: ${e.response?.data?.error || e.message}`);
         } finally {
             setVacuuming(false);
+        }
+    };
+
+    const fetchInsights = async (dbId) => {
+        if (!dbId) return;
+        setLoadingInsights(true);
+        try {
+            const res = await api.get(`/database/insights/${dbId}`);
+            setInsights({ dbId, ...res.data });
+        } catch (e) {
+            setInsights({ dbId, slowQueries: [], lockWaits: [], notes: [], error: e.response?.data?.error || e.message });
+        } finally {
+            setLoadingInsights(false);
         }
     };
 
@@ -128,6 +151,7 @@ const DbPerformance = () => {
     useEffect(() => {
         if (selectedDbForProcesses) {
             fetchProcesses(selectedDbForProcesses);
+            setInsights(null);
         }
     }, [selectedDbForProcesses]);
 
@@ -148,16 +172,19 @@ const DbPerformance = () => {
                         const m = res.value.data.metrics;
                         updated[db.id] = m;
 
-                        // Update trends history (store up to last 10 points)
-                        setHistoryMap(prevHistory => {
-                            const dbHistory = prevHistory[db.id] || { cpu: [], memory: [] };
-                            const cpuHist = [...dbHistory.cpu, m.cpuUsage].slice(-10);
-                            const memHist = [...dbHistory.memory, m.memoryUsage].slice(-10);
-                            return {
-                                ...prevHistory,
-                                [db.id]: { cpu: cpuHist, memory: memHist }
-                            };
-                        });
+                        // Update trends history (store up to last 10 points); unreachable samples leave no point
+                        if (m.reachable) {
+                            setHistoryMap(prevHistory => {
+                                const dbHistory = prevHistory[db.id] || { latency: [], connections: [] };
+                                return {
+                                    ...prevHistory,
+                                    [db.id]: {
+                                        latency: [...dbHistory.latency, m.latencyMs].slice(-10),
+                                        connections: m.activeConnections === null ? dbHistory.connections : [...dbHistory.connections, m.activeConnections].slice(-10)
+                                    }
+                                };
+                            });
+                        }
                     }
                 });
                 return updated;
@@ -169,18 +196,15 @@ const DbPerformance = () => {
         return () => clearInterval(interval);
     }, [databases, refreshInterval]);
 
-    const getColor = (usage) => {
-        if (usage >= 80) return '#ef4444'; // Danger
-        if (usage >= 60) return '#f59e0b'; // Warning
-        return '#10b981'; // Success
-    };
+    // Values the engine could not report are shown as '-' instead of a made-up number
+    const show = (v, suffix = '') => (v === null || v === undefined ? '-' : `${v}${suffix}`);
 
-    // Helper to render inline SVG mini sparklines
+    // Helper to render inline SVG mini sparklines, scaled to the largest point in view
     const renderSparkline = (dataPoints) => {
         if (!dataPoints || dataPoints.length < 2) return null;
         const width = 120;
         const height = 16;
-        const maxVal = 100;
+        const maxVal = Math.max(1, ...dataPoints);
         const points = dataPoints.map((val, index) => {
             const x = (index / (dataPoints.length - 1)) * width;
             const y = height - (val / maxVal) * height;
@@ -230,9 +254,9 @@ const DbPerformance = () => {
 
             <div style={S.grid}>
                 {databases.map(db => {
-                    const metrics = metricsMap[db.id] || { cpuUsage: 0, memoryUsage: 0, storageUsage: 0, activeConnections: 0, qps: 0, latencyMs: 0 };
-                    const hasAlert = metrics.cpuUsage >= 80 || metrics.memoryUsage >= 80;
-                    const dbHistory = historyMap[db.id] || { cpu: [], memory: [] };
+                    const metrics = metricsMap[db.id];
+                    const hasAlert = metrics?.reachable === false;
+                    const dbHistory = historyMap[db.id] || { latency: [], connections: [] };
 
                     return (
                         <div key={db.id} style={S.card(hasAlert)}>
@@ -249,43 +273,21 @@ const DbPerformance = () => {
                                 <span style={S.dbEnv}>{db.environment}</span>
                             </div>
 
-                            <div style={S.metricsGrid}>
-                                <div style={S.gaugeContainer}>
-                                    {metrics.cpuUsage >= 80 && <span style={S.alertIndicator} className="animate-ping" />}
-                                    <div style={S.gaugeCircle}>
-                                        <div style={S.gaugeFill(metrics.cpuUsage, getColor(metrics.cpuUsage))}></div>
-                                        <span style={S.gaugeValue}>{metrics.cpuUsage}%</span>
-                                    </div>
-                                    <span style={S.gaugeLabel}>CPU</span>
-                                </div>
-                                <div style={S.gaugeContainer}>
-                                    {metrics.memoryUsage >= 80 && <span style={S.alertIndicator} className="animate-ping" />}
-                                    <div style={S.gaugeCircle}>
-                                        <div style={S.gaugeFill(metrics.memoryUsage, getColor(metrics.memoryUsage))}></div>
-                                        <span style={S.gaugeValue}>{metrics.memoryUsage}%</span>
-                                    </div>
-                                    <span style={S.gaugeLabel}>MEMORY</span>
-                                </div>
-                                <div style={S.gaugeContainer}>
-                                    <div style={S.gaugeCircle}>
-                                        <div style={S.gaugeFill(metrics.storageUsage, getColor(metrics.storageUsage))}></div>
-                                        <span style={S.gaugeValue}>{metrics.storageUsage}%</span>
-                                    </div>
-                                    <span style={S.gaugeLabel}>STORAGE</span>
-                                </div>
+                            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 12, color: !metrics ? 'var(--text-muted)' : metrics.reachable ? '#10b981' : '#ef4444' }}>
+                                {!metrics ? 'Checking…' : metrics.reachable ? '● Reachable' : `● Unreachable: ${metrics.error || ''}`}
                             </div>
 
                             <div style={S.statsBox}>
                                 <div style={S.statItem}>
-                                    <span style={S.statValue}>{metrics.activeConnections}</span>
+                                    <span style={S.statValue}>{show(metrics?.activeConnections)}</span>
                                     <span style={S.statLabel}>CONNECTIONS</span>
                                 </div>
                                 <div style={S.statItem}>
-                                    <span style={S.statValue}>{metrics.qps}</span>
-                                    <span style={S.statLabel}>QPS</span>
+                                    <span style={S.statValue} title={metrics?.rateKind && metrics.rate === null ? '需要兩次取樣才算得出速率' : undefined}>{show(metrics?.rate)}</span>
+                                    <span style={S.statLabel}>{metrics?.rateKind || 'RATE'}</span>
                                 </div>
                                 <div style={{ ...S.statItem, alignItems: 'flex-end' }}>
-                                    <span style={{ ...S.statValue, color: 'var(--text-primary)', textShadow: 'none' }}>{metrics.latencyMs}ms</span>
+                                    <span style={{ ...S.statValue, color: 'var(--text-primary)', textShadow: 'none' }}>{show(metrics?.latencyMs, 'ms')}</span>
                                     <span style={S.statLabel}>LATENCY</span>
                                 </div>
                             </div>
@@ -293,12 +295,12 @@ const DbPerformance = () => {
                             {/* Sparklines History Drawer */}
                             <div style={S.sparklineBox}>
                                 <div style={S.sparklineRow}>
-                                    <span style={{ color: 'var(--text-muted)', fontWeight: 700 }}>CPU Trend</span>
-                                    {dbHistory.cpu.length > 1 ? renderSparkline(dbHistory.cpu) : <span style={{ color: 'var(--text-muted)', fontSize: 10 }}>Calculating...</span>}
+                                    <span style={{ color: 'var(--text-muted)', fontWeight: 700 }}>Latency Trend</span>
+                                    {dbHistory.latency.length > 1 ? renderSparkline(dbHistory.latency) : <span style={{ color: 'var(--text-muted)', fontSize: 10 }}>Calculating...</span>}
                                 </div>
                                 <div style={S.sparklineRow}>
-                                    <span style={{ color: 'var(--text-muted)', fontWeight: 700 }}>Mem Trend</span>
-                                    {dbHistory.memory.length > 1 ? renderSparkline(dbHistory.memory) : <span style={{ color: 'var(--text-muted)', fontSize: 10 }}>Calculating...</span>}
+                                    <span style={{ color: 'var(--text-muted)', fontWeight: 700 }}>Connections Trend</span>
+                                    {dbHistory.connections.length > 1 ? renderSparkline(dbHistory.connections) : <span style={{ color: 'var(--text-muted)', fontSize: 10 }}>{metrics && metrics.activeConnections === null ? 'N/A' : 'Calculating...'}</span>}
                                 </div>
                             </div>
 
@@ -362,13 +364,27 @@ const DbPerformance = () => {
                                 </div>
                             </div>
                         )}
+                        {selectedDbHealth.storage?.logKb && (
+                            <div style={{ background: 'rgba(0,0,0,0.2)', padding: 12, borderRadius: 8 }}>
+                                <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 700 }}>OF WHICH LOG FILES</div>
+                                <div style={{ fontSize: 18, fontWeight: 900, color: '#f59e0b', marginTop: 4 }}>
+                                    {selectedDbHealth.storage.logKb} KB
+                                </div>
+                            </div>
+                        )}
                         <div style={{ background: 'rgba(0,0,0,0.2)', padding: 12, borderRadius: 8 }}>
                             <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 700 }}>ENGINE STATUS</div>
-                            <div style={{ fontSize: 18, fontWeight: 900, color: '#10b981', marginTop: 4 }}>
+                            <div style={{ fontSize: 18, fontWeight: 900, color: selectedDbHealth.status === 'HEALTHY' ? '#10b981' : '#ef4444', marginTop: 4 }}>
                                 {selectedDbHealth.status || 'HEALTHY'}
                             </div>
                         </div>
                     </div>
+
+                    {(selectedDbHealth.error || selectedDbHealth.note) && (
+                        <div style={{ padding: '10px 14px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, color: selectedDbHealth.error ? '#ef4444' : 'var(--text-secondary)', marginBottom: 16, fontSize: 12 }}>
+                            {selectedDbHealth.error || selectedDbHealth.note}
+                        </div>
+                    )}
 
                     <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--text-muted)', marginBottom: 8 }}>
                         📊 TOP 10 LARGEST TABLES BY STORAGE ALLOCATION:
@@ -386,8 +402,8 @@ const DbPerformance = () => {
                                 {(selectedDbHealth.topTables || []).map((t, idx) => (
                                     <tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
                                         <td style={{ padding: '8px 12px', color: 'var(--text-primary)' }}>📁 {t.tableName}</td>
-                                        <td style={{ padding: '8px 12px', textAlign: 'right', color: 'var(--accent-primary)', fontWeight: 700 }}>{t.sizeKb}</td>
-                                        <td style={{ padding: '8px 12px', textAlign: 'right', color: 'var(--text-secondary)' }}>{t.rowEstimate || '-'}</td>
+                                        <td style={{ padding: '8px 12px', textAlign: 'right', color: 'var(--accent-primary)', fontWeight: 700 }}>{t.sizeKb ?? '-'}</td>
+                                        <td style={{ padding: '8px 12px', textAlign: 'right', color: 'var(--text-secondary)' }}>{t.rowEstimate ?? '-'}</td>
                                     </tr>
                                 ))}
                             </tbody>
@@ -462,15 +478,15 @@ const DbPerformance = () => {
                                             {p.info || <span style={{ color: 'var(--text-muted)' }}>-</span>}
                                         </td>
                                         <td style={{ padding: '10px 14px', textAlign: 'right' }}>
-                                            {isSuperAdmin ? (
+                                            {isSuperAdmin && killMode ? (
                                                 <button
                                                     style={{ padding: '4px 10px', background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.4)', borderRadius: 6, color: '#ef4444', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}
                                                     onClick={() => setProcessToKill(p)}
                                                 >
-                                                    🚨 Kill
+                                                    {killMode === 'kill-session' ? '🚨 Kill Session' : '🚨 Cancel Query'}
                                                 </button>
                                             ) : (
-                                                <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>Viewer Only</span>
+                                                <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>{killMode ? 'SuperAdmin only' : '-'}</span>
                                             )}
                                         </td>
                                     </tr>
@@ -478,14 +494,95 @@ const DbPerformance = () => {
                             })}
                             {processes.length === 0 && !loadingProcesses && (
                                 <tr>
-                                    <td colSpan="7" style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)' }}>
-                                        No active queries running on this database.
+                                    <td colSpan="7" style={{ padding: 24, textAlign: 'center', color: processError ? '#ef4444' : 'var(--text-muted)' }}>
+                                        {processError ? `❌ ${processError}` : 'No active queries running on this database.'}
                                     </td>
                                 </tr>
                             )}
                         </tbody>
                     </table>
                 </div>
+            </div>
+
+            {/* Slow Queries & Lock Waits */}
+            <div style={{ marginTop: 28, background: 'var(--bg-glass)', border: '1px solid var(--border-color)', borderRadius: 16, padding: 24 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
+                    <div>
+                        <h2 style={{ fontSize: 16, fontWeight: 900, margin: 0 }}>🐢 Slow Queries & Lock Waits</h2>
+                        <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '4px 0 0' }}>
+                            Top 10 statements by total execution time, and sessions currently blocked by another session ({databases.find(d => d.id === selectedDbForProcesses)?.name || '-'})
+                        </p>
+                    </div>
+                    <button
+                        style={{ ...S.select, background: 'rgba(255,255,255,0.05)', color: 'var(--text-primary)' }}
+                        onClick={() => fetchInsights(selectedDbForProcesses)}
+                        disabled={loadingInsights || !selectedDbForProcesses}
+                    >
+                        {loadingInsights ? '⏳' : '🔍 Analyze'}
+                    </button>
+                </div>
+                {!insights && <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>按 Analyze 讀取上方所選資料庫的統計。</div>}
+                {insights && (
+                    <>
+                        {(insights.error || insights.notes?.length > 0) && (
+                            <div style={{ padding: '10px 14px', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 8, color: insights.error ? '#ef4444' : '#f59e0b', marginBottom: 16, fontSize: 12, lineHeight: 1.6 }}>
+                                {insights.error ? `❌ ${insights.error}` : insights.notes.map((n, i) => <div key={i}>⚠️ {n}</div>)}
+                            </div>
+                        )}
+                        <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--text-muted)', marginBottom: 8 }}>SLOW QUERIES (TOP 10)</div>
+                        <div style={{ overflowX: 'auto', borderRadius: 8, border: '1px solid var(--border-color)', background: 'rgba(0,0,0,0.2)', marginBottom: 16 }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, fontFamily: 'monospace' }}>
+                                <thead>
+                                    <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)', textAlign: 'left' }}>
+                                        <th style={{ padding: '8px 12px' }}>QUERY</th>
+                                        <th style={{ padding: '8px 12px', textAlign: 'right' }}>CALLS</th>
+                                        <th style={{ padding: '8px 12px', textAlign: 'right' }}>TOTAL (MS)</th>
+                                        <th style={{ padding: '8px 12px', textAlign: 'right' }}>AVG (MS)</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {insights.slowQueries.map((q, i) => (
+                                        <tr key={i} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                                            <td style={{ padding: '8px 12px', maxWidth: 520, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={q.query}>{q.query}</td>
+                                            <td style={{ padding: '8px 12px', textAlign: 'right' }}>{q.calls}</td>
+                                            <td style={{ padding: '8px 12px', textAlign: 'right', color: 'var(--accent-primary)', fontWeight: 700 }}>{q.totalMs}</td>
+                                            <td style={{ padding: '8px 12px', textAlign: 'right' }}>{q.avgMs ?? '-'}</td>
+                                        </tr>
+                                    ))}
+                                    {insights.slowQueries.length === 0 && (
+                                        <tr><td colSpan="4" style={{ padding: 16, textAlign: 'center', color: 'var(--text-muted)' }}>No data.</td></tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                        <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--text-muted)', marginBottom: 8 }}>LOCK WAITS</div>
+                        <div style={{ overflowX: 'auto', borderRadius: 8, border: '1px solid var(--border-color)', background: 'rgba(0,0,0,0.2)' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, fontFamily: 'monospace' }}>
+                                <thead>
+                                    <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)', textAlign: 'left' }}>
+                                        <th style={{ padding: '8px 12px' }}>WAITING</th>
+                                        <th style={{ padding: '8px 12px' }}>BLOCKED BY</th>
+                                        <th style={{ padding: '8px 12px', textAlign: 'right' }}>WAIT (S)</th>
+                                        <th style={{ padding: '8px 12px' }}>WAITING QUERY</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {insights.lockWaits.map((w, i) => (
+                                        <tr key={i} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                                            <td style={{ padding: '8px 12px', fontWeight: 800 }}>{w.waitingId}</td>
+                                            <td style={{ padding: '8px 12px', color: '#ef4444', fontWeight: 800 }}>{w.blockingId}</td>
+                                            <td style={{ padding: '8px 12px', textAlign: 'right' }}>{w.waitSec}</td>
+                                            <td style={{ padding: '8px 12px', maxWidth: 420, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={w.waitingQuery || ''}>{w.waitingQuery || '-'}</td>
+                                        </tr>
+                                    ))}
+                                    {insights.lockWaits.length === 0 && (
+                                        <tr><td colSpan="4" style={{ padding: 16, textAlign: 'center', color: 'var(--text-muted)' }}>No sessions are waiting on locks.</td></tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </>
+                )}
             </div>
 
             {/* Custom Confirm Kill Modal (No browser confirm box) */}
@@ -500,7 +597,10 @@ const DbPerformance = () => {
                             </div>
                         </div>
                         <p style={{ fontSize: 13, lineHeight: 1.6, color: 'var(--text-secondary)', marginBottom: 20 }}>
-                            您即將強制終止此執行緒。若該查詢正在進行大筆交易寫入，可能會觸發 Rollback 操作。此動作將被記入系統 Audit Log。確定要執行嗎？
+                            {killMode === 'kill-session'
+                                ? '您即將中斷整個 SQL Server 連線（KILL session）：該連線上未提交的交易會全部 Rollback，應用程式需要重新連線。'
+                                : '您即將取消此連線正在執行的查詢（連線本身保留）；若查詢在交易中寫入資料，該語句會 Rollback。'}
+                            此動作將被記入系統 Audit Log。確定要執行嗎？
                         </p>
                         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
                             <button 
@@ -515,7 +615,7 @@ const DbPerformance = () => {
                                 onClick={handleConfirmKill}
                                 disabled={killing}
                             >
-                                {killing ? '終止中...' : '確定強制擊殺 (Kill)'}
+                                {killing ? '終止中...' : (killMode === 'kill-session' ? '確定中斷連線 (Kill Session)' : '確定取消查詢 (Cancel Query)')}
                             </button>
                         </div>
                     </div>

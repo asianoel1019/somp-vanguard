@@ -35,7 +35,7 @@
         </svg>
       </div>
       <div class="brand-text">SOMP Vanguard</div>
-      <span class="brand-badge">v1.7.7 ENTERPRISE</span>
+      <span class="brand-badge">v1.7.9 ENTERPRISE</span>
     </div>
 
     <!-- Navigation Tabs -->
@@ -343,12 +343,91 @@
     <!-- Release Notes & System Changelog Section -->
     <section class="changelog-banner" style="margin-top: 60px; padding: 32px; background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border-subtle); border-radius: 16px;">
       <div class="section-heading-group" style="text-align: left; margin-bottom: 24px;">
-        <div class="section-tag" style="background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3);">VERSION 1.7.7 RELEASE NOTES</div>
-        <h2 class="section-title">SOMP Vanguard 1.7 版更新全覽 (10/9 更新，1.7.3 於 10/15、1.7.4 於 10/19、1.7.5 於 10/20、1.7.6 於 10/22、1.7.7 於 10/30 發布)</h2>
+        <div class="section-tag" style="background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3);">VERSION 1.7.9 RELEASE NOTES</div>
+        <h2 class="section-title">SOMP Vanguard 1.7 版更新全覽 (10/9 更新，1.7.3 於 10/15、1.7.4 於 10/19、1.7.5 於 10/20、1.7.6 於 10/22、1.7.7 於 10/30、1.7.8 與 1.7.9 於 11/3 發布)</h2>
         <p class="section-desc" style="margin: 0;">系統於 10/9 正式更新至 1.7 版，重大更新涵蓋遠端桌面閘道、底層多資料庫架構重構、Prometheus SD、ELK 生命週期與高可用容錯強化。</p>
       </div>
 
       <div class="changelog-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px;">
+        <div class="changelog-card" style="background: var(--bg-card); padding: 18px 20px; border-radius: 12px; border: 1px solid var(--border-subtle);">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+            <span style="font-weight: 700; color: #f87171; font-size: 0.95rem;">v1.7.9 Database 安全修正</span>
+            <span style="font-size: 0.75rem; background: #f8717126; color: #f87171; padding: 2px 8px; border-radius: 10px;">SECURITY</span>
+          </div>
+          <ul style="margin: 0; padding-left: 18px; font-size: 0.85rem; color: var(--text-muted); line-height: 1.6;">
+            <li><strong>安全修正：備份 / 還原指令注入</strong>：連線的主機、帳號、資料庫名稱原本直接拼進 shell 指令，Operator 可在 Vanguard 主機執行任意指令；改為不經 shell、逐一傳參數，欄位在存檔與使用時都會驗證，密碼改經環境變數或暫存設定檔傳遞，不再出現在命令列。</li>
+            <li><strong>安全修正：SQL Terminal 唯讀限制可繞過</strong>：MySQL 可執行註解 <code>/*! */</code>、多句查詢跳出唯讀交易、T-SQL 不需分號的第二句等方式都能寫入；改為依各引擎的語法規則檢查，只允許單一唯讀語句，封鎖有副作用的函式，每個查詢最多 30 秒。</li>
+            <li><strong>SQLite 路徑限制</strong>：SQLite 連線只能指向 <code>&lt;DB_DATA_DIR&gt;\data</code>（可用 <code>DB_SQLITE_ROOTS</code> 開放其他目錄），不能再讀取 Vanguard 自己的資料檔；申請名稱不能再帶路徑字元。</li>
+            <li><strong>連線目標白名單與遮罩</strong>：可設定 <code>DB_TARGET_ALLOWLIST</code> 限制可連線的主機，手動測試連線會記入稽核；遮罩加上別名與 Email / 身分證 / 手機格式的值，只有 SuperAdmin 能檢視原始資料。</li>
+          </ul>
+        </div>
+
+        <div class="changelog-card" style="background: var(--bg-card); padding: 18px 20px; border-radius: 12px; border: 1px solid var(--border-subtle);">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+            <span style="font-weight: 700; color: #fbbf24; font-size: 0.95rem;">v1.7.9 Database 功能改為實際運作</span>
+            <span style="font-size: 0.75rem; background: #fbbf2426; color: #fbbf24; padding: 2px 8px; border-radius: 10px;">MAJOR FIX</span>
+          </div>
+          <ul style="margin: 0; padding-left: 18px; font-size: 0.85rem; color: var(--text-muted); line-height: 1.6;">
+            <li><strong>備份是真的了</strong>：舊版每天 02:00 只寫入隨機大小的「(Simulated)」紀錄，沒有實際備份；改為實際執行備份工具，清單顯示執行中 / 完成 / 失敗與原因，舊模擬紀錄標示 SIMULATED 且不能還原。排程備份改為以 <code>DB_BACKUP_SCHEDULE</code> 啟用，<code>DB_BACKUP_RETENTION_DAYS</code> 設定保留天數。</li>
+            <li><strong>效能數據不再是亂數</strong>：Performance Dashboard 原本的 CPU / 記憶體 / QPS 為隨機數字；改為顯示實際的連線狀態、回應時間、連線數與 QPS / TPS。Health 頁讀取各引擎實際的容量與前 10 大資料表。</li>
+            <li><strong>申請核准與 Schema Diff</strong>：核准不再產生不存在的假連線（SQLite 會實際建立檔案），一張申請只能審核一次；Schema Diff 支援所有引擎，讀不到結構時顯示警告，不會誤報「完全一致」。</li>
+            <li><strong>SQL Terminal 查詢修正</strong>：不再把查詢包成 <code>SELECT * FROM (...)</code>，JOIN 同名欄位、SQL Server 的 ORDER BY 與 CTE 都能正常執行；1000 筆上限改由資料庫端限制，欄位名稱含 TOP / LIMIT 也不會失效，超過時畫面會提示。</li>
+          </ul>
+        </div>
+
+        <div class="changelog-card" style="background: var(--bg-card); padding: 18px 20px; border-radius: 12px; border: 1px solid var(--border-subtle);">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+            <span style="font-weight: 700; color: #38bdf8; font-size: 0.95rem;">v1.7.9 Database 功能改善</span>
+            <span style="font-size: 0.75rem; background: #38bdf826; color: #38bdf8; padding: 2px 8px; border-radius: 10px;">FEATURE</span>
+          </div>
+          <ul style="margin: 0; padding-left: 18px; font-size: 0.85rem; color: var(--text-muted); line-height: 1.6;">
+            <li><strong>慢查詢與鎖等待</strong>：Performance Dashboard 新增 Top 10 慢查詢與被鎖住的連線（MySQL performance_schema、PostgreSQL pg_stat_statements、SQL Server DMV），缺少來源或權限時顯示說明。</li>
+            <li><strong>備份下載與還原</strong>：SuperAdmin 可下載備份檔（記入稽核）；SQLite 備份改用 <code>VACUUM INTO</code>，WAL 中的資料也會備份；PostgreSQL / SQL Server 還原會取代現有資料庫。</li>
+            <li><strong>SQL Server 連線</strong>：可逐筆勾選信任自簽憑證、支援 <code>主機\執行個體</code>；Schema 顯示主鍵，PostgreSQL 與 SQL Server 列出所有 schema 的資料表。</li>
+            <li><strong>其他</strong>：Kill 依引擎說明是取消查詢或中斷整個連線並驗證 ID；SQL Terminal 查詢歷史改為每位使用者分開，CSV 匯出加上 BOM 與公式防護；駁回原因不再顯示 <code>&amp;lt;</code>；所有連線統一由共用模組處理逾時與關閉。</li>
+          </ul>
+        </div>
+
+        <div class="changelog-card" style="background: var(--bg-card); padding: 18px 20px; border-radius: 12px; border: 1px solid var(--border-subtle);">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+            <span style="font-weight: 700; color: #f87171; font-size: 0.95rem;">v1.7.8 安全修正</span>
+            <span style="font-size: 0.75rem; background: #f8717126; color: #f87171; padding: 2px 8px; border-radius: 10px;">SECURITY</span>
+          </div>
+          <ul style="margin: 0; padding-left: 18px; font-size: 0.85rem; color: var(--text-muted); line-height: 1.6;">
+            <li><strong>安全修正：Nutanix 寫入 API 補上角色檢查</strong>：VM 開關機、Clone VM、IP Switch / Template-BU 對照表的儲存原本只檢查功能開關，Viewer 直接呼叫 API 即可關機或修改對照表；改為需 Operator 以上。電源動作只接受 OFF、POWER_CYCLE、RESET、ACPI_SHUTDOWN、ACPI_REBOOT 與合法的 VM UUID；對照表逐列驗證（必填欄位、網段格式、重複列），錯誤列出列號，驗證失敗不會寫入。</li>
+            <li><strong>安全修正：Clone VM 不再寫出明文密碼檔</strong>：Nutanix、AD、本機 Administrator 與 Linux 密碼原本以明文 JSON 寫在程式目錄，服務中途重啟時會一直留著；改經 stdin 傳給 PowerShell，啟動時自動刪除舊版殘留的 <code>nutanix_clone_params_*.json</code>。</li>
+            <li><strong>Webhook 失敗紀錄遮蔽機密</strong>：Webhook 失敗的紀錄與「Test」按鈕回傳的除錯內容中，Authorization 類標頭、URL 帳密、機密查詢參數與 token 路徑段會以 <code>***</code> 取代（實際送出的請求不變）。</li>
+          </ul>
+        </div>
+
+        <div class="changelog-card" style="background: var(--bg-card); padding: 18px 20px; border-radius: 12px; border: 1px solid var(--border-subtle);">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+            <span style="font-weight: 700; color: #fbbf24; font-size: 0.95rem;">v1.7.8 Nutanix 可靠性與資料正確性</span>
+            <span style="font-size: 0.75rem; background: #fbbf2426; color: #fbbf24; padding: 2px 8px; border-radius: 10px;">MAJOR FIX</span>
+          </div>
+          <ul style="margin: 0; padding-left: 18px; font-size: 0.85rem; color: var(--text-muted); line-height: 1.6;">
+            <li><strong>Clone VM 逐台處理</strong>：原本任一台失敗整批都不安裝 Linux 軟體、不寫入 Server List（PC 模式則相反，失敗的 VM 也被登記）；改為每台 VM 建立成功後才登記與安裝，失敗的 VM 跳過並繼續下一台，log 結尾列出 <code>[Summary]</code>。Linux 安裝指令原本實際沒有執行上限且 exit code 非 0 仍記成功，改為 <code>NUTANIX_LINUX_INSTALL_TIMEOUT_MINUTES</code>（預設 20 分鐘）並正確判定失敗。</li>
+            <li><strong>Clone 進度不再因重啟遺失</strong>：Clone 狀態改存資料，網頁服務重啟後會接手仍在執行的 PowerShell 或依 log 完成後續步驟，不會再顯示「沒有在跑」而允許重疊的第二批；新增逾時 <code>NUTANIX_CLONE_TIMEOUT_MINUTES</code>（預設 max(60, 每台 30) 分鐘），逾時會結束 PowerShell。</li>
+            <li><strong>VM / Template 清單不再被截斷</strong>：Prism Central 改為分頁讀取；Prism Element 依回報總數補讀其餘頁面。</li>
+            <li><strong>部分失敗會顯示</strong>：某台 PE 或某個 cluster 讀取失敗時，VM 清單上方顯示「清單不完整」並列出來源與原因，Clone VM 的 Template 選單也會列出；PE 全部連不上時顯示錯誤，不再只是空清單。</li>
+            <li><strong>PE / PC 資料一致</strong>：PC 模式（設定 PE IP 時）磁碟一律顯示 0 GB、vCPU 只算一個插槽、PC 直連時 host 欄顯示 Unknown 的問題已修正。</li>
+            <li><strong>PC 模式開關機</strong>：寫回時保留 Nutanix 的版本號，期間 VM 被他人修改會被拒絕並自動重試，不會覆蓋別人的變更；GuestShutdown 改為真正的 ACPI 關機；Prism Central v3 不支援的 PowerCycle / Reset / GuestReboot 不再顯示。兩種模式一次最多同時處理 5 台。</li>
+          </ul>
+        </div>
+
+        <div class="changelog-card" style="background: var(--bg-card); padding: 18px 20px; border-radius: 12px; border: 1px solid var(--border-subtle);">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+            <span style="font-weight: 700; color: #38bdf8; font-size: 0.95rem;">v1.7.8 功能改善</span>
+            <span style="font-size: 0.75rem; background: #38bdf826; color: #38bdf8; padding: 2px 8px; border-radius: 10px;">IMPROVEMENT</span>
+          </div>
+          <ul style="margin: 0; padding-left: 18px; font-size: 0.85rem; color: var(--text-muted); line-height: 1.6;">
+            <li><strong>Nutanix VM Manager 介面</strong>：電源欄顯示實際狀態（PAUSED / SUSPENDED / UNKNOWN 以黃色標示）；Refresh 保留目前的 cluster / host / 電源篩選；開關機後自動更新（立即、10 秒、30 秒）；批次動作有失敗時列出每台 VM 與原因；CSV 匯出新增 vCPU、記憶體、磁碟、UUID 欄並正確跳脫（開頭為 <code>= + - @</code> 的值不會被 Excel 當成公式）。</li>
+            <li><strong>Nutanix TLS 驗證（選用）</strong>：<code>NUTANIX_TLS_VERIFY=true</code> 開啟憑證驗證，可搭配 <code>NUTANIX_CA_CERT_FILE</code> 指定內部 CA；未設定時維持原行為。</li>
+            <li><strong>統一 log 格式與應用程式 log 檔</strong>：網頁與背景服務的輸出統一為 <code>[時間] [Web|Worker] [層級] [模組] 訊息</code>，並同時寫入 <code>&lt;DB_DATA_DIR&gt;\logs\app_YYYY-MM-DD.log</code>（隔天壓縮至 <code>logs\archive</code>，30 天後刪除；<code>APP_LOG_FILE=false</code> 可關閉）。稽核 log（<code>auth_*.log</code>）格式不變。</li>
+            <li><strong>部署修正</strong>：<code>SCP_to_Prod</code> 的上傳清單改為「上次同步後修改的檔案」加上未 commit 的變更（原本只看 git status，已 commit 的新檔案會漏傳）。</li>
+          </ul>
+        </div>
+
         <div class="changelog-card" style="background: var(--bg-card); padding: 18px 20px; border-radius: 12px; border: 1px solid var(--border-subtle);">
           <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
             <span style="font-weight: 700; color: #f87171; font-size: 0.95rem;">v1.7.7 安全修正</span>

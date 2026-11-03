@@ -100,7 +100,7 @@ const DbProvision = () => {
             setFormData({ name: '', engine: 'MySQL', environment: (defaultEnv(environments) || {}).id || '', size: 'Small', reason: '' });
             loadRequests();
         } catch (e) {
-            setInfoModal({ title: 'Error', message: 'Failed to submit request', type: 'error' });
+            setInfoModal({ title: 'Error', message: e.response?.data?.error || 'Failed to submit request', type: 'error' });
             console.error(e);
         } finally {
             setIsSubmitting(false);
@@ -242,6 +242,11 @@ const DbProvision = () => {
                                                     Reason: {req.rejectReason}
                                                 </div>
                                             )}
+                                            {req.status === 'approved' && req.provisionNote && (
+                                                <div style={{ fontSize: 11, color: 'var(--text-secondary)', fontWeight: 400, marginTop: 4, whiteSpace: 'normal' }}>
+                                                    {req.provisionNote}
+                                                </div>
+                                            )}
                                         </td>
                                         <td style={S.td}>{req.environment} / {req.engine}</td>
                                         <td style={S.td}>{req.requester}<br/><span style={{ fontSize: 10, color: 'var(--text-muted)' }}>{new Date(req.requestDate).toLocaleDateString()}</span></td>
@@ -290,6 +295,14 @@ const DbProvision = () => {
                             • Size: {showConfirmModal.request.size}
                             <br/>
                             • Requester: {showConfirmModal.request.requester}
+                            {showConfirmModal.action === 'approve' && (
+                                <>
+                                    <br/><br/>
+                                    {showConfirmModal.request.engine === 'SQLite'
+                                        ? '核准後會建立一個空的 SQLite 資料庫檔案，並自動登錄到 DB Connection Hub。'
+                                        : '核准只會記錄審核結果，不會自動建立資料庫；請 DBA 建好後到 DB Connection Hub 登錄連線。'}
+                                </>
+                            )}
                         </p>
 
                         {/* Rejection comment field */}

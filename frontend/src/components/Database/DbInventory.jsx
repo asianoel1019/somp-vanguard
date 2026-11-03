@@ -128,7 +128,7 @@ const DbInventory = () => {
             }
         } catch (e) {
             setTestStates(prev => ({ ...prev, [dbId]: 'failed' }));
-            setTestError(prev => ({ ...prev, [dbId]: e.message || 'Connection Failed' }));
+            setTestError(prev => ({ ...prev, [dbId]: e.response?.data?.error || e.message || 'Connection Failed' }));
         }
     };
 
@@ -146,7 +146,7 @@ const DbInventory = () => {
             }
         } catch (e) {
             setFormTestResult('failed');
-            setFormTestError(e.message || 'Connection Failed');
+            setFormTestError(e.response?.data?.error || e.message || 'Connection Failed');
         } finally {
             setFormTesting(false);
         }
@@ -372,7 +372,7 @@ const DbInventory = () => {
                                         style={{...S.input, fontFamily: 'monospace'}} 
                                         value={formData.filePath || formData.database || ''} 
                                         onChange={e => setFormData({...formData, filePath: e.target.value, database: e.target.value})} 
-                                        placeholder="例如: C:\data\app.db 或 ./data/database.db" 
+                                        placeholder="例如: app.db（相對路徑會放在 DB_DATA_DIR\data 之下；其他目錄需以 DB_SQLITE_ROOTS 開放）"
                                         required 
                                     />
                                     <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
@@ -407,6 +407,12 @@ const DbInventory = () => {
                                             <input type="password" style={{...S.input, fontFamily: 'monospace'}} value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} required={!isEditing} />
                                         </div>
                                     </div>
+                                    {formData.engine === 'SQLServer' && (
+                                        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--text-secondary)', marginBottom: 16 }}>
+                                            <input type="checkbox" checked={formData.trustServerCertificate === true} onChange={e => setFormData({ ...formData, trustServerCertificate: e.target.checked })} />
+                                            信任伺服器憑證（SQL Server 使用自簽憑證時勾選；連線仍會加密，但不驗證憑證）
+                                        </label>
+                                    )}
                                 </>
                             )}
 
@@ -500,6 +506,11 @@ const DbInventory = () => {
 
                             {diffResult && (
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                                    {diffResult.warnings?.length > 0 && (
+                                        <div style={{ padding: '10px 14px', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.35)', borderRadius: 8, color: '#f59e0b', fontSize: 12, lineHeight: 1.6 }}>
+                                            {diffResult.warnings.map((w, i) => <div key={i}>⚠️ {w}</div>)}
+                                        </div>
+                                    )}
                                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
                                         <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', padding: 12, borderRadius: 8, textAlign: 'center' }}>
                                             <div style={{ fontSize: 11, color: '#ef4444', fontWeight: 700 }}>目標庫缺失資料表</div>

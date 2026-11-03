@@ -273,8 +273,13 @@ Server List 是 SOMP Vanguard 的核心伺服器資產資料庫 (CMDB)，自動�
 *   **在線存活探測**：卡片即時顯示在線健康狀態，支援快速啟用/停用切換。
 
 ### 🏢 Nutanix Prism 虛擬化管理
-*   **VM 電源操作**：支援 Power On, Power Off, Guest Shutdown, Reset VM。
-*   **VM Clone API 自動化**：整合 Prism API 腳本，實現自訂規格與快速克隆部署。
+*   **VM 電源操作（v1.7.8）**：需 Operator 以上。PE 模式提供 PowerOff、PowerCycle、Reset、GuestShutdown、GuestReboot；PC 模式（Prism Central v3）只提供 PowerOff 與 GuestShutdown。一次最多同時處理 5 台；有失敗時會列出每台 VM 與原因。送出後清單會立即、10 秒、30 秒各自動更新一次（VM 實際改變狀態需要一點時間）。
+*   **VM 清單（v1.7.8）**：電源欄顯示 Prism 回報的實際狀態（PAUSED、SUSPENDED、UNKNOWN 以黃色標示）。Refresh 會保留目前選的 cluster / host / 電源篩選。某台 PE 或某個 cluster 讀不到時，清單上方會顯示「清單不完整」並列出來源與原因。CSV 匯出含名稱、IP、Cluster、Host、電源、vCPU、記憶體 GB、磁碟 GB（不含光碟）與 UUID。
+*   **VM Clone API 自動化**：整合 Prism API 腳本，實現自訂規格與快速克隆部署。需 Operator 以上；IP Switch / Template-BU 對照表儲存時逐列驗證，錯誤會列出列號。
+    *   **逐台處理（v1.7.8）**：每台 VM 建立成功後才寫入 Server List 並安裝 Linux 軟體；失敗的 VM 跳過，log 結尾的 `[Summary]` 列出建立、未建立與安裝失敗的台數。
+    *   **重啟不中斷**：Clone 進行中重啟網頁服務，重啟後會接手仍在執行的工作或依 log 完成後續步驟；同時只能有一批 Clone。
+    *   **逾時設定（`.env`，選填）**：`NUTANIX_CLONE_TIMEOUT_MINUTES`（整批上限，預設 max(60, 每台 30) 分鐘）、`NUTANIX_LINUX_INSTALL_TIMEOUT_MINUTES`（每台 Linux 安裝上限，預設 20）。
+*   **TLS 憑證驗證（選填）**：`NUTANIX_TLS_VERIFY=true` 開啟對 Prism 的憑證驗證，內部 CA 以 `NUTANIX_CA_CERT_FILE` 指定 PEM 檔路徑；未設定時不驗證（與舊版相同）。
 
 ### 🔑 SSL Certificate (SSL 憑證管理中心)
 *   **線上探測與解析**：支援 Host:Port 探測、文字證書貼上與證書檔上傳解析（PEM / DER / CER / CRT / PFX / P12，上限 1 MB；不支援 JKS）。主機欄只填網域或 IP（會自動去掉 `https://` 與結尾 `/`），Port 1–65535。
@@ -283,6 +288,44 @@ Server List 是 SOMP Vanguard 的核心伺服器資產資料庫 (CMDB)，自動�
 *   **掃描**：每日排程與「全部檢查」在背景平行執行（最多同時 5 台），畫面顯示掃描進度；同一時間只會有一個掃描。掃描結果只合併回現有紀錄，掃描期間新增、刪除或編輯的資料不會被覆蓋。
 *   **到期預警**：Telegram 通知只在狀態改變時發送：進入 30（門檻）/ 14 / 7 / 1 天、已過期、連續兩次探測失敗、恢復正常；重複掃描或服務重啟不會重複通知；更新憑證後重新計算。升級後第一次掃描，會對已在門檻內的憑證各發一次通知。
 *   **編輯**：可修改名稱、主機、Port、環境並更換憑證 / 私鑰；私鑰欄位留空表示不變，勾選清除才會刪除已存的私鑰。刪除監控紀錄會一併刪除已存的私鑰與檔案。
+
+### 🛢️ Database 服務
+*   **DB Connection Hub**：
+    *   主機、使用者、資料庫名稱只接受英數字與 `. _ - :`（SQL Server 可用 `主機\執行個體`），不合格的值在存檔時就會被擋下。
+    *   SQLite 檔案只能放在允許的目錄內：預設是 `<DB_DATA_DIR>\data`，填相對路徑也會放在這裡，其他目錄要用 `DB_SQLITE_ROOTS` 開放（以 `;` 分隔）。Vanguard 自己的資料檔一律不能登錄。
+    *   設定 `DB_TARGET_ALLOWLIST`（以逗號分隔：完整主機名、`*.網域`、IPv4 CIDR）後，只有清單內的主機能連線、測試或備份；未設定時不限制。手動輸入的連線測試都會記入稽核紀錄。
+    *   以上限制在使用時也會檢查，因此舊版存下、不符合規則的連線會無法使用，需要重新編輯。
+    *   SQL Server 一律以加密連線；伺服器使用自簽憑證時，在連線設定勾選「信任伺服器憑證」（只對該筆連線生效）。
+*   **SQL Query Terminal**：
+    *   一次只能執行一個唯讀語句（SELECT / WITH；MySQL 另可用 SHOW、EXPLAIN、DESCRIBE；PostgreSQL 可用 SHOW、EXPLAIN；SQLite 可用 EXPLAIN、PRAGMA）。
+    *   寫入、交易控制、有副作用的函式（例如 `pg_sleep`、`pg_terminate_backend`、`SLEEP`）與 MySQL 的 `/*! */` 註解都會被拒絕。
+    *   查詢內容不會被改寫，JOIN 同名欄位、SQL Server 的 ORDER BY 與 CTE 都能直接執行。每次最多回傳 1000 筆，由資料庫端限制（MySQL `sql_select_limit`、PostgreSQL cursor、SQL Server `SET ROWCOUNT`）；超過時畫面會提示只顯示前 1000 筆。每個查詢最多執行 30 秒，資料庫回報的錯誤（語法、權限、逾時）會直接顯示。
+    *   查詢結果會遮蔽敏感資料：依欄位名稱判斷，也包含別名（例如 `password AS p`），另外會遮蔽看起來像 Email、身分證字號、手機號碼的值。**只有 SuperAdmin 可以檢視未遮蔽的原始資料**。
+    *   這些只是額外的保護：登錄到 Connection Hub 的帳號，請使用資料庫端的唯讀帳號。
+    *   查詢歷史只存在瀏覽器，且依登入帳號分開；匯出 CSV 帶 BOM（Excel 可直接開啟中文），開頭為 `= + - @` 的值會加上 `'` 避免被當成公式。
+*   **Backup & Restore**：
+    *   備份會實際執行 `mysqldump`、`pg_dump`、`sqlcmd`，這些工具必須安裝在 Vanguard 主機上並在 PATH 中；SQLite 以 `VACUUM INTO` 產生一致的副本（WAL 中尚未寫回的資料也會包含）。密碼不會出現在命令列上。
+    *   清單會顯示每筆備份的狀態（執行中 / 完成 / 失敗）與失敗原因，執行中會自動更新。同一個資料庫一次只能有一個備份，目前只支援完整備份。
+    *   SQL Server 的備份檔寫在 SQL Server 主機上，路徑由 `DB_SQLSERVER_BACKUP_DIR` 指定（SQL Server 主機上的目錄）。
+    *   還原只有 SuperAdmin 可以執行，而且只能還原狀態為完成、備份檔還在的紀錄；還原結果會記在該筆備份上。刪除備份時會一併刪除本機的備份檔。
+    *   還原會取代現有資料庫：PostgreSQL 先刪除備份內的物件再重建（`pg_restore --clean --if-exists`）；SQL Server 會先中斷該資料庫的所有連線（SINGLE_USER），以 `WITH REPLACE` 還原後恢復 MULTI_USER。
+    *   SuperAdmin 可下載本機的備份檔（每次下載都記入稽核紀錄）；SQL Server 的備份檔在 SQL Server 主機上，無法從這裡下載。
+    *   舊版每天 02:00 寫入的「(Simulated)」紀錄並沒有實際備份，清單上會標示 SIMULATED，而且不能還原。
+    *   **排程備份預設關閉**。設定 `DB_BACKUP_SCHEDULE=HH:MM`（例如 `02:00`）後，每天在該時間對所有資料庫各做一次完整備份。服務重啟不會重跑當天的備份；超過設定時間一小時後才啟動的服務，當天就不會補跑。
+    *   設定 `DB_BACKUP_RETENTION_DAYS`（天數）後，每小時清除超過天數的備份紀錄與本機檔案；每個資料庫最新一份完成的備份一定保留。未設定時全部保留。SQL Server 主機上的 .bak 檔不會被刪除，請由 SQL Server 端自行清理。
+    *   頁面標題下方會顯示目前的排程時間、上次執行日與保留天數。
+*   **Performance Dashboard**：
+    *   只顯示 SQL 查得到的真實數值：是否連得上、`SELECT 1` 的回應時間、連線數，以及請求速率（MySQL 為 QPS、PostgreSQL 為 TPS、SQL Server 為每秒批次數）。速率要取樣兩次才算得出來。
+    *   CPU、記憶體不顯示，因為無法透過 SQL 取得。
+    *   Health & Storage 會讀各引擎的系統資料表，取得總容量與前 10 大資料表（SQL Server 另外顯示其中記錄檔的大小）。
+    *   **Slow Queries & Lock Waits**：選好資料庫後按 Analyze，列出總執行時間最長的 10 個語句，以及正在等待鎖的連線與擋住它的連線。來源分別是 MySQL `performance_schema` / `sys.innodb_lock_waits`、PostgreSQL `pg_stat_statements` / `pg_blocking_pids`、SQL Server DMV（需 VIEW SERVER STATE）；來源未啟用或權限不足時會顯示說明。
+    *   **Kill**（SuperAdmin）：MySQL 與 PostgreSQL 只取消正在執行的查詢，連線保留；SQL Server 沒有取消別人查詢的指令，KILL 會中斷整個連線並 Rollback 它的交易，系統連線不能 Kill。按鈕與確認視窗會標示是哪一種。
+*   **Self-Service Provisioning**：
+    *   資料庫名稱只能用英文字母開頭，只包含英數字與底線。每張申請只能審核一次。
+    *   駁回原因照原文保存與顯示（舊版存成 `&lt;` 的內容也會正常顯示）。
+    *   核准 SQLite 申請時，會建立一個空的資料庫檔案並自動登錄到 Connection Hub。
+    *   其他引擎核准後不會自動建立資料庫，請 DBA 建好後再到 Connection Hub 登錄。舊版核准時自動產生、主機名稱為 `db-req-….local` 的連線並不存在，可以刪除。
+*   **Schema Diff**：所有引擎都能比對。PostgreSQL 與 SQL Server 會列出所有 schema 的資料表（預設 schema 以外的顯示為 `schema.table`），SQL Server 也會標示主鍵。任一邊讀不到資料表（通常是權限不足），或兩邊引擎不同時，結果會顯示警告，不會誤報成「完全一致」。
 
 ### 📦 其他服務管理
 *   **FortiProxy & Squid Proxy**：在線編輯 ACL 存取原則與配置快照備份庫 (Backup Vault)。

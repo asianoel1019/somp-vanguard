@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import api from '../../api';
+import { csvCell } from '../../utils/exportUtils';
 
 const S = {
     page: { padding: '24px 32px', fontFamily: "'Inter', sans-serif", color: 'var(--text-primary)', minHeight: '100%', display: 'flex', flexDirection: 'column' },
@@ -31,6 +32,8 @@ const S = {
 const SqlTerminal = () => {
     const user = JSON.parse(localStorage.getItem('user') || '{}');
     const role = user.role || 'Viewer';
+    // History is kept per signed-in user, so people sharing a browser do not see each other's queries
+    const historyKey = `sql_query_history:${user.username || 'anonymous'}`;
 
     const [databases, setDatabases] = useState([]);
     const [selectedDb, setSelectedDb] = useState('');
@@ -101,7 +104,9 @@ const SqlTerminal = () => {
 
         const loadHistory = () => {
             try {
-                const raw = localStorage.getItem('sql_query_history');
+                // the old shared key may hold another user's queries; it is dropped, not migrated
+                localStorage.removeItem('sql_query_history');
+                const raw = localStorage.getItem(historyKey);
                 if (!raw) {
                     setHistory([]);
                     return;
@@ -118,7 +123,7 @@ const SqlTerminal = () => {
 
         loadDatabases();
         loadHistory();
-    }, []);
+    }, [historyKey]);
 
     const handleDbChange = (newDbId) => {
         setSelectedDb(newDbId);
@@ -166,7 +171,9 @@ const SqlTerminal = () => {
         const filtered = history.filter(q => q.trim() !== newQuery.trim());
         const updated = [newQuery, ...filtered].slice(0, 20);
         setHistory(updated);
-        localStorage.setItem('sql_query_history', btoa(encodeURIComponent(JSON.stringify(updated))));
+        try {
+            localStorage.setItem(historyKey, btoa(encodeURIComponent(JSON.stringify(updated))));
+        } catch (e) { console.warn('Could not save query history:', e); }
     };
 
     const executeQuery = async (unmaskOverride = null) => {
@@ -192,7 +199,9 @@ const SqlTerminal = () => {
             setResults(res.data.rows || []);
             setStats({
                 count: res.data.rowCount || 0,
-                duration: res.data.executionMs || 0
+                duration: res.data.executionMs || 0,
+                truncated: !!res.data.truncated,
+                maxRows: res.data.maxRows || 1000
             });
             setIsMasked(!!res.data.isMasked);
             setMaskedColumns(res.data.maskedColumns || []);
@@ -217,17 +226,11 @@ const SqlTerminal = () => {
     const exportToCSV = () => {
         if (!results || results.length === 0) return;
         const columns = Object.keys(results[0]);
-        const header = columns.join(',');
-        const rows = results.map(row => 
-            columns.map(col => {
-                let val = row[col];
-                if (val === null) return 'NULL';
-                val = String(val).replace(/"/g, '""');
-                if (/^[=+\-@]/.test(val)) val = "'" + val; // CSV Injection protection
-                return `"${val}"`;
-            }).join(',')
-        );
-        const csvContent = [header, ...rows].join('\n');
+        // csvCell quotes every cell and neutralises leading = + - @ (CSV injection), header included
+        const header = columns.map(csvCell).join(',');
+        const rows = results.map(row => columns.map(col => (row[col] === null ? 'NULL' : csvCell(row[col]))).join(','));
+        // BOM so Excel opens UTF-8 (Chinese text) correctly
+        const csvContent = '﻿' + [header, ...rows].join('\r\n');
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
@@ -236,6 +239,7 @@ const SqlTerminal = () => {
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
+        URL.revokeObjectURL(url);
     };
 
     const handleTextareaScroll = () => {
@@ -512,7 +516,7 @@ const SqlTerminal = () => {
                         {history.length > 0 && (
                             <button 
                                 style={{ background: 'transparent', border: 'none', color: 'var(--danger)', fontSize: 10, cursor: 'pointer', padding: '2px 4px', fontWeight: 'bold' }} 
-                                onClick={() => { setHistory([]); localStorage.removeItem('sql_query_history'); }}
+                                onClick={() => { setHistory([]); try { localStorage.removeItem(historyKey); } catch { /* storage unavailable */ } }}
                             >
                                 Clear
                             </button>
@@ -543,6 +547,9 @@ const SqlTerminal = () => {
                         <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
                             <span>📊 Rows: <strong>{stats.count}</strong></span>
                             <span>⚡ Duration: <strong>{stats.duration} ms</strong></span>
+                            {stats.truncated && (
+                                <span style={{ color: '#f59e0b', fontWeight: 700 }}>⚠️ 結果超過 {stats.maxRows} 筆，只顯示前 {stats.maxRows} 筆（可加上 WHERE / LIMIT 縮小範圍）</span>
+                            )}
                             {isMasked && (
                                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'rgba(59,130,246,0.15)', color: '#60a5fa', border: '1px solid rgba(59,130,246,0.3)', padding: '2px 8px', borderRadius: 6, fontSize: 11, fontWeight: 700 }}>
                                     🛡️ 敏感欄位脫敏保護中 ({maskedColumns.join(', ')})

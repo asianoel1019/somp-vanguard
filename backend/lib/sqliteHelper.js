@@ -80,7 +80,7 @@ async function getTables(filePath) {
 /**
  * Execute a query on the SQLite database and return an array of row objects
  */
-async function executeQuery(filePath, query) {
+async function executeQuery(filePath, query, { maxRows } = {}) {
     const resolvedPath = path.resolve(filePath);
 
     if (!fs.existsSync(resolvedPath)) {
@@ -97,7 +97,13 @@ async function executeQuery(filePath, query) {
             try {
                 db = new DatabaseSync(resolvedPath, { readOnly: true });
                 const stmt = db.prepare(query);
-                const results = stmt.all();
+                if (!maxRows || typeof stmt.iterate !== 'function') return stmt.all();
+                // stop reading once maxRows rows are in, instead of loading the whole result
+                const results = [];
+                for (const row of stmt.iterate()) {
+                    results.push(row);
+                    if (results.length >= maxRows) break;
+                }
                 return results;
             } finally {
                 if (db) {
@@ -116,6 +122,16 @@ async function executeQuery(filePath, query) {
     let db = null;
     try {
         db = new SQL.Database(fileBuffer);
+        if (maxRows) {
+            const stmt = db.prepare(query);
+            const rows = [];
+            try {
+                while (rows.length < maxRows && stmt.step()) rows.push(stmt.getAsObject());
+            } finally {
+                stmt.free();
+            }
+            return rows;
+        }
         const execResults = db.exec(query);
         if (!execResults || execResults.length === 0) {
             return [];
@@ -214,6 +230,28 @@ async function executeVacuum(filePath) {
 }
 
 /**
+ * Write a consistent copy of a SQLite database (WAL content included) with VACUUM INTO.
+ * Falls back to copying the main file when node:sqlite is unavailable.
+ * @returns {Promise<'vacuum'|'copy'>} how the copy was made
+ */
+async function backupTo(filePath, destPath) {
+    const resolvedPath = path.resolve(filePath);
+    let DatabaseSync = null;
+    try { ({ DatabaseSync } = require('node:sqlite')); } catch (e) { DatabaseSync = null; }
+    if (typeof DatabaseSync === 'function') {
+        const db = new DatabaseSync(resolvedPath, { readOnly: true });
+        try {
+            db.exec(`VACUUM INTO '${String(destPath).replace(/'/g, "''")}'`);
+            return 'vacuum';
+        } finally {
+            db.close();
+        }
+    }
+    await fs.promises.copyFile(resolvedPath, destPath);
+    return 'copy';
+}
+
+/**
  * Get storage stats including WAL/SHM file presence
  */
 function getStorageStats(filePath) {
@@ -251,6 +289,7 @@ module.exports = {
     getSchemaDetails,
     executeVacuum,
     getStorageStats,
+    backupTo,
     isValidSqliteHeader
 };
 

@@ -93,6 +93,7 @@ const ENTRIES = [
     { key: 'service_platform/database_requests.json', mode: 'replace', owner: 'web', description: 'DB requests',
         writers: ['routes/database.js', 'services/environmentMigration.js', 'services/environmentUsage.js'], notes: 'synchronous, web only' },
     { key: 'service_platform/database_backups.json', mode: 'replace', owner: 'web', description: 'DB backup records', writers: ['routes/database.js'], notes: 'read happens after the awaited backup command (no gap)' },
+    { key: 'service_platform/database_backup_schedule.json', mode: 'replace', owner: 'web', description: 'DB scheduled backup state (last run day)', writers: ['routes/database.js'], notes: 'synchronous, web only' },
     { key: 'service_platform/k8s_clusters.json', mode: 'replace', owner: 'web', description: 'Kubernetes clusters', writers: ['routes/kubernetes.js'], notes: '' },
     { key: 'service_platform/redis_connections.json', mode: 'replace', owner: 'web', description: 'Redis connections', writers: ['routes/redis.js'], notes: '' },
     { key: 'service_platform/nas_config.json', mode: 'replace', owner: 'web', description: 'NAS devices',

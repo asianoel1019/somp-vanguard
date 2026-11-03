@@ -534,7 +534,7 @@ router.post('/config', requireAuth, aiSettingsGate, checkRole(['SuperAdmin']), (
         };
 
         writeDataSync(AI_CONFIG_PATH, updated);
-        auditLog(req.user.username, 'AI_CONFIG_UPDATE', 'Settings', `Updated AI Engine settings (Provider: ${updated.provider}, Enabled: ${updated.enabled})`);
+        auditLog(req.user.username, 'AI Service', `Updated AI Engine settings (Provider: ${updated.provider}, Enabled: ${updated.enabled}${apiKey ? ', API key replaced' : req.body.clearApiKey === true ? ', API key cleared' : ''})`);
 
         res.json({ success: true, message: 'AI configuration saved successfully.' });
     } catch (e) {

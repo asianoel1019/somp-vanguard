@@ -421,6 +421,14 @@ function compressLogFile(filePath) {
     });
 }
 
+const OTHER_LOG_RETENTION_DAYS = 30;
+
+/** Days audit logs are kept: AUDIT_LOG_RETENTION_DAYS (30 to 3650), default 180. */
+function auditRetentionDays() {
+    const n = parseInt(process.env.AUDIT_LOG_RETENTION_DAYS || '180', 10);
+    return Number.isInteger(n) ? Math.min(3650, Math.max(30, n)) : 180;
+}
+
 function performLogRotationAndCleanup() {
     appendLog('Starting daily log rotation and cleanup task...');
     
@@ -473,24 +481,25 @@ function performLogRotationAndCleanup() {
         });
     });
 
-    // 3. Clean up old archives (>30 days)
+    // 3. Clean up old archives. Audit logs (auth_) are kept AUDIT_LOG_RETENTION_DAYS (default 180), everything else
+    //    30 days; the age comes from the date in the file name, so copying or touching a file does not reset it.
     fs.readdir(archiveDir, (err, archiveFiles) => {
         if (err) return;
         const nowMs = Date.now();
-        const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
+        const dayMs = 24 * 60 * 60 * 1000;
         archiveFiles.forEach(file => {
             const filePath = path.join(archiveDir, file);
-            if (file.endsWith('.gz')) {
-                fs.stat(filePath, (err, stats) => {
-                    if (!err && stats) {
-                        if (nowMs - stats.mtimeMs > thirtyDaysMs) {
-                            fs.unlink(filePath, e => {
-                                if (!e) appendLog(`Deleted old log archive: ${file}`);
-                            });
-                        }
-                    }
-                });
+            if (!file.endsWith('.gz')) return;
+            const keepDays = file.startsWith('auth_') ? auditRetentionDays() : OTHER_LOG_RETENTION_DAYS;
+            const named = file.match(/_(\d{4}-\d{2}-\d{2})\.log\.gz$/);
+            const remove = () => fs.unlink(filePath, e => { if (!e) appendLog(`Deleted old log archive: ${file}`); });
+            if (named) {
+                if (nowMs - new Date(`${named[1]}T00:00:00`).getTime() > (keepDays + 1) * dayMs) remove();
+                return;
             }
+            fs.stat(filePath, (statErr, stats) => {
+                if (!statErr && stats && nowMs - stats.mtimeMs > keepDays * dayMs) remove();
+            });
         });
     });
 }
@@ -531,6 +540,7 @@ module.exports = {
     appendLog,
     auditLogFileOnly,
     isLoggingEnabledForModule,
+    auditRetentionDays,
     sendTelegramAlert,
     sendTelegramToChat,
     auditLog,

@@ -21,12 +21,18 @@ const S = {
     badge: { display: 'inline-block', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 700, background: 'rgba(255,255,255,0.05)', color: 'var(--text-secondary)' }
 };
 
+// The server filters, sorts and pages (it reads only the audit files of the chosen days, archive included)
+const PAGE_SIZE = 15;
+
 const AuditLogViewer = () => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
-    const [rawLogs, setRawLogs] = useState([]);
+    const [displayedLogs, setDisplayedLogs] = useState([]);
+    const [totalRecords, setTotalRecords] = useState(0);
     const [uniqueUsers, setUniqueUsers] = useState([]);
     const [uniqueModules, setUniqueModules] = useState([]);
+    const [range, setRange] = useState(null);
+    const [exporting, setExporting] = useState(false);
 
     // Filter states
     const [filterUser, setFilterUser] = useState('');
@@ -34,27 +40,43 @@ const AuditLogViewer = () => {
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
     const [searchKeyword, setSearchKeyword] = useState('');
+    // the keyword is sent once typing pauses, not on every key stroke
+    const [appliedKeyword, setAppliedKeyword] = useState('');
 
     // Pagination states
     const [currentPage, setCurrentPage] = useState(1);
-    const pageSize = 15;
+    const pageSize = PAGE_SIZE;
 
     // Sorting states
     const [sortField, setSortField] = useState('timestamp');
     const [sortOrder, setSortOrder] = useState('desc'); // 'asc' | 'desc'
 
     useEffect(() => {
-        fetchLogs();
-    }, []);
+        const t = setTimeout(() => setAppliedKeyword(searchKeyword), 400);
+        return () => clearTimeout(t);
+    }, [searchKeyword]);
+
+    const queryParams = () => ({
+        from: startDate || undefined,
+        to: endDate || undefined,
+        user: filterUser || undefined,
+        module: filterModule || undefined,
+        q: appliedKeyword || undefined,
+        sort: sortField,
+        order: sortOrder
+    });
 
     const fetchLogs = async () => {
         try {
             setLoading(true);
-            const res = await api.get('/audit/logs');
+            const res = await api.get('/audit/logs', { params: { ...queryParams(), page: currentPage, limit: pageSize } });
             if (res.data) {
-                setRawLogs(res.data.logs || []);
+                setDisplayedLogs(res.data.logs || []);
+                setTotalRecords(res.data.total || 0);
                 setUniqueUsers(res.data.filters?.users || []);
                 setUniqueModules(res.data.filters?.modules || []);
+                setRange(res.data.range || null);
+                if (res.data.page && res.data.page !== currentPage) setCurrentPage(res.data.page);
                 setError(null);
             }
         } catch (err) {
@@ -65,66 +87,12 @@ const AuditLogViewer = () => {
         }
     };
 
-    // Filter logic
-    const filteredLogs = rawLogs.filter(log => {
-        if (filterUser && log.user !== filterUser) return false;
-        if (filterModule && log.module !== filterModule) return false;
-
-        // Date range filter
-        if (startDate) {
-            const start = new Date(startDate);
-            const logDate = new Date(log.timestamp);
-            if (logDate < start) return false;
-        }
-        if (endDate) {
-            const end = new Date(endDate);
-            end.setHours(23, 59, 59, 999); // include full end day
-            const logDate = new Date(log.timestamp);
-            if (logDate > end) return false;
-        }
-
-        // Keyword search (User, Module, or Action)
-        if (searchKeyword) {
-            const kw = searchKeyword.toLowerCase();
-            const inUser = log.user.toLowerCase().includes(kw);
-            const inModule = log.module.toLowerCase().includes(kw);
-            const inAction = log.action.toLowerCase().includes(kw);
-            if (!inUser && !inModule && !inAction) return false;
-        }
-
-        return true;
-    });
-
-    // Sort logic
-    const sortedLogs = [...filteredLogs].sort((a, b) => {
-        let valA = a[sortField];
-        let valB = b[sortField];
-
-        // Date parsing for timestamp comparison
-        if (sortField === 'timestamp') {
-            valA = new Date(valA);
-            valB = new Date(valB);
-        } else {
-            valA = String(valA).toLowerCase();
-            valB = String(valB).toLowerCase();
-        }
-
-        if (valA < valB) return sortOrder === 'asc' ? -1 : 1;
-        if (valA > valB) return sortOrder === 'asc' ? 1 : -1;
-        return 0;
-    });
-
-    // Pagination slicing
-    const totalRecords = sortedLogs.length;
-    const totalPages = Math.ceil(totalRecords / pageSize);
-    const displayedLogs = sortedLogs.slice((currentPage - 1) * pageSize, currentPage * pageSize);
-
-    // Adjust page if total pages decreases below current
     useEffect(() => {
-        if (currentPage > totalPages && totalPages > 0) {
-            setCurrentPage(totalPages);
-        }
-    }, [totalPages, currentPage]);
+        fetchLogs();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [filterUser, filterModule, startDate, endDate, appliedKeyword, sortField, sortOrder, currentPage]);
+
+    const totalPages = Math.max(1, Math.ceil(totalRecords / pageSize));
 
     const handleSort = (field) => {
         if (sortField === field) {
@@ -133,6 +101,7 @@ const AuditLogViewer = () => {
             setSortField(field);
             setSortOrder('desc'); // Default to newest/descending
         }
+        setCurrentPage(1);
     };
 
     const handleResetFilters = () => {
@@ -141,35 +110,31 @@ const AuditLogViewer = () => {
         setStartDate('');
         setEndDate('');
         setSearchKeyword('');
+        setAppliedKeyword('');
         setCurrentPage(1);
     };
 
-    const handleExportCSV = () => {
-        if (sortedLogs.length === 0) return;
-
-        const headers = ['Timestamp', 'User Account', 'Module', 'Action Details'];
-        const csvRows = [headers.join(',')];
-
-        sortedLogs.forEach(log => {
-            const values = [
-                log.timestamp,
-                `"${log.user.replace(/"/g, '""')}"`,
-                `"${log.module.replace(/"/g, '""')}"`,
-                `"${log.action.replace(/"/g, '""')}"`
-            ];
-            csvRows.push(values.join(','));
-        });
-
-        const csvContent = '\uFEFF' + csvRows.join('\n'); // Add BOM for Excel UTF-8 compatibility
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.setAttribute('href', url);
-        link.setAttribute('download', `audit_logs_${new Date().toISOString().slice(0,10)}.csv`);
-        link.style.visibility = 'hidden';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+    // The server builds the file from every matching entry (not just this page) and protects cells from formula injection
+    const handleExportCSV = async () => {
+        if (totalRecords === 0) return;
+        setExporting(true);
+        try {
+            const res = await api.get('/audit/logs', { params: { ...queryParams(), format: 'csv' }, responseType: 'blob' });
+            const url = URL.createObjectURL(res.data);
+            const link = document.createElement('a');
+            link.setAttribute('href', url);
+            link.setAttribute('download', `audit_logs_${range?.from || ''}_${range?.to || new Date().toISOString().slice(0, 10)}.csv`);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+        } catch (err) {
+            console.error('Failed to export audit logs:', err);
+            setError('Failed to export audit logs.');
+        } finally {
+            setExporting(false);
+        }
     };
 
     return (
@@ -178,13 +143,18 @@ const AuditLogViewer = () => {
                 <div>
                     <h1 style={S.title}>Audit Log Viewer</h1>
                     <p style={S.subtitle}>Browse, search, and audit system operations and configuration changes</p>
+                    {range && (
+                        <p style={{ ...S.subtitle, marginTop: 4 }}>
+                            顯示 {range.from} 至 {range.to}（未選日期時預設最近 30 天）· 最早可查到 {range.earliestDay || '-'} · 稽核紀錄保留 {range.retentionDays} 天（AUDIT_LOG_RETENTION_DAYS）
+                        </p>
+                    )}
                 </div>
                 <div style={{ display: 'flex', gap: 12 }}>
                     <button style={S.btnO} onClick={fetchLogs} disabled={loading}>
                         🔄 Refresh
                     </button>
-                    <button style={S.btnP} onClick={handleExportCSV} disabled={loading || sortedLogs.length === 0}>
-                        📥 Export CSV ({sortedLogs.length})
+                    <button style={S.btnP} onClick={handleExportCSV} disabled={loading || exporting || totalRecords === 0}>
+                        {exporting ? 'Exporting…' : `📥 Export CSV (${totalRecords})`}
                     </button>
                 </div>
             </div>

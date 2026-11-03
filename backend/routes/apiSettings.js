@@ -4,7 +4,7 @@ const { requireAuth, checkRole } = require('../middleware/auth');
 const fs = require('fs');
 const path = require('path');
 const { readEnv, writeEnv, envVersion } = require('../lib/envEditor');
-const { encryptText } = require('../lib/crypto');
+const { encryptText, decryptText } = require('../lib/crypto');
 const { auditLog } = require('../lib/logger');
 const { validateProvisionSettings } = require('../lib/provisioning');
 const { validateMasterListText, decodeMasterList } = require('../lib/provisioningConfig');
@@ -112,6 +112,28 @@ function checkDataDirChange(next, current) {
     return null;
 }
 
+// SFTP_SERVERS re-encrypts its keys on every save (random IV): compare with the keys decrypted
+function comparableValue(key, value) {
+    if (key !== 'SFTP_SERVERS') return String(value === undefined || value === null ? '' : value);
+    const list = parseServers(value);
+    if (!list) return String(value);
+    return JSON.stringify(list.map(s => {
+        if (!s || !s.apiKey || !String(s.apiKey).startsWith('enc:')) return s;
+        try { return { ...s, apiKey: decryptText(String(s.apiKey).slice(4)) }; } catch (e) { return s; }
+    }));
+}
+
+/**
+ * Names of the settings a save changes or removes, for the audit log. Values are never listed: many are secrets.
+ * @returns {string} e.g. "changed MAIL_RELAY_HOST, AD_ADMIN_PWD; removed FORTI_HOST_DR" ('' when nothing changes)
+ */
+function describeChanges(next, stored, dynamicPrefixes) {
+    const changed = Object.keys(next).filter(k => comparableValue(k, next[k]) !== comparableValue(k, stored[k]));
+    const removed = Object.keys(stored).filter(k => !(k in next) && dynamicPrefixes.some(p => k.startsWith(p)));
+    const list = (keys) => (keys.length > 40 ? `${keys.slice(0, 40).join(', ')} (+${keys.length - 40} more)` : keys.join(', '));
+    return [changed.length ? `changed ${list(changed)}` : '', removed.length ? `removed ${list(removed)}` : ''].filter(Boolean).join('; ');
+}
+
 // POST /api/settings/save - Save updated configuration settings
 router.post('/save', (req, res) => {
     try {
@@ -203,6 +225,7 @@ router.post('/save', (req, res) => {
             }
         });
 
+        const changes = describeChanges(prunedConfig, stored, dynamicPrefixes);
         writeEnv(prunedConfig, dynamicPrefixes);
 
         if (typeof global.reloadEnv === 'function') {
@@ -226,7 +249,7 @@ router.post('/save', (req, res) => {
             console.log('[Settings] No embedded worker reachable: the Telegram listener is owned by the worker process and is not restarted from here.');
         }
 
-        auditLog(req.user.username, 'Settings Manager', 'System configurations updated');
+        auditLog(req.user.username, 'Settings Manager', changes ? `System configurations updated: ${changes}` : 'System configurations saved (no changes)');
         res.json({ success: true, __version: envVersion() });
     } catch (err) {
         res.status(500).json({ error: err.message });

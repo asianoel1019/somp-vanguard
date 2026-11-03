@@ -39,7 +39,7 @@ Get-Process node | Select-Object Id,@{n='WS_MB';e={[int]($_.WorkingSet64/1MB)}},
 若長期接近上限，建議排程在離峰重啟並回報開發團隊。
 5. 查看日誌：
    - 應用日誌（Web 與 Worker 全部輸出，格式 \`[時間] [Web|Worker] [INFO|WARN|ERROR] [模組] 訊息\`）：\`<DB_DATA_DIR>\\logs\\app_YYYY-MM-DD.log\`，每日一檔，隔天 06:00 壓縮移入 logs\\archive，保留 30 天。
-   - 稽核日誌：\`<DB_DATA_DIR>\\logs\\auth_YYYY-MM-DD.log\`（DB_DATA_DIR 為 D:\\somp-vanguard，若無 D: 槽則為 C:\\ProgramData\\somp-vanguard）。
+   - 稽核日誌：\`<DB_DATA_DIR>\\logs\\auth_YYYY-MM-DD.log\`（DB_DATA_DIR 為 D:\\somp-vanguard，若無 D: 槽則為 C:\\ProgramData\\somp-vanguard）。7 天後壓縮移入 logs\\archive，保留 \`AUDIT_LOG_RETENTION_DAYS\` 天（預設 180，可設 30 到 3650）；Audit log 頁面也會讀 archive 內的檔案。
    - WinSW 日誌：位於 Program Files\\somp-vanguard 服務目錄（*.out.log / *.err.log / *.wrapper.log），只在程式還沒開始寫應用日誌前就失敗（啟動即崩潰）時需要看。
 \`\`\`powershell
 Get-ChildItem "<DB_DATA_DIR>\\logs" | Sort-Object LastWriteTime -Descending | Select-Object -First 3

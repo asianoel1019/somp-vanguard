@@ -393,6 +393,12 @@ Server List 是 SOMP Vanguard 的核心伺服器資產資料庫 (CMDB)，自動�
         *   Scout Open API 的「MAX QUERY TIME RANGE (DAYS)」（`SCOUT_OPEN_API_MAX_DAYS`，預設 30，1–365）現在會生效：metrics / 日誌查詢最早只能從這麼多天前開始，沒有指定 `from` 時也一樣。
         *   System Settings 移除了從未生效的 `BACKEND_ALLOWED_IPS` 欄位；限制 API 來源請用 `API_ALLOWED_IPS`。
         *   Dev Tools 的內建範本改為實際存在的 API；Open API 範本會切到 Visual Builder 並帶入 `X-API-Key` header，請換成自己的 Open API Key。
+    *   **Audit log 頁**：
+        *   可以查到超過 7 天的紀錄（會讀 `logs\archive` 中壓縮過的檔案）。未選日期時顯示最近 30 天；頁面會顯示最早可查到的日期與保留天數。
+        *   稽核紀錄保留 `AUDIT_LOG_RETENTION_DAYS` 天（預設 180，可設 30 到 3650，依檔名日期計算）；應用日誌仍保留 30 天。
+        *   篩選、排序、分頁改由伺服器處理，而且只讀選定日期的檔案，資料量大時也不會拖慢整個系統。
+        *   Export CSV 會匯出所有符合條件的紀錄（不只目前這一頁），開頭為 `=`、`+`、`-`、`@` 的內容會加上 `'`，避免 Excel 當成公式執行。
+        *   儲存 System Settings 的稽核紀錄會列出改了哪些設定、移除了哪些設定（只列名稱，不記錄值）。
     *   **NAS 共用資料夾權限查詢**：共用資料夾名稱不可包含 `` ` ``、`$`、`"`、`;`、`|`、`&`、`<`、`>` 等字元。
 *   **資料存取與保留（v1.7.7，維運人員參考）**：
     *   多個服務會同時修改的設定與清單（CMDB 補充資料、排程任務、Prometheus 目標、Webhooks、RBAC、IPAM、SSL 等）一律以資料庫鎖定方式「讀最新資料再寫回」，網頁服務與背景服務不會再互相覆蓋。

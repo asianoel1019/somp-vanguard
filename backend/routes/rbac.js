@@ -236,7 +236,8 @@ router.post('/groups', (req, res) => {
 
             const domain = getAllowedAdDomain() || req.user.domain || 'local';
             const userRole = role || 'None';
-            updateUserRole(accountName, domain, userRole, name || '');
+            // the lib returns false when the write fails: report it instead of a success that did not happen
+            if (!updateUserRole(accountName, domain, userRole, name || '')) { return res.status(500).json({ error: 'Saving the RBAC configuration failed; nothing was changed (see the server log)' }); }
             revokeRoleHolder(accountName, domain);
             auditLog(req.user.username, 'AD User Control', `Defined AD Account Mapping: ${accountName}@${domain} (Input: ${mappingTarget}, Default Role: ${userRole})`);
             try { require('../lib/websocket').broadcastEvent('USER_ROLE_CHANGED', { username: accountName, domain, role: userRole }); } catch(e) {}
@@ -323,7 +324,7 @@ router.post('/', (req, res) => {
         if ((groupKeyName && isReservedMappingName(groupKeyName[1])) || (groupName && isReservedMappingName(groupName))) {
             return res.status(400).json({ error: RESERVED_NAME_ERROR });
         }
-        updateUserRole(username, domain, role, groupName);
+        if (!updateUserRole(username, domain, role, groupName)) { return res.status(500).json({ error: 'Saving the RBAC configuration failed; nothing was changed (see the server log)' }); }
         revokeRoleHolder(username, domain);
         auditLog(req.user.username, 'AD User Control', `Assigned role ${role} to ${username}@${domain}`);
         try { require('../lib/websocket').broadcastEvent('USER_ROLE_CHANGED', { username, domain, role }); } catch(e) {}
@@ -341,7 +342,7 @@ router.delete('/', (req, res) => {
         if (!username || !domain) {
             return res.status(400).json({ error: 'username and domain are required' });
         }
-        removeUserRole(username, domain);
+        if (!removeUserRole(username, domain)) { return res.status(500).json({ error: 'Saving the RBAC configuration failed; nothing was changed (see the server log)' }); }
         revokeRoleHolder(username, domain);
         auditLog(req.user.username, 'AD User Control', `Removed custom role for ${username}@${domain}`);
         try { require('../lib/websocket').broadcastEvent('USER_ROLE_CHANGED', { username, domain, role: null }); } catch(e) {}

@@ -31,11 +31,23 @@ function driverFail(res, e, prefix) {
     return res.status(500).json({ error: e && e.userSafe ? e.message : prefix });
 }
 
-// Sanitization function to prevent shell/powershell injection
-function sanitizeInput(str) {
-    if (!str) return '';
-    // Allow alphanumeric characters, common path separators, dash, underscore, dot, and space
-    return String(str).replace(/[^a-zA-Z0-9_\-\.\/\\: ]/g, '');
+// Share inputs are checked, never rewritten: silently dropping characters (Chinese names, brackets) changed what was
+// created or deleted, and a cleaned name could match another share. The drivers escape values for PowerShell / shell.
+const SHARE_NAME_RE = /^[\p{L}\p{N}_\-. ()]{1,80}$/u;
+const SHARE_PATH_RE = /^[\p{L}\p{N}_\-. ()/\\:]{1,260}$/u;
+const SHARE_DESC_RE = /^[^\x00-\x1f`$"\u201C\u201D\u201E;|&<>]{0,256}$/;
+
+function shareInputError({ name, path, description }) {
+    if (name !== undefined && (typeof name !== 'string' || !SHARE_NAME_RE.test(name) || !name.trim())) {
+        return 'Share name may only contain letters (any language), digits, space, _ - . and ( ), up to 80 characters';
+    }
+    if (path !== undefined && (typeof path !== 'string' || !SHARE_PATH_RE.test(path))) {
+        return 'Share path may only contain letters, digits, space, _ - . ( ) / \\ and :';
+    }
+    if (description !== undefined && description !== null && (typeof description !== 'string' || !SHARE_DESC_RE.test(description))) {
+        return 'Description may not contain control characters or ` $ " ; | & < >, up to 256 characters';
+    }
+    return null;
 }
 
 function nameTaken(devices, name, exceptId) {
@@ -246,9 +258,9 @@ router.post('/create-share', operatorUp, async (req, res) => {
     if (!deviceId || !name || !path) {
         return res.status(400).json({ error: 'Missing deviceId, name or path' });
     }
-    name = sanitizeInput(name);
-    path = sanitizeInput(path);
-    description = sanitizeInput(description);
+    const inputError = shareInputError({ name, path, description });
+    if (inputError) return res.status(400).json({ error: inputError });
+    description = description || '';
 
     try {
         const dev = (await store.readDevices()).find(x => x.id === deviceId);
@@ -279,7 +291,8 @@ router.post('/delete-share', operatorUp, async (req, res) => {
     if (!deviceId || !name) {
         return res.status(400).json({ error: 'Missing deviceId or name' });
     }
-    name = sanitizeInput(name);
+    const inputError = shareInputError({ name });
+    if (inputError) return res.status(400).json({ error: inputError });
 
     try {
         const dev = (await store.readDevices()).find(x => x.id === deviceId);

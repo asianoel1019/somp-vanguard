@@ -240,7 +240,8 @@ router.post('/save', (req, res) => {
         // Sent after RELOAD_ENV (IPC keeps order) so the worker restarts it with the new token.
         // Only when a setting the listener captures at start changed (token / chat / enable flag / poll interval / proxy);
         // everything else it reads per message from process.env, which RELOAD_ENV already refreshed.
-        const touchesListener = Object.keys(rawConfig || {}).some(k => LISTENER_ENV_KEY.test(k));
+        // the page sends every key on each save, so only a value that really changed counts
+        const touchesListener = Object.keys(prunedConfig).some(k => LISTENER_ENV_KEY.test(k) && comparableValue(k, prunedConfig[k]) !== comparableValue(k, stored[k]));
         let telegramReload = false;
         if (touchesListener && typeof global.sendWorkerMessage === 'function') {
             try { telegramReload = global.sendWorkerMessage({ type: 'RELOAD_TELEGRAM_LISTENER' }); } catch (e) {}

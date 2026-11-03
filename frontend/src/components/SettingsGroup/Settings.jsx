@@ -79,6 +79,14 @@ const Settings = ({ mode = 'system' }) => {
     const [webhooks, setWebhooks] = useState([]);
     const [isEditingWebhook, setIsEditingWebhook] = useState(false);
     const [settingsLoadFailed, setSettingsLoadFailed] = useState(false);
+    // Edits (including the SFTP server dialog) only reach .env through "Save Changes": say so, and warn before leaving
+    const [settingsDirty, setSettingsDirty] = useState(false);
+    useEffect(() => {
+        if (!settingsDirty) return undefined;
+        const warn = (e) => { e.preventDefault(); e.returnValue = ''; };
+        window.addEventListener('beforeunload', warn);
+        return () => window.removeEventListener('beforeunload', warn);
+    }, [settingsDirty]);
     const [incomingSecret, setIncomingSecret] = useState(''); // shown once, right after it is generated
     const [webhookForm, setWebhookForm] = useState({ id: '', name: '', url: '', method: 'POST', headers: '{\n  "Content-Type": "application/json"\n}', bodyTemplate: '{\n  "text": "{{message}}"\n}', enabled: true, enabledLogs: DEFAULT_LOG_TYPE_KEYS });
     const [testingWebhookId, setTestingWebhookId] = useState(null);
@@ -236,6 +244,7 @@ const Settings = ({ mode = 'system' }) => {
             setSettingsLoadFailed(!settingsRes.data);
             const cfg = settingsRes.data || {};
             setSysConfig(cfg);
+            setSettingsDirty(false);
             if (cfg.NETSEARCH_DEVICES) {
                 try {
                     const parsed = JSON.parse(cfg.NETSEARCH_DEVICES);
@@ -284,6 +293,7 @@ const Settings = ({ mode = 'system' }) => {
 
     const handleConfigChange = (key, val) => {
         setSysConfig(prev => ({ ...prev, [key]: val }));
+        setSettingsDirty(true);
     };
 
     const handleDevicesTextChange = (text) => {
@@ -414,6 +424,7 @@ const Settings = ({ mode = 'system' }) => {
         }
 
         setShowSftpServerModal(false);
+        setSuccess('SFTP server list updated on this page. Click "Save Changes" to store it.');
     };
 
     const handleDeleteSftpServer = (id) => {
@@ -478,6 +489,7 @@ const Settings = ({ mode = 'system' }) => {
             const res = await api.post('/settings/save', sysConfig);
             // the file changed: the next save must be built on the new version
             setSysConfig(prev => ({ ...prev, __version: res.data.__version }));
+            setSettingsDirty(false);
             setSuccess('System configurations updated successfully.');
         } catch (err) {
             setError(err.response?.data?.error || err.message);
@@ -912,9 +924,14 @@ const Settings = ({ mode = 'system' }) => {
                                 )}
                             </div>
                             {activeCategory !== 'rbac' && activeCategory !== 'ai' && activeCategory !== 'environments' && (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                {settingsDirty && !settingsLoadFailed && (
+                                    <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--warning)' }}>● 有尚未儲存的變更</span>
+                                )}
                                 <button style={{ ...S.btnP, ...(settingsLoadFailed ? { opacity: 0.4, cursor: 'not-allowed' } : {}) }} onClick={handleSaveSettings} disabled={savingSettings || settingsLoadFailed}>
                                     {savingSettings ? 'Saving...' : 'Save Changes'}
                                 </button>
+                                </div>
                             )}
                             {activeCategory === 'ai' && (
                                 <button style={S.btnP} onClick={handleSaveAiConfig} disabled={aiSaving}>
@@ -1161,6 +1178,7 @@ const Settings = ({ mode = 'system' }) => {
                                                         handleConfigChange('DB_BACKUP_ENABLED', 'false');
                                                     } else {
                                                         setSysConfig(prev => ({ ...prev, DB_BACKUP_ENABLED: 'true', DB_BACKUP_TARGETS: v }));
+                                                        setSettingsDirty(true);
                                                     }
                                                 }}
                                             >

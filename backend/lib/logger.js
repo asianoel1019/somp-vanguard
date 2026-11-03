@@ -27,11 +27,18 @@ function getTodayStr() {
     return `${yyyy}-${mm}-${dd}`;
 }
 
-function getLocaleTimestamp() {
-    const now = new Date();
+// Local wall-clock time of SYSTEM_TIMEZONE with milliseconds and the UTC offset, e.g. 2026-11-03T14:05:09.123+08:00:
+// readers in another time zone get the right instant, and entries of the same second keep their order.
+// The text still starts with the local date, which the audit viewer uses to pick a day.
+function getLocaleTimestamp(now = new Date()) {
     const tz = process.env.SYSTEM_TIMEZONE || 'Asia/Taipei';
     try {
-        return now.toLocaleString('sv-SE', { timeZone: tz }).replace(' ', 'T');
+        const local = now.toLocaleString('sv-SE', { timeZone: tz }).replace(' ', 'T');
+        const offsetMin = Math.round((Date.parse(`${local}Z`) - Math.floor(now.getTime() / 1000) * 1000) / 60000);
+        const sign = offsetMin < 0 ? '-' : '+';
+        const abs = Math.abs(offsetMin);
+        const offset = `${sign}${String(Math.floor(abs / 60)).padStart(2, '0')}:${String(abs % 60).padStart(2, '0')}`;
+        return `${local}.${String(now.getMilliseconds()).padStart(3, '0')}${offset}`;
     } catch (e) {
         return now.toISOString(); // Fallback
     }
@@ -552,6 +559,7 @@ module.exports = {
     notifyBatchTiming,
     startLogRotation,
     getTodayLogFile,
+    getLocaleTimestamp,
     resolveLogCategory,
     isNotificationCategoryEnabled,
     isOptInCategory

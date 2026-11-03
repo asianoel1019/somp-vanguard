@@ -327,6 +327,25 @@ const THEMES = {
   }
 };
 
+// Request history lives in the browser: one list per signed-in user, and credential-looking body fields are
+// replaced before saving (a settings POST can carry passwords)
+const HISTORY_KEY = () => {
+  try { return `vanguard_devtools_history:${JSON.parse(localStorage.getItem('user') || '{}').username || 'anonymous'}`; } catch { return 'vanguard_devtools_history:anonymous'; }
+};
+const SECRET_FIELD = /pass|pwd|secret|token|key|credential|auth/i;
+function redactValue(v) {
+  if (Array.isArray(v)) return v.map(redactValue);
+  if (v && typeof v === 'object') {
+    return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, SECRET_FIELD.test(k) ? '***' : redactValue(x)]));
+  }
+  return v;
+}
+function redactBody(body) {
+  if (body === null || body === undefined || body === '') return body;
+  if (typeof body === 'object') return redactValue(body);
+  try { return JSON.stringify(redactValue(JSON.parse(body)), null, 2); } catch { return ''; } // not JSON: not kept
+}
+
 export default function DevTools() {
   // Theme State - Default: 'win7' (Windows 7)
   const [osTheme, setOsTheme] = useState(() => {
@@ -384,20 +403,25 @@ GET /api/health
 
   const textareaRef = useRef(null);
 
-  // Load history from localStorage
+  // Load history from localStorage (per signed-in user; the old shared key is dropped, it may hold another user's calls)
   useEffect(() => {
     try {
-      const saved = localStorage.getItem('vanguard_devtools_history');
+      localStorage.removeItem('vanguard_devtools_history');
+      const saved = localStorage.getItem(HISTORY_KEY());
       if (saved) setHistory(JSON.parse(saved));
     } catch (e) {}
   }, []);
 
+  // Functional update: the Ctrl+Enter handler keeps an older closure, and an outdated list would drop entries
   const saveHistoryItem = (item) => {
-    const updated = [item, ...history.filter(h => h.path !== item.path || h.method !== item.method)].slice(0, 40);
-    setHistory(updated);
-    try {
-      localStorage.setItem('vanguard_devtools_history', JSON.stringify(updated));
-    } catch (e) {}
+    const safeItem = { ...item, body: redactBody(item.body) };
+    setHistory(prev => {
+      const updated = [safeItem, ...prev.filter(h => h.path !== safeItem.path || h.method !== safeItem.method)].slice(0, 40);
+      try {
+        localStorage.setItem(HISTORY_KEY(), JSON.stringify(updated));
+      } catch { /* storage full or blocked: history is a convenience */ }
+      return updated;
+    });
   };
 
   // Keyboard shortcut Ctrl+Enter to execute
@@ -1685,7 +1709,7 @@ GET /api/health
                   fontWeight: 700,
                   cursor: 'pointer'
                 }}
-                onClick={() => { setHistory([]); localStorage.removeItem('vanguard_devtools_history'); }}
+                onClick={() => { setHistory([]); try { localStorage.removeItem(HISTORY_KEY()); } catch { /* storage unavailable */ } }}
               >
                 清空歷史記錄
               </button>

@@ -2,8 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { authMiddleware, checkRole } = require('../middleware/auth');
 const { readRbacConfig, updateUserRole, removeUserRole, mutateRbacConfig, isReservedMappingName, normalizeMappingName, getAllowedAdDomain } = require('../lib/rbac');
-const { runPowerShell, getADCredentialHeader } = require('../lib/powershell');
-const { psSq } = require('../lib/psQuote');
+const { runAsService, psLit, adErrorMessage } = require('../lib/adService');
 const { auditLog } = require('../lib/logger');
 const { BUILTIN_SUPERADMIN_MAPPING, FEATURE_KEYS, SUPERADMIN_LOCKED_FEATURES } = require('../lib/featureCatalog');
 const sessionRevocation = require('../lib/sessionRevocation');
@@ -108,71 +107,27 @@ router.get('/ad-users', async (req, res) => {
             return res.status(400).json({ error: 'Invalid AD target' });
         }
 
-        let username = process.env.AD_ADMIN_USER || req.user.username;
-        const password = process.env.AD_ADMIN_PWD || req.user.password;
-        let domain = req.user.domain;
-
-        if (process.env.AD_ADMIN_USER && username.includes('\\')) {
-            const parts = username.split('\\');
-            domain = parts[0];
-            username = parts[1];
-        } else if (process.env.AD_ADMIN_USER && !username.includes('\\')) {
-            domain = (process.env.ALLOWED_AD_DOMAIN || '').replace(/['"]/g, '').trim() || domain;
-        }
-
-        const dcHost = process.env.AD_DC_HOST || process.env.ALLOWED_AD_DOMAIN || domain || '';
-        const credHdr = getADCredentialHeader(username, domain, password);
-
         const isGroupQuery = type === 'group' || (!target.toLowerCase().startsWith('ou=') && !target.toLowerCase().startsWith('cn='));
-
-        let queryScript = '';
-        if (isGroupQuery) {
-            queryScript = `
-$target = '${psSq(target)}'
-try {
-    if ($dcTarget) {
-        $members = Get-ADGroupMember -Identity $target -Recursive -Server $dcTarget -Credential $global:AD_CRED -ErrorAction Stop | Where-Object { $_.objectClass -eq 'user' }
-    } else {
-        $members = Get-ADGroupMember -Identity $target -Recursive -Credential $global:AD_CRED -ErrorAction Stop | Where-Object { $_.objectClass -eq 'user' }
-    }
-} catch {
-    $members = Get-ADGroupMember -Identity $target -Recursive -Credential $global:AD_CRED -ErrorAction Stop | Where-Object { $_.objectClass -eq 'user' }
-}
+        // the AD service account only (never the signed-in user's own password); the target is a literal
+        const queryScript = isGroupQuery ? `
+$target = ${psLit(target)}
+$members = Get-ADGroupMember -Identity $target -Recursive -Credential $global:AD_CRED @dcArgs | Where-Object { $_.objectClass -eq 'user' }
 if ($members) {
-    $members | Select-Object -ExpandProperty SamAccountName | ConvertTo-Json
+    @($members) | Select-Object -ExpandProperty SamAccountName | ConvertTo-Json
 } else {
     Write-Output "[]"
 }
-            `;
-        } else {
-            queryScript = `
-$target = '${psSq(target)}'
-try {
-    if ($dcTarget) {
-        $users = Get-ADUser -Filter * -SearchBase $target -Properties SamAccountName -Server $dcTarget -Credential $global:AD_CRED -ErrorAction Stop
-    } else {
-        $users = Get-ADUser -Filter * -SearchBase $target -Properties SamAccountName -Credential $global:AD_CRED -ErrorAction Stop
-    }
-} catch {
-    $users = Get-ADUser -Filter * -SearchBase $target -Properties SamAccountName -Credential $global:AD_CRED -ErrorAction Stop
-}
+` : `
+$target = ${psLit(target)}
+$users = Get-ADUser -Filter * -SearchBase $target -Properties SamAccountName -Credential $global:AD_CRED @dcArgs
 if ($users) {
-    $users | Select-Object -ExpandProperty SamAccountName | ConvertTo-Json
+    @($users) | Select-Object -ExpandProperty SamAccountName | ConvertTo-Json
 } else {
     Write-Output "[]"
 }
-            `;
-        }
+`;
 
-        const script = `
-$ErrorActionPreference = "Stop"
-${credHdr}
-$dcTarget = '${psSq(dcHost)}'
-${queryScript}
-        `;
-
-        const output = await runPowerShell(script);
-        const rawJson = output.trim();
+        const rawJson = String(await runAsService(queryScript) || '').trim();
         let users = [];
         if (rawJson && rawJson !== '[]') {
             users = JSON.parse(rawJson);
@@ -180,7 +135,7 @@ ${queryScript}
         }
         res.json(users);
     } catch (e) {
-        res.status(500).json({ error: e.message || String(e) });
+        res.status(e && e.status ? e.status : 500).json({ error: adErrorMessage(e) });
     }
 });
 

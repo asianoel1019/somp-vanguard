@@ -1,11 +1,9 @@
 const express = require('express');
 const router = express.Router();
+const crypto = require('crypto');
 const { requireAuth, checkRole, checkFeature } = require('../middleware/auth');
-const { runPowerShell, getADCredentialHeader, sanitizePsString } = require('../lib/powershell');
 const { auditLog } = require('../lib/logger');
-const http = require('http');
-
-const AD_DC_HOST = process.env.AD_DC_HOST || process.env.ALLOWED_AD_DOMAIN || '';
+const { runAsService, psLit, adErrorMessage, serviceAccount } = require('../lib/adService');
 
 router.use(requireAuth);
 router.use(checkFeature('adControl'));
@@ -45,6 +43,25 @@ function getGrantCompanies() {
     return (process.env.AD_GRANT_COMPANIES || '').split(',').map(c => c.trim()).filter(Boolean);
 }
 
+// Limits on what one request may pull out of the directory
+const MAX_SEARCH_RESULTS = 200;
+const MAX_OU_USERS = 2000;
+// sAMAccountName may not contain " / \ [ ] : ; | = , + * ? < > (a trailing $ marks computer accounts)
+const SAM_RE = /^[^\x00-\x1f"/\\[\]:;|=,+*?<>]{1,256}$/;
+const isSam = (v) => typeof v === 'string' && SAM_RE.test(v);
+
+function sendAdError(res, e) {
+    res.status(e && e.status ? e.status : 500).json({ error: adErrorMessage(e) });
+}
+
+/** JSON written by ConvertTo-Json: one object comes back unwrapped, nothing comes back as "" */
+function parseList(output) {
+    const raw = String(output || '').trim();
+    if (!raw || raw === '[]' || raw === 'null') return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [parsed];
+}
+
 // GET /mappings — returns { companies: [...], companyName: [bu1, bu2, ...], ... }
 router.get('/mappings', (req, res) => {
     const companies = getCompanies();
@@ -57,7 +74,7 @@ router.get('/mappings', (req, res) => {
     res.json(result);
 });
 
-// POST /users
+// POST /users — accounts of one configured OU (at most MAX_OU_USERS; truncated says when there are more)
 router.post('/users', async (req, res) => {
     const { category, bu } = req.body;
     if (!category || !bu) return res.status(400).json({ error: 'Missing parameters' });
@@ -66,100 +83,66 @@ router.post('/users', async (req, res) => {
     if (!targetOU) return res.status(400).json({ error: 'Invalid Category or BU' });
 
     try {
-        // Use global AD_ADMIN if configured, else fallback to logged-in user session
-        let username = process.env.AD_ADMIN_USER || req.user.username;
-        const password = process.env.AD_ADMIN_PWD || req.user.password;
-        let domain = req.user.domain;
-
-        if (process.env.AD_ADMIN_USER && username.includes('\\')) {
-            const parts = username.split('\\');
-            domain = parts[0];
-            username = parts[1];
-        } else if (process.env.AD_ADMIN_USER && !username.includes('\\')) {
-            domain = (process.env.ALLOWED_AD_DOMAIN || '').replace(/['"]/g, '').trim() || domain;
-        }
-        const credHdr = getADCredentialHeader(username, domain, password);
-
-        const script = `
-$ErrorActionPreference = "Stop"
-${credHdr}
-$dcTarget = "${AD_DC_HOST}"
-try {
-    if ($dcTarget) {
-        $users = Get-ADUser -Filter * -SearchBase "${targetOU}" -Properties Enabled, LockedOut, Description -Server $dcTarget -Credential $global:AD_CRED -ErrorAction Stop
-    } else {
-        $users = Get-ADUser -Filter * -SearchBase "${targetOU}" -Properties Enabled, LockedOut, Description -Credential $global:AD_CRED -ErrorAction Stop
-    }
-} catch {
-    $users = Get-ADUser -Filter * -SearchBase "${targetOU}" -Properties Enabled, LockedOut, Description -Credential $global:AD_CRED -ErrorAction Stop
-}
+        const output = await runAsService(`
+$users = Get-ADUser -Filter * -SearchBase ${psLit(targetOU)} -ResultSetSize ${MAX_OU_USERS + 1} -Properties Enabled, LockedOut, Description -Credential $global:AD_CRED @dcArgs
 if ($users) {
-    $users | Select-Object Name, SamAccountName, Enabled, LockedOut, Description | ConvertTo-Json
+    @($users) | Select-Object Name, SamAccountName, Enabled, LockedOut, Description | ConvertTo-Json
 } else {
     Write-Output "[]"
 }
-        `;
-
-        const output = await runPowerShell(script);
-        const rawJson = output.trim();
-        let users = [];
-        if (rawJson && rawJson !== '[]') {
-            users = JSON.parse(rawJson);
-            if (!Array.isArray(users)) users = [users];
-        }
-        res.json({ users });
+`);
+        const users = parseList(output);
+        res.json({ users: users.slice(0, MAX_OU_USERS), truncated: users.length > MAX_OU_USERS, limit: MAX_OU_USERS });
     } catch (e) {
-        const errMsg = e.stderr || (e.error && e.error.message) || String(e);
-        res.status(500).json({ error: errMsg });
+        sendAdError(res, e);
     }
 });
+
+/** 16 characters from a set without look-alikes, at least one of each class, chosen with a CSPRNG */
+function generatePassword(length = 16) {
+    const sets = ['ABCDEFGHJKLMNPQRSTUVWXYZ', 'abcdefghijkmnopqrstuvwxyz', '23456789', '!@#%^*-_=+?'];
+    const all = sets.join('');
+    const chars = sets.map(s => s[crypto.randomInt(s.length)]);
+    while (chars.length < length) chars.push(all[crypto.randomInt(all.length)]);
+    for (let i = chars.length - 1; i > 0; i--) {
+        const j = crypto.randomInt(i + 1);
+        [chars[i], chars[j]] = [chars[j], chars[i]];
+    }
+    return chars.join('');
+}
 
 // POST /action
 router.post('/action', checkRole(['SuperAdmin', 'Operator']), async (req, res) => {
     const { category, bu, sam, action } = req.body;
     if (!sam || !action) return res.status(400).json({ error: 'Missing parameters' });
+    if (!isSam(sam)) return res.status(400).json({ error: 'Invalid account name' });
     if (action === 'grant' && (!category || !bu)) return res.status(400).json({ error: 'Missing Category or BU parameters for Grant action' });
 
     try {
-        // Use global AD_ADMIN if configured, else fallback to logged-in user session
-        let username = process.env.AD_ADMIN_USER || req.user.username;
-        const password = process.env.AD_ADMIN_PWD || req.user.password;
-        let domain = req.user.domain;
-
-        if (process.env.AD_ADMIN_USER && username.includes('\\')) {
-            const parts = username.split('\\');
-            domain = parts[0];
-            username = parts[1];
-        } else if (process.env.AD_ADMIN_USER && !username.includes('\\')) {
-            domain = (process.env.ALLOWED_AD_DOMAIN || '').replace(/['"]/g, '').trim() || domain;
-        }
-        const credHdr = getADCredentialHeader(username, domain, password);
-
-        const safeSam = sanitizePsString(sam);
+        const id = psLit(sam);
         let actionScript = '';
         let actionDesc = '';
+        let generatedPassword = null;
 
         if (action === 'enable') {
-            actionScript = `Enable-ADAccount -Identity '${safeSam}' -Server ${AD_DC_HOST} -Credential $global:AD_CRED`;
+            actionScript = `Enable-ADAccount -Identity ${id} -Credential $global:AD_CRED @dcArgs`;
             actionDesc = `Enabled AD Account: ${sam}`;
         } else if (action === 'disable') {
-            actionScript = `Disable-ADAccount -Identity '${safeSam}' -Server ${AD_DC_HOST} -Credential $global:AD_CRED`;
+            actionScript = `Disable-ADAccount -Identity ${id} -Credential $global:AD_CRED @dcArgs`;
             actionDesc = `Disabled AD Account: ${sam}`;
         } else if (action === 'unlock') {
-            actionScript = `Unlock-ADAccount -Identity '${safeSam}' -Server ${AD_DC_HOST} -Credential $global:AD_CRED`;
+            actionScript = `Unlock-ADAccount -Identity ${id} -Credential $global:AD_CRED @dcArgs`;
             actionDesc = `Unlocked AD Account: ${sam}`;
         } else if (action === 'reset_password') {
-            const crypto = require('crypto');
-            const randomPass = crypto.randomBytes(6).toString('base64').replace(/[^a-zA-Z0-9]/g, '') + 'A1!';
-            const safeRandomPass = sanitizePsString(randomPass);
+            generatedPassword = generatePassword();
+            // the new password also travels as a literal; it is random and only made of the characters above
             actionScript = `
-$secPass = ConvertTo-SecureString '${safeRandomPass}' -AsPlainText -Force
-Set-ADAccountPassword -Identity '${safeSam}' -NewPassword $secPass -Reset -Server ${AD_DC_HOST} -Credential $global:AD_CRED
-Set-ADUser -Identity '${safeSam}' -PasswordNeverExpires $false -Server ${AD_DC_HOST} -Credential $global:AD_CRED
-Set-ADUser -Identity '${safeSam}' -ChangePasswordAtLogon $true -Server ${AD_DC_HOST} -Credential $global:AD_CRED
-            `;
+$newPass = ConvertTo-SecureString ${psLit(generatedPassword)} -AsPlainText -Force
+Set-ADAccountPassword -Identity ${id} -NewPassword $newPass -Reset -Credential $global:AD_CRED @dcArgs
+Set-ADUser -Identity ${id} -PasswordNeverExpires $false -Credential $global:AD_CRED @dcArgs
+Set-ADUser -Identity ${id} -ChangePasswordAtLogon $true -Credential $global:AD_CRED @dcArgs
+`;
             actionDesc = `Reset Password for AD Account: ${sam}`;
-            res.locals.generatedPassword = randomPass;
         } else if (action === 'grant') {
             const grantCompanies = getGrantCompanies();
             const targetOU = getTargetOU(category, bu);
@@ -168,9 +151,10 @@ Set-ADUser -Identity '${safeSam}' -ChangePasswordAtLogon $true -Server ${AD_DC_H
                 return res.status(400).json({ error: `Grant Permission is not available for ${category}` });
             }
             actionScript = `
-$targetGroup = Get-ADGroup -Filter "Name -like '*${sanitizePsString(bu)}*'" -SearchBase "${targetOU}" -Server ${AD_DC_HOST} -Credential $global:AD_CRED | Select-Object -First 1
+$buName = ${psLit(bu)}.Replace("'", "''")
+$targetGroup = Get-ADGroup -Filter "Name -like '*$buName*'" -SearchBase ${psLit(targetOU)} -Credential $global:AD_CRED @dcArgs | Select-Object -First 1
 if ($targetGroup) {
-    Add-ADGroupMember -Identity $targetGroup -Members '${safeSam}' -Server ${AD_DC_HOST} -Credential $global:AD_CRED
+    Add-ADGroupMember -Identity $targetGroup -Members ${id} -Credential $global:AD_CRED @dcArgs
 } else {
     throw "Target group not found in OU"
 }`;
@@ -179,158 +163,89 @@ if ($targetGroup) {
             return res.status(400).json({ error: 'Unknown action' });
         }
 
-        const script = `
-$ErrorActionPreference = "Stop"
-${credHdr}
-try {
-    ${actionScript}
-} catch {
-    throw $_
-}
-        `;
+        await runAsService(actionScript);
 
-        await runPowerShell(script);
-        
-        auditLog(username, 'AD User Control', actionDesc);
+        // who did it is the signed-in user; the service account only carries it out
+        auditLog(req.user.username, 'AD User Control', `${actionDesc} (via service account ${serviceAccount().username})`);
         const responseData = { success: true };
-        if (res.locals.generatedPassword) responseData.password = res.locals.generatedPassword;
+        if (generatedPassword) {
+            responseData.password = generatedPassword;
+            res.set('Cache-Control', 'no-store');
+        }
         res.json(responseData);
-
     } catch (e) {
-        const errMsg = e.stderr || (e.error && e.error.message) || String(e);
-        res.status(500).json({ error: errMsg });
+        sendAdError(res, e);
     }
 });
 
-// POST /search
+// POST /search — at least 2 characters, wildcards added by the server, at most MAX_SEARCH_RESULTS results
 router.post('/search', async (req, res) => {
     const { type, q } = req.body;
     if (!type || !q) return res.status(400).json({ error: 'Missing parameters' });
+    const term = String(q).trim();
+    if (term.length < 2 || term.length > 64 || /[\x00-\x1f*]/.test(term)) {
+        return res.status(400).json({ error: 'Search text must be 2-64 characters, without * or control characters' });
+    }
+    if (!['User', 'Group', 'Computer'].includes(type)) return res.status(400).json({ error: 'Invalid search type' });
 
     const searchBase = process.env.AD_OU_SEARCH || '';
-    const searchBaseArg = searchBase ? `-SearchBase "${searchBase}"` : '';
+    const searchBaseArg = searchBase ? `-SearchBase ${psLit(searchBase)}` : '';
+    const size = `-ResultSetSize ${MAX_SEARCH_RESULTS + 1}`;
+    // the term is a literal; inside the AD filter its quotes are doubled
+    const termSetup = `$term = ${psLit(term)}.Replace("'", "''")`;
+
+    let psScript = '';
+    if (type === 'User') {
+        psScript = `
+${termSetup}
+$users = Get-ADUser -Filter "Name -like '*$term*' -or SamAccountName -like '*$term*'" ${searchBaseArg} ${size} -Properties Enabled, LockedOut, Description -Credential $global:AD_CRED @dcArgs
+if ($users) {
+    @($users) | Select-Object Name, SamAccountName, Enabled, LockedOut, Description | ConvertTo-Json
+} else {
+    Write-Output "[]"
+}
+`;
+    } else if (type === 'Group') {
+        psScript = `
+${termSetup}
+$groups = Get-ADGroup -Filter "Name -like '*$term*' -or SamAccountName -like '*$term*'" ${searchBaseArg} ${size} -Properties Description -Credential $global:AD_CRED @dcArgs
+if ($groups) {
+    $res = @()
+    foreach ($g in @($groups)) {
+        try {
+            $members = Get-ADGroupMember -Identity $g.DistinguishedName -Credential $global:AD_CRED @dcArgs -ErrorAction Stop | Select-Object -ExpandProperty Name
+            $res += [PSCustomObject]@{ Name = $g.Name; SamAccountName = $g.SamAccountName; DistinguishedName = $g.DistinguishedName; Members = @($members) }
+        } catch {
+            $res += [PSCustomObject]@{ Name = $g.Name; SamAccountName = $g.SamAccountName; DistinguishedName = $g.DistinguishedName; Members = @("Error loading members") }
+        }
+    }
+    $res | ConvertTo-Json -Depth 10
+} else {
+    Write-Output "[]"
+}
+`;
+    } else {
+        psScript = `
+${termSetup}
+$computers = Get-ADComputer -Filter "Name -like '*$term*'" ${searchBaseArg} ${size} -Credential $global:AD_CRED @dcArgs
+if ($computers) {
+    $res = @()
+    foreach ($c in @($computers)) {
+        $dn = $c.DistinguishedName
+        $res += [PSCustomObject]@{ Name = $c.Name; SamAccountName = $c.SamAccountName; DistinguishedName = $dn; OU = ($dn -replace '^CN=[^,]+,', '') }
+    }
+    $res | ConvertTo-Json -Depth 10
+} else {
+    Write-Output "[]"
+}
+`;
+    }
 
     try {
-        let username = process.env.AD_ADMIN_USER || req.user.username;
-        const password = process.env.AD_ADMIN_PWD || req.user.password;
-        let domain = req.user.domain;
-
-        if (process.env.AD_ADMIN_USER && username.includes('\\')) {
-            const parts = username.split('\\');
-            domain = parts[0];
-            username = parts[1];
-        } else if (process.env.AD_ADMIN_USER && !username.includes('\\')) {
-            domain = (process.env.ALLOWED_AD_DOMAIN || '').replace(/['"]/g, '').trim() || domain;
-        }
-        const credHdr = getADCredentialHeader(username, domain, password);
-
-        const safeQ = sanitizePsString(q);
-        let psScript = '';
-
-        if (type === 'User') {
-            psScript = `
-                $dcTarget = "${AD_DC_HOST}"
-                try {
-                    if ($dcTarget) {
-                        $users = Get-ADUser -Filter "Name -like '*${safeQ}*' -or SamAccountName -like '*${safeQ}*'" ${searchBaseArg} -Properties Enabled, LockedOut, Description -Server $dcTarget -Credential $global:AD_CRED -ErrorAction Stop
-                    } else {
-                        $users = Get-ADUser -Filter "Name -like '*${safeQ}*' -or SamAccountName -like '*${safeQ}*'" ${searchBaseArg} -Properties Enabled, LockedOut, Description -Credential $global:AD_CRED -ErrorAction Stop
-                    }
-                } catch {
-                    $users = Get-ADUser -Filter "Name -like '*${safeQ}*' -or SamAccountName -like '*${safeQ}*'" ${searchBaseArg} -Properties Enabled, LockedOut, Description -Credential $global:AD_CRED -ErrorAction Stop
-                }
-                if ($users) {
-                    $users | Select-Object Name, SamAccountName, Enabled, LockedOut, Description | ConvertTo-Json
-                } else {
-                    Write-Output "[]"
-                }
-            `;
-        } else if (type === 'Group') {
-            psScript = `
-                $dcTarget = "${AD_DC_HOST}"
-                try {
-                    if ($dcTarget) {
-                        $groups = Get-ADGroup -Filter "Name -like '*${safeQ}*' -or SamAccountName -like '*${safeQ}*'" ${searchBaseArg} -Properties Description -Server $dcTarget -Credential $global:AD_CRED -ErrorAction Stop
-                    } else {
-                        $groups = Get-ADGroup -Filter "Name -like '*${safeQ}*' -or SamAccountName -like '*${safeQ}*'" ${searchBaseArg} -Properties Description -Credential $global:AD_CRED -ErrorAction Stop
-                    }
-                } catch {
-                    $groups = Get-ADGroup -Filter "Name -like '*${safeQ}*' -or SamAccountName -like '*${safeQ}*'" ${searchBaseArg} -Properties Description -Credential $global:AD_CRED -ErrorAction Stop
-                }
-                if ($groups) {
-                    $res = @()
-                    foreach ($g in $groups) {
-                        try {
-                            $members = Get-ADGroupMember -Identity $g.DistinguishedName -Credential $global:AD_CRED -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name
-                            $memberList = @()
-                            if ($members) {
-                                if ($members -is [array]) { $memberList = $members } else { $memberList = @($members) }
-                            }
-                            $res += [PSCustomObject]@{
-                                Name = $g.Name
-                                SamAccountName = $g.SamAccountName
-                                DistinguishedName = $g.DistinguishedName
-                                Members = $memberList
-                            }
-                        } catch {
-                            $res += [PSCustomObject]@{
-                                Name = $g.Name
-                                SamAccountName = $g.SamAccountName
-                                DistinguishedName = $g.DistinguishedName
-                                Members = @("Error loading members")
-                            }
-                        }
-                    }
-                    $res | ConvertTo-Json -Depth 10
-                } else {
-                    Write-Output "[]"
-                }
-            `;
-        } else if (type === 'Computer') {
-            psScript = `
-                $computers = Get-ADComputer -Filter "Name -like '*${safeQ}*'" ${searchBaseArg} -Server ${AD_DC_HOST} -Credential $global:AD_CRED -ErrorAction Stop
-                if ($computers) {
-                    $res = @()
-                    foreach ($c in $computers) {
-                        $dn = $c.DistinguishedName
-                        $ou = $dn -replace '^CN=[^,]+,', ''
-                        $res += [PSCustomObject]@{
-                            Name = $c.Name
-                            SamAccountName = $c.SamAccountName
-                            DistinguishedName = $dn
-                            OU = $ou
-                        }
-                    }
-                    $res | ConvertTo-Json -Depth 10
-                } else {
-                    Write-Output "[]"
-                }
-            `;
-        } else {
-            return res.status(400).json({ error: 'Invalid search type' });
-        }
-
-        const script = `
-$ErrorActionPreference = "Stop"
-${credHdr}
-try {
-    ${psScript}
-} catch {
-    throw $_
-}
-        `;
-
-        const output = await runPowerShell(script);
-        const rawJson = output.trim();
-        let results = [];
-        if (rawJson && rawJson !== '[]') {
-            results = JSON.parse(rawJson);
-            if (!Array.isArray(results)) results = [results];
-        }
-        res.json({ results });
+        const results = parseList(await runAsService(psScript));
+        res.json({ results: results.slice(0, MAX_SEARCH_RESULTS), truncated: results.length > MAX_SEARCH_RESULTS, limit: MAX_SEARCH_RESULTS });
     } catch (e) {
-        const errMsg = e.stderr || (e.error && e.error.message) || String(e);
-        res.status(500).json({ error: errMsg });
+        sendAdError(res, e);
     }
 });
 
@@ -338,96 +253,57 @@ try {
 router.get('/user/:sam', async (req, res) => {
     const { sam } = req.params;
     if (!sam) return res.status(400).json({ error: 'Missing SAM account name' });
+    if (!isSam(sam)) return res.status(400).json({ error: 'Invalid account name' });
 
+    const props = 'Description,EmailAddress,Title,Department,Company,Manager,MemberOf,Enabled,LockedOut,PasswordLastSet,LastLogonDate,AccountExpirationDate,BadLogonCount,Created,Modified,pwdLastSet';
     try {
-        let username = process.env.AD_ADMIN_USER || req.user.username;
-        const password = process.env.AD_ADMIN_PWD || req.user.password;
-        let domain = req.user.domain;
-
-        if (process.env.AD_ADMIN_USER && username.includes('\\')) {
-            const parts = username.split('\\');
-            domain = parts[0];
-            username = parts[1];
-        } else if (process.env.AD_ADMIN_USER && !username.includes('\\')) {
-            domain = (process.env.ALLOWED_AD_DOMAIN || '').replace(/['"]/g, '').trim() || domain;
+        const output = await runAsService(`
+$user = Get-ADUser -Identity ${psLit(sam)} -Properties ${props} -Credential $global:AD_CRED @dcArgs
+if ($user) {
+    # Clean up MemberOf to just group names
+    $groups = @()
+    if ($user.MemberOf) {
+        foreach ($group in $user.MemberOf) {
+            $groups += ($group -replace '^CN=([^,]+),.*', '$1')
         }
-        const credHdr = getADCredentialHeader(username, domain, password);
-
-        const props = 'Description,EmailAddress,Title,Department,Company,Manager,MemberOf,Enabled,LockedOut,PasswordLastSet,LastLogonDate,AccountExpirationDate,BadLogonCount,Created,Modified,pwdLastSet';
-        
-        const psScript = `
-            $dcTarget = "${AD_DC_HOST}"
-            try {
-                if ($dcTarget) {
-                    $user = Get-ADUser -Identity "${sanitizePsString(sam)}" -Properties ${props} -Server $dcTarget -Credential $global:AD_CRED -ErrorAction Stop
-                } else {
-                    $user = Get-ADUser -Identity "${sanitizePsString(sam)}" -Properties ${props} -Credential $global:AD_CRED -ErrorAction Stop
-                }
-            } catch {
-                $user = Get-ADUser -Identity "${sanitizePsString(sam)}" -Properties ${props} -Credential $global:AD_CRED -ErrorAction Stop
-            }
-            if ($user) {
-                # Clean up MemberOf to just group names
-                $groups = @()
-                if ($user.MemberOf) {
-                    foreach ($group in $user.MemberOf) {
-                        $groups += ($group -replace '^CN=([^,]+),.*', '$1')
-                    }
-                }
-                
-                # Format Manager
-                $managerName = ""
-                if ($user.Manager) {
-                    $managerName = ($user.Manager -replace '^CN=([^,]+),.*', '$1')
-                }
-
-                $res = [PSCustomObject]@{
-                    Name = $user.Name
-                    SamAccountName = $user.SamAccountName
-                    UserPrincipalName = $user.UserPrincipalName
-                    Description = $user.Description
-                    EmailAddress = $user.EmailAddress
-                    Title = $user.Title
-                    Department = $user.Department
-                    Company = $user.Company
-                    Manager = $managerName
-                    Enabled = $user.Enabled
-                    LockedOut = $user.LockedOut
-                    PasswordLastSet = $user.PasswordLastSet
-                    LastLogonDate = $user.LastLogonDate
-                    AccountExpirationDate = $user.AccountExpirationDate
-                    BadLogonCount = $user.BadLogonCount
-                    Created = $user.Created
-                    Modified = $user.Modified
-                    MemberOf = $groups
-                }
-                $res | ConvertTo-Json -Depth 10
-            } else {
-                Write-Output "{}"
-            }
-        `;
-
-        const script = `
-$ErrorActionPreference = "Stop"
-${credHdr}
-try {
-    ${psScript}
-} catch {
-    throw $_
+    }
+    $managerName = ""
+    if ($user.Manager) {
+        $managerName = ($user.Manager -replace '^CN=([^,]+),.*', '$1')
+    }
+    [PSCustomObject]@{
+        Name = $user.Name
+        SamAccountName = $user.SamAccountName
+        UserPrincipalName = $user.UserPrincipalName
+        Description = $user.Description
+        EmailAddress = $user.EmailAddress
+        Title = $user.Title
+        Department = $user.Department
+        Company = $user.Company
+        Manager = $managerName
+        Enabled = $user.Enabled
+        LockedOut = $user.LockedOut
+        PasswordLastSet = $user.PasswordLastSet
+        LastLogonDate = $user.LastLogonDate
+        AccountExpirationDate = $user.AccountExpirationDate
+        BadLogonCount = $user.BadLogonCount
+        Created = $user.Created
+        Modified = $user.Modified
+        MemberOf = $groups
+    } | ConvertTo-Json -Depth 10
+} else {
+    Write-Output "{}"
 }
-        `;
-
-        const output = await runPowerShell(script);
-        const rawJson = output.trim();
-        let userInfo = {};
-        if (rawJson && rawJson !== '{}' && rawJson !== 'null') {
-            userInfo = JSON.parse(rawJson);
-        }
+`);
+        const raw = String(output || '').trim();
+        const userInfo = raw && raw !== '{}' && raw !== 'null' ? JSON.parse(raw) : {};
         res.json({ userInfo });
     } catch (e) {
-        const errMsg = e.stderr || (e.error && e.error.message) || String(e);
-        res.status(500).json({ error: errMsg });
+        sendAdError(res, e);
     }
 });
+
+// Test hooks
+router._test = { generatePassword, isSam };
 
 module.exports = router;

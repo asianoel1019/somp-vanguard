@@ -404,6 +404,12 @@ Server List 是 SOMP Vanguard 的核心伺服器資產資料庫 (CMDB)，自動�
         *   FortiProxy URL Rating：只接受單一網址（不可含空白、引號、反斜線或換行），改為 Operator 以上才能執行，因為它會在 FortiProxy 上執行 CLI 指令。結果中的「Likely Action」是依 FortiGuard 分類名稱推測，不是 FortiProxy 原則的實際判斷。
         *   ELK SIEM 分頁移除了從未有資料來源的「System Status / Top Threat」區塊（以前永遠顯示一切正常），以及對應的 `/api/siem/telemetry`。
         *   Settings > File Services 移除了從未生效的 `NAS_DEFAULT_TIMEOUT_MS`、`NAS_DEFAULT_SYNC_ON_LOAD`。
+    *   **AD Control / GPO**：
+        *   一律使用 AD 服務帳號（Settings 的 `AD_ADMIN_USER` / `AD_ADMIN_PWD`）；沒有設定時，AD 查詢、帳號操作、GPO 與 RBAC 的 AD 成員查詢都會顯示錯誤，不再改用登入者自己的 AD 密碼。服務帳號密碼以環境變數傳給 PowerShell，不會寫進暫存的腳本檔或錯誤訊息。
+        *   搜尋字、帳號名稱、GPO 編號、備份路徑與登錄設定值都會先檢查格式，並以安全的方式交給 PowerShell，輸入的內容不會被當成指令執行。
+        *   物件搜尋至少 2 個字元，不可輸入 `*`（系統會自動前後加萬用字元），最多顯示 200 筆；目錄瀏覽最多載入 2000 個帳號，每頁 50 筆，超過時會提示。
+        *   帳號操作的稽核紀錄記錄實際操作的 Vanguard 使用者（並註明由哪個服務帳號執行）。重設後的新密碼為 16 碼，包含大小寫、數字與符號。
+        *   錯誤訊息只顯示 PowerShell 錯誤的重點，不含腳本位置與機密。GPO 登錄設定查詢不再把報表寫到伺服器暫存檔。
     *   **其他修正**：
         *   稽核紀錄的時間改為帶毫秒與時區的格式（例如 `2026-11-03T14:05:09.042+08:00`），瀏覽器不在台北時區時也會顯示正確時間；舊紀錄維持原格式。
         *   RBAC 角色寫入失敗時會顯示錯誤，不再回報成功。

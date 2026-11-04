@@ -25,6 +25,8 @@ export default function ADDirectoryBrowse() {
   const [passwordResult, setPasswordResult] = useState(null);
   const [filterText, setFilterText] = useState('');
   const [selectedSamForDetails, setSelectedSamForDetails] = useState(null);
+  const [page, setPage] = useState(1);
+  const [truncatedAt, setTruncatedAt] = useState(null);
 
   useEffect(() => {
     api.get('/ad/mappings')
@@ -61,6 +63,8 @@ export default function ADDirectoryBrowse() {
       const r = await api.post('/ad/users', { category, bu });
       const sorted = (r.data.users || []).sort((a, b) => a.SamAccountName.localeCompare(b.SamAccountName));
       setUsers(sorted);
+      setPage(1);
+      setTruncatedAt(r.data.truncated ? r.data.limit : null);
       if (sorted.length === 0) setMessage({ type: 'info', text: 'No users found in this OU.' });
     } catch (e) {
       setMessage({ type: 'error', text: e.response?.data?.error || 'Failed to load users.' });
@@ -106,6 +110,12 @@ export default function ADDirectoryBrowse() {
       || (u.SamAccountName || '').toLowerCase().includes(q)
       || (u.Description || '').toLowerCase().includes(q);
   });
+
+  // large OUs are shown PAGE_SIZE accounts at a time
+  const PAGE_SIZE = 50;
+  const totalPages = Math.max(1, Math.ceil(filteredUsers.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const pagedUsers = filteredUsers.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
   const handleConfirmAction = () => {
     if (!confirmAction) return;
@@ -172,7 +182,7 @@ export default function ADDirectoryBrowse() {
 
       {users.length > 0 && (
         <div style={{ marginBottom: '1rem' }}>
-          <input type="text" placeholder="🔍 Filter by Name, Account or Description..." value={filterText} onChange={e => setFilterText(e.target.value)} style={{ width: '100%', maxWidth: '450px', padding: '0.55rem 1rem', fontSize: '0.88rem', background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)', borderRadius: '10px', outline: 'none' }} />
+          <input type="text" placeholder="🔍 Filter by Name, Account or Description..." value={filterText} onChange={e => { setFilterText(e.target.value); setPage(1); }} style={{ width: '100%', maxWidth: '450px', padding: '0.55rem 1rem', fontSize: '0.88rem', background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)', borderRadius: '10px', outline: 'none' }} />
         </div>
       )}
 
@@ -187,12 +197,12 @@ export default function ADDirectoryBrowse() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1.2fr 90px 90px 2.2fr', padding: '1rem 1.2rem', background: 'rgba(59,130,246,0.05)', borderBottom: '1px solid var(--border-color)', fontSize: '0.78rem', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
             <span>Display Name</span><span>Account (SAM)</span><span>Description</span><span>Enabled</span><span>Locked</span><span>Actions</span>
           </div>
-          {filteredUsers.map((u, idx) => {
+          {pagedUsers.map((u, idx) => {
             const isExpanded = expandedUser === u.SamAccountName;
             const isDisabled = !u.Enabled;
             const isLocked = u.LockedOut;
             return (
-              <div key={u.SamAccountName} style={{ borderBottom: idx < filteredUsers.length - 1 ? '1px solid var(--border-color)' : 'none', background: isExpanded ? 'rgba(59,130,246,0.07)' : 'transparent', transition: 'background 0.2s' }}>
+              <div key={u.SamAccountName} style={{ borderBottom: idx < pagedUsers.length - 1 ? '1px solid var(--border-color)' : 'none', background: isExpanded ? 'rgba(59,130,246,0.07)' : 'transparent', transition: 'background 0.2s' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1.2fr 90px 90px 2.2fr', padding: '0.85rem 1.2rem', alignItems: 'center', cursor: 'pointer' }} onClick={() => setExpandedUser(isExpanded ? null : u.SamAccountName)}>
                   <span style={{ color: 'var(--text-primary)', fontWeight: 600, fontSize: '0.88rem' }}>{u.Name}</span>
                   <button onClick={(e) => { e.stopPropagation(); setSelectedSamForDetails(u.SamAccountName); }} style={{ background: 'transparent', border: 'none', color: 'var(--accent-primary)', fontFamily: 'monospace', fontSize: '0.85rem', cursor: 'pointer', textDecoration: 'underline', padding: 0, textAlign: 'left' }}>{u.SamAccountName}</button>
@@ -225,6 +235,18 @@ export default function ADDirectoryBrowse() {
         <div style={{ marginTop: '1rem', color: 'var(--text-muted)', fontSize: '0.82rem', textAlign: 'right' }}>
           Showing {filteredUsers.length}{filterText ? ` of ${users.length}` : ''} user{filteredUsers.length !== 1 ? 's' : ''} in {category} / {selectedBU} &nbsp;&nbsp;|&nbsp;&nbsp;
           Enabled: {users.filter(u => u.Enabled).length} &nbsp; Locked: {users.filter(u => u.LockedOut).length}
+          {totalPages > 1 && (
+            <div style={{ marginTop: 8, display: 'flex', gap: 8, justifyContent: 'flex-end', alignItems: 'center' }}>
+              <button type="button" disabled={currentPage <= 1} onClick={() => setPage(currentPage - 1)}>‹ Prev</button>
+              <span>Page {currentPage} / {totalPages}</span>
+              <button type="button" disabled={currentPage >= totalPages} onClick={() => setPage(currentPage + 1)}>Next ›</button>
+            </div>
+          )}
+          {truncatedAt && (
+            <div style={{ marginTop: 6, color: 'var(--warning)' }}>
+              This OU has more than {truncatedAt} accounts: only the first {truncatedAt} are loaded. Use Object Search to find the others.
+            </div>
+          )}
         </div>
       )}
 

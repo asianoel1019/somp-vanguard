@@ -21,8 +21,8 @@ export default function ADObjectSearch() {
   const [message, setMessage] = useState(null);
 
   const handleSearch = async () => {
-    if (!searchQuery.trim()) {
-      setMessage({ type: 'error', text: 'Please enter a search keyword.' });
+    if (searchQuery.trim().length < 2 || searchQuery.includes('*')) {
+      setMessage({ type: 'error', text: 'Enter at least 2 characters (without *): wildcards are added automatically.' });
       return;
     }
     setSearchLoading(true);
@@ -33,6 +33,7 @@ export default function ADObjectSearch() {
       const sorted = (r.data.results || []).sort((a, b) => (a.Name || '').localeCompare(b.Name || ''));
       setSearchResults(sorted);
       if (sorted.length === 0) setMessage({ type: 'info', text: `No ${searchType.toLowerCase()}s found matching your query.` });
+      else if (r.data.truncated) setMessage({ type: 'info', text: `Showing the first ${r.data.limit} matches only. Refine the search to see the rest.` });
     } catch (e) {
       setMessage({ type: 'error', text: e.response?.data?.error || 'Search failed.' });
     } finally {

@@ -105,7 +105,6 @@ const CASES = [
     ['dataCenter', 'get', '/api/rack/issues', undefined, []],
     ['remoteCmd', 'get', '/api/cmd-library', undefined, ['runbook']],
     ['elk', 'get', '/api/siem', undefined, []],
-    ['elk', 'get', '/api/siem/telemetry', undefined, []],
     ['monitorWinEvent', 'get', '/api/monitor-siem/reports', undefined, []],
     ['monitorWinEvent', 'get', '/api/monitor-siem/local-stats', undefined, []],
     ['monitorWinEvent', 'get', '/api/monitor/forensics/reports', undefined, []],

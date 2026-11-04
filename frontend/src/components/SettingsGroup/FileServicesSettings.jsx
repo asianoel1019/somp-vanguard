@@ -15,7 +15,7 @@ const TYPE_LABELS = {
 };
 
 // ---------------------------------------------------------------- SFTP Servers (moved from Settings.jsx, behaviour unchanged)
-// State, the add/edit modal and the save mechanism (sysConfig + "Save Changes") stay in Settings.jsx and arrive as props.
+// State, the add/edit modal and the save mechanism stay in Settings.jsx and arrive as props.
 function SftpServersPanel({ S, servers, testing, testResult, onAdd, onEdit, onDelete, onToggle, onTest }) {
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -171,7 +171,7 @@ function SftpServersPanel({ S, servers, testing, testResult, onAdd, onEdit, onDe
 }
 
 // ---------------------------------------------------------------- NAS Devices
-function NasDevicesPanel({ S, sysConfig, onConfigChange }) {
+function NasDevicesPanel({ S }) {
     const { showToast } = useToast();
     const { showConfirm } = useConfirm();
     // Settings is SuperAdmin-only; still gate the write controls here like other SuperAdmin-only content
@@ -348,26 +348,6 @@ function NasDevicesPanel({ S, sysConfig, onConfigChange }) {
                 </div>
             </div>
 
-            <div style={S.card}>
-                <h3 style={{ ...S.tblTitle, marginBottom: 4 }}>Global NAS Controller Settings</h3>
-                <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '0 0 12px' }}>
-                    Applied to every NAS device. Use <b>Save Changes</b> at the top right to store these two values.
-                </p>
-                <div style={S.gridRow}>
-                    <div style={S.fieldBlock}>
-                        <label style={label}>NAS_DEFAULT_TIMEOUT_MS <span style={{ color: 'var(--text-muted)', fontWeight: 'normal' }}>(Default: 1500)</span></label>
-                        <input type="number" style={S.input} value={sysConfig.NAS_DEFAULT_TIMEOUT_MS || 1500} onChange={e => onConfigChange('NAS_DEFAULT_TIMEOUT_MS', parseInt(e.target.value) || 1500)} />
-                    </div>
-                    <div style={S.fieldBlock}>
-                        <label style={label}>NAS_DEFAULT_SYNC_ON_LOAD</label>
-                        <select style={S.select} value={sysConfig.NAS_DEFAULT_SYNC_ON_LOAD || 'false'} onChange={e => onConfigChange('NAS_DEFAULT_SYNC_ON_LOAD', e.target.value)}>
-                            <option value="true">Enable Auto-Sync (Slower Load)</option>
-                            <option value="false">Disable Auto-Sync (Fast Load, Use Manual Sync)</option>
-                        </select>
-                    </div>
-                </div>
-            </div>
-
             {showModal && (
                 <div style={S.overlay} onClick={() => setShowModal(false)}>
                     <div style={{ ...S.modal, maxWidth: 480, textAlign: 'left' }} onClick={e => e.stopPropagation()}>
@@ -425,7 +405,7 @@ function NasDevicesPanel({ S, sysConfig, onConfigChange }) {
 }
 
 // ---------------------------------------------------------------- Category shell with sub-tabs
-export default function FileServicesSettings({ S, tab, onTabChange, sftp, sysConfig, onConfigChange }) {
+export default function FileServicesSettings({ S, tab, onTabChange, sftp }) {
     const tabs = [
         { id: 'sftp', label: '📁 SFTP Servers' },
         { id: 'nas', label: '💾 NAS Devices' }
@@ -452,7 +432,7 @@ export default function FileServicesSettings({ S, tab, onTabChange, sftp, sysCon
                 ))}
             </div>
             {tab === 'nas'
-                ? <NasDevicesPanel S={S} sysConfig={sysConfig} onConfigChange={onConfigChange} />
+                ? <NasDevicesPanel S={S} />
                 : <SftpServersPanel S={S} {...sftp} />}
         </div>
     );

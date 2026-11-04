@@ -636,7 +636,7 @@ const UrlRating = ({ env }) => {
         try {
             const res = await api.post('/fortiproxy/url-rating', { env, url });
             setResult(res.data);
-        } catch(e) { showToast(e.message); }
+        } catch(e) { showToast(e.response?.data?.error || e.message); }
         setLoading(false);
     };
 
@@ -657,7 +657,7 @@ const UrlRating = ({ env }) => {
                         <div style={{ marginBottom: 12 }}><strong>Target:</strong> <span style={{ color: 'var(--accent-primary)' }}>{result.url}</span></div>
                         <div style={{ marginBottom: 12 }}><strong>FortiGuard Category:</strong> {result.category}</div>
                         <div>
-                            <strong>Simulated Policy Action: </strong> 
+                            <strong title="依 FortiGuard 分類名稱推測，不是 FortiProxy 原則的實際判斷">Likely Action (inferred from category): </strong> 
                             <span style={{ ...S.badge, background: result.blocked ? 'rgba(239,68,68,0.1)' : 'rgba(16,185,129,0.1)', color: result.blocked ? 'var(--danger)' : 'var(--success)', fontSize: 13 }}>
                                 {result.action}
                             </span>

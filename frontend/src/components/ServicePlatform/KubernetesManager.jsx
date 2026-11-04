@@ -846,6 +846,10 @@ const KubernetesManager = ({ setIsProcessing }) => {
                                                  ) : (
                                                      pods.map((pod, i) => {
                                                          const renderProgressBar = (value, max, unit) => {
+                                                             // null: the cluster has no metrics-server, so there is no usage to show
+                                                             if (value === null || value === undefined) {
+                                                                 return <span style={{ fontSize: 10, color: 'var(--text-muted)' }} title="需要在叢集安裝 metrics-server 才有用量資料">N/A</span>;
+                                                             }
                                                              const pct = max > 0 ? Math.min(Math.round((value / max) * 100), 100) : 0;
                                                              let color = 'var(--success)';
                                                              if (pct >= 85) color = 'var(--danger)';
@@ -873,10 +877,10 @@ const KubernetesManager = ({ setIsProcessing }) => {
                                                                  </td>
                                                                  <td style={{ ...S.td, color: pod.restarts > 0 ? 'var(--warning)' : 'var(--text-secondary)' }}>{pod.restarts}</td>
                                                                  <td style={S.td}>
-                                                                     {renderProgressBar(pod.cpuUsage || 0, pod.cpuLimit || 1000, 'm')}
+                                                                     {renderProgressBar(pod.cpuUsage, pod.cpuLimit || 1000, 'm')}
                                                                  </td>
                                                                  <td style={S.td}>
-                                                                     {renderProgressBar(pod.memUsage || 0, pod.memLimit || 512, 'M')}
+                                                                     {renderProgressBar(pod.memUsage, pod.memLimit || 512, 'M')}
                                                                  </td>
                                                                  <td style={{ ...S.td, fontFamily: 'monospace', fontSize: 12 }}>{pod.ip || '<none>'}</td>
                                                                  <td style={{ ...S.td, textAlign: 'right' }}>
@@ -1342,7 +1346,7 @@ const KubernetesManager = ({ setIsProcessing }) => {
                                                 Data Source: {metricsData?.source === 'prometheus' ? (
                                                     <strong style={{ color: 'var(--success)' }}>🟢 Prometheus API Live ({activeCluster.prometheusUrl || 'Configured'})</strong>
                                                 ) : (
-                                                    <strong style={{ color: 'var(--warning)' }}>⚪ K8s Native Capacity Estimation</strong>
+                                                    <strong style={{ color: 'var(--warning)' }}>⚪ K8s API（只有容量；用量、網路與 Top Pods 需要設定 Prometheus）</strong>
                                                 )}
                                             </span>
                                         </div>
@@ -1359,11 +1363,11 @@ const KubernetesManager = ({ setIsProcessing }) => {
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                             <span style={{ fontSize: 12, fontWeight: 800, color: 'var(--text-muted)' }}>CLUSTER CPU USAGE</span>
                                             <span style={{ fontSize: 18, fontWeight: 900, color: metricsData?.cpuPercent >= 80 ? 'var(--danger)' : (metricsData?.cpuPercent >= 60 ? 'var(--warning)' : 'var(--success)') }}>
-                                                {metricsData?.cpuPercent || 0}%
+                                                {metricsData?.cpuPercent === null || metricsData?.cpuPercent === undefined ? 'N/A' : `${metricsData.cpuPercent}%`}
                                             </span>
                                         </div>
                                         <div style={{ fontSize: 14, fontWeight: 900, color: 'var(--text-primary)' }}>
-                                            {metricsData?.cpuUsageCores ? metricsData.cpuUsageCores.toFixed(2) : '0'} / {metricsData?.cpuTotalCores || '0'} Cores
+                                            {metricsData?.cpuUsageCores === null || metricsData?.cpuUsageCores === undefined ? '-' : metricsData.cpuUsageCores.toFixed(2)} / {metricsData?.cpuTotalCores || '-'} Cores
                                         </div>
                                         <div style={{ height: 8, background: 'rgba(255,255,255,0.06)', borderRadius: 4, overflow: 'hidden' }}>
                                             <div style={{ height: '100%', width: `${metricsData?.cpuPercent || 0}%`, background: metricsData?.cpuPercent >= 80 ? 'var(--danger)' : 'var(--accent-primary)', borderRadius: 4, transition: 'width 0.4s' }} />
@@ -1375,11 +1379,11 @@ const KubernetesManager = ({ setIsProcessing }) => {
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                             <span style={{ fontSize: 12, fontWeight: 800, color: 'var(--text-muted)' }}>CLUSTER MEMORY USAGE</span>
                                             <span style={{ fontSize: 18, fontWeight: 900, color: metricsData?.memPercent >= 85 ? 'var(--danger)' : (metricsData?.memPercent >= 70 ? 'var(--warning)' : 'var(--success)') }}>
-                                                {metricsData?.memPercent || 0}%
+                                                {metricsData?.memPercent === null || metricsData?.memPercent === undefined ? 'N/A' : `${metricsData.memPercent}%`}
                                             </span>
                                         </div>
                                         <div style={{ fontSize: 14, fontWeight: 900, color: 'var(--text-primary)' }}>
-                                            {metricsData?.memUsageBytes ? (metricsData.memUsageBytes / (1024 * 1024 * 1024)).toFixed(2) : '0'} / {metricsData?.memTotalBytes ? (metricsData.memTotalBytes / (1024 * 1024 * 1024)).toFixed(1) : '0'} GB
+                                            {metricsData?.memUsageBytes === null || metricsData?.memUsageBytes === undefined ? '-' : (metricsData.memUsageBytes / (1024 * 1024 * 1024)).toFixed(2)} / {metricsData?.memTotalBytes ? (metricsData.memTotalBytes / (1024 * 1024 * 1024)).toFixed(1) : '0'} GB
                                         </div>
                                         <div style={{ height: 8, background: 'rgba(255,255,255,0.06)', borderRadius: 4, overflow: 'hidden' }}>
                                             <div style={{ height: '100%', width: `${metricsData?.memPercent || 0}%`, background: metricsData?.memPercent >= 85 ? 'var(--danger)' : '#10b981', borderRadius: 4, transition: 'width 0.4s' }} />
@@ -1393,13 +1397,13 @@ const KubernetesManager = ({ setIsProcessing }) => {
                                             <div>
                                                 <span style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 700 }}>⬇️ INGRESS (RX)</span>
                                                 <div style={{ fontSize: 14, fontWeight: 900, color: 'var(--accent-primary)' }}>
-                                                    {metricsData?.netRxBytesPerSec ? (metricsData.netRxBytesPerSec / 1024).toFixed(1) : '0'} KB/s
+                                                    {metricsData?.netRxBytesPerSec === null || metricsData?.netRxBytesPerSec === undefined ? 'N/A' : `${(metricsData.netRxBytesPerSec / 1024).toFixed(1)} KB/s`}
                                                 </div>
                                             </div>
                                             <div>
                                                 <span style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 700 }}>⬆️ EGRESS (TX)</span>
                                                 <div style={{ fontSize: 14, fontWeight: 900, color: 'var(--text-secondary)' }}>
-                                                    {metricsData?.netTxBytesPerSec ? (metricsData.netTxBytesPerSec / 1024).toFixed(1) : '0'} KB/s
+                                                    {metricsData?.netTxBytesPerSec === null || metricsData?.netTxBytesPerSec === undefined ? 'N/A' : `${(metricsData.netTxBytesPerSec / 1024).toFixed(1)} KB/s`}
                                                 </div>
                                             </div>
                                         </div>

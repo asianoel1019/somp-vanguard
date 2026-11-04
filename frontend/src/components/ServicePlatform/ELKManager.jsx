@@ -24,15 +24,6 @@ const ELKManager = ({ linuxPassword, setLinuxPassword, linuxAdminUser, setIsProc
     }, []);
 
     const [siemConfig, setSiemConfig] = useState({ enabled: false, tasks: [] });
-    const [topThreat, setTopThreat] = useState(null);
-
-    const fetchTelemetry = () => {
-        api.get('/siem/telemetry')
-            .then(res => {
-                if (res.data && res.data.topThreat) setTopThreat(res.data.topThreat);
-            })
-            .catch(err => console.error('[SIEM] Telemetry failed:', err));
-    };
 
     const [lifecycleDays, setLifecycleDays] = useState({ short: 7, medium: 60, long: 365 });
     const [lifecycleMap, setLifecycleMap] = useState({});
@@ -89,7 +80,6 @@ const ELKManager = ({ linuxPassword, setLinuxPassword, linuxAdminUser, setIsProc
 
         api.get('/siem').then(res => {
             if (res.data) setSiemConfig(res.data);
-            fetchTelemetry();
         }).catch(err => console.error('[SIEM] Failed to fetch siem config:', err));
     }, []);
 
@@ -775,7 +765,7 @@ const ELKManager = ({ linuxPassword, setLinuxPassword, linuxAdminUser, setIsProc
                     <button className={`tab ${tab === 'TOOLS' ? 'active' : ''}`} onClick={() => setTab('TOOLS')}>
                         Dev Tools & Indexing
                     </button>
-                    <button className={`tab ${tab === 'SIEM' ? 'active' : ''}`} onClick={() => { setTab('SIEM'); fetchTelemetry(); }}>
+                    <button className={`tab ${tab === 'SIEM' ? 'active' : ''}`} onClick={() => setTab('SIEM')}>
                         🚨 SIEM
                     </button>
                 </div>
@@ -1859,26 +1849,6 @@ const ELKManager = ({ linuxPassword, setLinuxPassword, linuxAdminUser, setIsProc
                         <div className="flex flex-col gap-6 animate-fade-in">
                             {/* SIEM Metrics Trend Gauges */}
                             <div style={{ display: 'flex', gap: 16, marginBottom: 4 }}>
-                                <div className="glass-panel" style={{ flex: 1.2, padding: '20px 24px', background: topThreat && topThreat.hits > 0 ? 'rgba(239, 68, 68, 0.08)' : 'rgba(255,255,255,0.02)', border: '1px solid ' + (topThreat && topThreat.hits > 0 ? 'rgba(239, 68, 68, 0.25)' : 'var(--border-color)'), borderRadius: 16, display: 'flex', alignItems: 'center', gap: 20 }}>
-                                    <div style={{ fontSize: 36, color: topThreat && topThreat.hits > 0 ? '#ef4444' : '#10b981' }}>
-                                        {topThreat && topThreat.hits > 0 ? <FaExclamationTriangle /> : <FaCheckCircle />}
-                                    </div>
-                                    <div>
-                                        <div style={{ fontSize: 10, fontWeight: 800, color: 'var(--text-muted)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                                            {topThreat && topThreat.hits > 0 ? 'Top Threat Triggered Today' : 'System Status'}
-                                        </div>
-                                        <div style={{ fontSize: 16, fontWeight: 900, color: topThreat && topThreat.hits > 0 ? 'var(--danger)' : 'var(--success)', marginTop: 4 }}>
-                                            {topThreat ? topThreat.name : 'Analyzing threats...'}
-                                        </div>
-                                        <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4 }}>
-                                            {topThreat && topThreat.hits > 0 ? (
-                                                <>Trigger count: <strong style={{ color: 'var(--danger)', fontSize: 13 }}>{topThreat.hits} times</strong> {topThreat.eventIds && `| Event IDs: ${topThreat.eventIds}`}</>
-                                            ) : (
-                                                'All monitored logs are within normal thresholds.'
-                                            )}
-                                        </div>
-                                    </div>
-                                </div>
                                 <div className="glass-panel" style={{ flex: 0.8, padding: '20px 24px', background: 'rgba(16, 185, 129, 0.06)', border: '1px solid rgba(16, 185, 129, 0.2)', borderRadius: 16, display: 'flex', alignItems: 'center', gap: 20 }}>
                                     <div style={{ fontSize: 36, color: '#10b981' }}><FaShieldAlt /></div>
                                     <div>

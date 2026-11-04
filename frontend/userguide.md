@@ -48,7 +48,7 @@
     *   用途：系統初始化、AD 設定變更、緊急維護。
 *   **AD 網域帳號登入**：
     *   帳號格式：`username@yourdomain.com`
-    *   權限控制：僅限在 `Settings` 中 `ALLOWED_LOGIN_AD_OU` 指定路徑下的用戶登入。
+    *   權限控制：帳號必須在 `Settings > RBAC` 有對應（AD 群組、OU 或直接指定帳號），且角色不是 `None`，才能登入；沒有任何對應的帳號會被拒絕。
 *   **安全稽核**：
     *   所有成功與失敗的登入嘗試都會記錄在審計日誌中。
     *   多次登入失敗將觸發 **Telegram / Email 警報通知**。
@@ -399,6 +399,11 @@ Server List 是 SOMP Vanguard 的核心伺服器資產資料庫 (CMDB)，自動�
         *   篩選、排序、分頁改由伺服器處理，而且只讀選定日期的檔案，資料量大時也不會拖慢整個系統。
         *   Export CSV 會匯出所有符合條件的紀錄（不只目前這一頁），開頭為 `=`、`+`、`-`、`@` 的內容會加上 `'`，避免 Excel 當成公式執行。
         *   儲存 System Settings 的稽核紀錄會列出改了哪些設定、移除了哪些設定（只列名稱，不記錄值）。
+    *   **全專案掃描後移除的假資料**：
+        *   Kubernetes：叢集沒有 metrics-server 時，Pod 清單的 CPU / 記憶體用量顯示 N/A（以前是依 Pod 名稱算出的假數字）。Monitoring 分頁沒有設定 Prometheus 時，只顯示 K8s API 取得的容量，用量、網路流量與 Top Pods 顯示 N/A（以前是依 Pod 數量推估）。
+        *   FortiProxy URL Rating：只接受單一網址（不可含空白、引號、反斜線或換行），改為 Operator 以上才能執行，因為它會在 FortiProxy 上執行 CLI 指令。結果中的「Likely Action」是依 FortiGuard 分類名稱推測，不是 FortiProxy 原則的實際判斷。
+        *   ELK SIEM 分頁移除了從未有資料來源的「System Status / Top Threat」區塊（以前永遠顯示一切正常），以及對應的 `/api/siem/telemetry`。
+        *   Settings > File Services 移除了從未生效的 `NAS_DEFAULT_TIMEOUT_MS`、`NAS_DEFAULT_SYNC_ON_LOAD`。
     *   **其他修正**：
         *   稽核紀錄的時間改為帶毫秒與時區的格式（例如 `2026-11-03T14:05:09.042+08:00`），瀏覽器不在台北時區時也會顯示正確時間；舊紀錄維持原格式。
         *   RBAC 角色寫入失敗時會顯示錯誤，不再回報成功。
@@ -415,7 +420,7 @@ Server List 是 SOMP Vanguard 的核心伺服器資產資料庫 (CMDB)，自動�
 *   **排程只在背景服務執行（修正）**：新增 / 編輯排程任務或 Prometheus 健康檢查設定時，改為通知背景服務重新載入；先前網頁服務也會另外啟動一個排程引擎，導致任務被執行兩次，重啟後才會恢復。
 *   **File Services**（`Settings > File Services`，介面文字為英文；原「SFTP Server」分類已併入，舊的連結 / 書籤會自動導向 SFTP Servers 分頁）：
     *   **SFTP Servers** 分頁：多台 SFTP 伺服器的新增 / 編輯 / 刪除 / 測試 / 啟用停用，行為與儲存方式（按 `Save Changes`）與先前相同。
-    *   **NAS Devices** 分頁：NAS 裝置清單，可新增 / 編輯 / 刪除 / 測試連線（Synology、QNAP、Windows Share、Linux SMB）。裝置異動**立即生效**並寫入稽核日誌（記錄操作者與裝置名稱，不含密碼）；全域 NAS 設定 `NAS_DEFAULT_TIMEOUT_MS`、`NAS_DEFAULT_SYNC_ON_LOAD`（原在 Others）移到此分頁底部，需按右上角 `Save Changes` 儲存。
+    *   **NAS Devices** 分頁：NAS 裝置清單，可新增 / 編輯 / 刪除 / 測試連線（Synology、QNAP、Windows Share、Linux SMB）。裝置異動**立即生效**並寫入稽核日誌（記錄操作者與裝置名稱，不含密碼）。
     *   密碼欄位僅可寫入：編輯時留空代表保留原密碼；畫面與 API 都不會回傳密碼。裝置名稱 1–64 字元（不分大小寫不可重複）、IP / 主機名稱需為有效格式、連接埠 1–65535、使用者名稱最多 128 字元。
     *   NAS 密碼以系統金鑰（`.system_key`）加密，不再依賴 `JWT_SECRET`（輪替 JWT_SECRET 不影響 NAS）。升級後第一次讀取時，系統會一次性把舊版明文或舊格式密文改以系統金鑰加密，可重複執行且不影響已轉換的資料。若舊密文已無法解密，該裝置會顯示「Password needs to be re-entered」，請編輯裝置重新輸入密碼；在此之前連線會明確失敗。
     *   測試連線時若密碼留空，僅在 IP / 主機與連接埠未變更時才沿用已儲存的密碼；否則請重新輸入。連接埠可清空（改用類型預設值）。Viewer 在 NAS Manager 僅能檢視共用與權限（唯讀）。

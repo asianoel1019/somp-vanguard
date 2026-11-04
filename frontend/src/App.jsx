@@ -38,7 +38,6 @@ import ErrorBoundary from './components/ErrorBoundary';
 
 import DbInventory from './components/Database/DbInventory';
 import SqlTerminal from './components/Database/SqlTerminal';
-import ComingSoonPage from './components/Database/ComingSoon';
 import DbPerformance from './components/Database/DbPerformance';
 import DbProvision from './components/Database/DbProvision';
 import DbBackup from './components/Database/DbBackup';

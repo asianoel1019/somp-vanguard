@@ -33,17 +33,6 @@ router.post('/save', requireAuth, checkRole(['SuperAdmin', 'Operator']), (req, r
     res.json({ success: true, message: 'SIEM config saved and engine reloaded' });
 });
 
-// GET /api/siem/telemetry
-// Fetch ELK SIEM telemetry stats
-router.get('/telemetry', requireAuth, checkRole(['SuperAdmin', 'Operator', 'Viewer']), (req, res) => {
-    res.json({
-        recentAlerts: [],
-        rulesHit: [],
-        logsProcessed: Math.floor(Math.random() * 10000),
-        eventTrends: []
-    });
-});
-
 // POST /api/siem/test-run
 // Test run a SIEM task
 router.post('/test-run', requireAuth, checkRole(['SuperAdmin', 'Operator']), async (req, res) => {

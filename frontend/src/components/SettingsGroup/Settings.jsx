@@ -2583,8 +2583,6 @@ curl -H "Authorization: Bearer <YOUR_API_KEY>" "${window.location.origin}/api/v1
                                 S={S}
                                 tab={fileServicesTab}
                                 onTabChange={setFileServicesTab}
-                                sysConfig={sysConfig}
-                                onConfigChange={handleConfigChange}
                                 sftp={{
                                     servers: sftpServers,
                                     testing: sftpServerTesting,

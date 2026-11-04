@@ -504,7 +504,7 @@ function initGuacamoleTunnel(server) {
   * `backend/routes/nutanix.js`：徹底移除 `router.get('/remote-paths')` 與 `router.post('/remote-connect')`。
   * `backend/nutanix.js` (根目錄舊檔)：徹底移除殘留之 `/remote-paths` 與 `/remote-connect`。
 * **前端設定頁清理**：
-  * `Settings.jsx`：自 Nutanix 設定分頁移除 `REMOTE_RDP_PATH` 與 `REMOTE_SSH_PATH` 欄位，改於系統層級統一配置 `GUACAMOLE_ENDPOINT` 或 `GUACD_HOST` / `GUACD_PORT`。
+  * `Settings.jsx`：自 Nutanix 設定分頁移除舊的遠端連線路徑欄位，改於系統層級統一配置 `GUACAMOLE_ENDPOINT` 或 `GUACD_HOST` / `GUACD_PORT`。
 * **前端 Nutanix 呼叫端清理**：
   * `NutanixManager.jsx`：徹底移除原本呼叫 `api.post('/nutanix/remote-connect')` 的 `handleRemote` 函式。
 

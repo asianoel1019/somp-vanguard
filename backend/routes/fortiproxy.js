@@ -290,8 +290,15 @@ router.post('/cleanup/delete', checkRole(['SuperAdmin', 'Operator']), async (req
 });
 
 // --- URL RATING (SSH) ---
-router.post('/url-rating', checkRole(['SuperAdmin', 'Operator', 'Viewer']), async (req, res) => {
+// The URL is typed into the FortiProxy CLI over SSH: only one plain URL is accepted, nothing the CLI could read as a
+// second command (line breaks, spaces, quotes, backslashes). Running CLI commands on the firewall is Operator and up.
+const URL_RATING_RE = /^[A-Za-z0-9._~:/?#[\]@!$&()*+,;=%-]{1,2048}$/;
+
+router.post('/url-rating', checkRole(['SuperAdmin', 'Operator']), async (req, res) => {
     const { env, url } = req.body;
+    if (typeof url !== 'string' || !URL_RATING_RE.test(url)) {
+        return res.status(400).json({ error: 'Enter a single URL without spaces, quotes or line breaks' });
+    }
     const { hosts, sshUsers, sshPwds } = getFortiConfig();
     const host = hosts[env];
     const sshUser = sshUsers[env];
@@ -319,7 +326,8 @@ router.post('/url-rating', checkRole(['SuperAdmin', 'Operator', 'Viewer']), asyn
             action = 'Blocked'; blocked = true;
         }
 
-        res.json({ url, category, action, blocked, raw: output });
+        // action is inferred from the category name, not read from the proxy's policy: actionInferred says so
+        res.json({ url, category, action, blocked, actionInferred: true, raw: output });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }

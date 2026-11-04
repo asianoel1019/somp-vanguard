@@ -103,7 +103,7 @@
 *   **現象**: 登入一直轉圈或顯示 "AD Error"。
 *   **可能原因**:
     *   Windows Server 伺服器**未安裝 RSAT (Active Directory Tools)**，導致無法載入 `ActiveDirectory` 模組。
-    *   帳號不在 `ALLOWED_LOGIN_AD_OU` 所允許的 OU 範圍內。
+    *   帳號在 `Settings > RBAC` 沒有任何對應（AD 群組、OU 或帳號），或對應到的角色是 `None`。
 *   **解決方案**:
     1. 於 Server 執行：`Install-WindowsFeature RSAT-AD-PowerShell`。
     2. 確認 PowerShell 執行原則：`Set-ExecutionPolicy RemoteSigned -Scope Process`。

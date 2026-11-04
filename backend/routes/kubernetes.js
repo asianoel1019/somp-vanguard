@@ -517,21 +517,17 @@ router.post('/pods', requireAuth, checkRole(['SuperAdmin', 'Operator', 'Viewer']
                 });
             }
 
-            let cpuUsage = 0;
-            let memUsage = 0;
+            // null = unknown: without metrics-server (metrics.k8s.io) there is no real usage figure to show
+            let cpuUsage = null;
+            let memUsage = null;
             const podMetrics = metricsMap[pod.metadata.name];
             if (podMetrics && podMetrics.containers) {
+                cpuUsage = 0;
+                memUsage = 0;
                 podMetrics.containers.forEach(c => {
                     cpuUsage += parseCpu(c.cpu);
                     memUsage += parseMemory(c.memory);
                 });
-            } else {
-                // Fallback simulation based on hash
-                const hash = pod.metadata.name.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-                cpuLimit = cpuLimit || 1000;
-                memLimit = memLimit || 512;
-                cpuUsage = Math.round((hash % 45 + 10) * (cpuLimit / 100));
-                memUsage = Math.round((hash % 50 + 20) * (memLimit / 100));
             }
 
             const containers = (pod.spec.containers || []).map(c => ({
@@ -550,9 +546,9 @@ router.post('/pods', requireAuth, checkRole(['SuperAdmin', 'Operator', 'Viewer']
                 ip: pod.status.podIP,
                 age: pod.metadata.creationTimestamp,
                 containers,
-                cpuUsage: Math.round(cpuUsage),
+                cpuUsage: cpuUsage === null ? null : Math.round(cpuUsage),
                 cpuLimit: Math.round(cpuLimit),
-                memUsage: Math.round(memUsage),
+                memUsage: memUsage === null ? null : Math.round(memUsage),
                 memLimit: Math.round(memLimit)
             };
         });
@@ -1007,30 +1003,22 @@ router.post('/metrics/cluster', requireAuth, checkRole(['SuperAdmin', 'Operator'
                 else if (memStr.endsWith('Gi')) totalMemBytes += parseInt(memStr, 10) * 1024 * 1024 * 1024;
             }
 
-            result.cpuTotalCores = totalCpuCores || 4;
-            result.memTotalBytes = totalMemBytes || (8 * 1024 * 1024 * 1024);
+            result.cpuTotalCores = totalCpuCores || null;
+            result.memTotalBytes = totalMemBytes || null;
+            result.runningPods = (podsRes.items || []).filter(p => p.status.phase === 'Running').length;
 
-            // Estimate simulated pod load if metrics-server is absent
-            const runningPods = (podsRes.items || []).filter(p => p.status.phase === 'Running');
-            result.cpuUsageCores = Math.min(result.cpuTotalCores, Math.max(0.4, (runningPods.length * 0.15)));
-            result.memUsageBytes = Math.min(result.memTotalBytes, Math.max(512 * 1024 * 1024, (runningPods.length * 180 * 1024 * 1024)));
-            result.netRxBytesPerSec = runningPods.length * 45 * 1024;
-            result.netTxBytesPerSec = runningPods.length * 32 * 1024;
-
-            result.topCpuPods = runningPods.slice(0, 5).map((p, idx) => ({
-                pod: p.metadata.name,
-                namespace: p.metadata.namespace,
-                value: (0.15 - idx * 0.02).toFixed(3) + ' cores'
-            }));
-            result.topMemPods = runningPods.slice(0, 5).map((p, idx) => ({
-                pod: p.metadata.name,
-                namespace: p.metadata.namespace,
-                value: (180 - idx * 25).toFixed(1) + ' MiB'
-            }));
+            // Usage, network and top pods need Prometheus; the K8s API alone cannot tell them, so they stay empty
+            result.cpuUsageCores = null;
+            result.memUsageBytes = null;
+            result.netRxBytesPerSec = null;
+            result.netTxBytesPerSec = null;
+            result.topCpuPods = [];
+            result.topMemPods = [];
+            result.usageUnavailable = true;
         }
 
-        result.cpuPercent = result.cpuTotalCores > 0 ? Math.min(100, Math.round((result.cpuUsageCores / result.cpuTotalCores) * 100)) : 0;
-        result.memPercent = result.memTotalBytes > 0 ? Math.min(100, Math.round((result.memUsageBytes / result.memTotalBytes) * 100)) : 0;
+        result.cpuPercent = result.cpuTotalCores > 0 && result.cpuUsageCores !== null ? Math.min(100, Math.round((result.cpuUsageCores / result.cpuTotalCores) * 100)) : null;
+        result.memPercent = result.memTotalBytes > 0 && result.memUsageBytes !== null ? Math.min(100, Math.round((result.memUsageBytes / result.memTotalBytes) * 100)) : null;
 
         res.json({ success: true, metrics: result });
     } catch (e) {

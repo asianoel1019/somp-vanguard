@@ -1,8 +1,10 @@
 // Side effects of rack device changes, shared by the Server Rack routes (routes/rack.js) and the
-// Network Device routes (routes/networkDevice.js): IPAM use / free and removal of SNMP settings.
+// Network Device routes (routes/networkDevice.js): IPAM use / free and removal of SNMP settings and management connections.
 const { readDataSync } = require('./db');
 const { mutateDocument } = require('./docStore');
 const ipamSync = require('./ipamSync');
+const mgmtProfiles = require('./netDevices/profileStore');
+const configBackups = require('./netDevices/backups');
 
 const SNMP_FILE = 'network_service/snmp_settings.json';
 
@@ -19,12 +21,16 @@ function deviceMapOf(racks) {
 
 /**
  * Given the old and new device maps: queues the IPAM use/free actions and removes the SNMP settings
- * of removed devices. Only the devices present in either map are considered.
+ * and management connections of removed devices. Only the devices present in either map are considered.
  * Returns { ipActions, snmpChanged }.
  */
 function syncDeviceChanges(oldDevices, newDevices, username, source = 'Server Rack') {
     const snmpSettings = readDataSync(SNMP_FILE, {}) || {};
+    const mgmt = readDataSync(mgmtProfiles.KEY, {}) || {};
+    const backupIndex = (readDataSync(configBackups.KEY, {}) || {}).devices || {};
     const removedWithSnmp = [];
+    const removedWithMgmt = [];
+    const removedWithBackups = [];
     const ipActions = [];
 
     for (const id in oldDevices) {
@@ -33,6 +39,8 @@ function syncDeviceChanges(oldDevices, newDevices, username, source = 'Server Ra
                 ipActions.push({ ip: oldDevices[id].ip, hostname: '', username, action: 'free', source });
             }
             if (snmpSettings[id]) removedWithSnmp.push(id);
+            if (mgmt[id]) removedWithMgmt.push(id);
+            if (backupIndex[id]) removedWithBackups.push(id);
         }
     }
 
@@ -64,6 +72,9 @@ function syncDeviceChanges(oldDevices, newDevices, username, source = 'Server Ra
             return changed;
         }, { defaultValue: {}, fnName: 'rackDeviceSync.removeSnmp', label: 'SNMP settings' });
     }
+    for (const id of removedWithMgmt) mgmtProfiles.removeProfile(id);
+    // stored configurations hold device secrets: they go with the device
+    for (const id of removedWithBackups) configBackups.removeDevice(id);
     // via the module object so tests can stub batchSyncIpsToIpam
     if (ipActions.length > 0) ipamSync.batchSyncIpsToIpam(ipActions);
     return { ipActions, snmpChanged };

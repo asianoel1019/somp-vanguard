@@ -166,7 +166,12 @@ router.post('/save', (req, res) => {
         const provisionErrors = [
             ...validateProvisionSettings(Object.fromEntries(provisionKeys.filter(changedValue).map(k => [k, rawConfig[k]]))),
             ...(changedValue('REMOTE_INSTALL_SOFTWARE_MASTER') ? validateMasterListText(rawConfig.REMOTE_INSTALL_SOFTWARE_MASTER, 'windows').map(e => `REMOTE_INSTALL_SOFTWARE_MASTER ${e}`) : []),
-            ...(changedValue('REMOTE_INSTALL_LINUX_SOFTWARE_MASTER') ? validateMasterListText(rawConfig.REMOTE_INSTALL_LINUX_SOFTWARE_MASTER, 'linux').map(e => `REMOTE_INSTALL_LINUX_SOFTWARE_MASTER ${e}`) : [])
+            ...(changedValue('REMOTE_INSTALL_LINUX_SOFTWARE_MASTER') ? validateMasterListText(rawConfig.REMOTE_INSTALL_LINUX_SOFTWARE_MASTER, 'linux').map(e => `REMOTE_INSTALL_LINUX_SOFTWARE_MASTER ${e}`) : []),
+            // Network device config backups: empty = off / default
+            ...(changedValue('NETDEVICE_BACKUP_SCHEDULE') && String(rawConfig.NETDEVICE_BACKUP_SCHEDULE).trim() !== '' && !/^([01]?\d|2[0-3]):[0-5]\d$/.test(String(rawConfig.NETDEVICE_BACKUP_SCHEDULE).trim())
+                ? ['NETDEVICE_BACKUP_SCHEDULE must be HH:MM (00:00-23:59) or empty'] : []),
+            ...(changedValue('NETDEVICE_BACKUP_KEEP') && String(rawConfig.NETDEVICE_BACKUP_KEEP).trim() !== '' && !/^([1-9]\d?|[12]\d\d|3[0-5]\d|36[0-5])$/.test(String(rawConfig.NETDEVICE_BACKUP_KEEP).trim())
+                ? ['NETDEVICE_BACKUP_KEEP must be 1-365 or empty'] : [])
         ];
         if (provisionErrors.length) return res.status(400).json({ error: provisionErrors.join('; ') });
 

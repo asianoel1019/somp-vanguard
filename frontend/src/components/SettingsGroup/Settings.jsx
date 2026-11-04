@@ -1218,6 +1218,17 @@ const Settings = ({ mode = 'system' }) => {
                                             />
                                         </div>
                                     </div>
+                                    <div style={S.gridRow}>
+                                        <div style={S.fieldBlock}>
+                                            <label style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-muted)' }}>Network Device Config Backup (NETDEVICE_BACKUP_SCHEDULE, HH:MM)</label>
+                                            <input type="text" style={S.input} value={sysConfig.NETDEVICE_BACKUP_SCHEDULE || ''} placeholder="Off (e.g. 02:30)" onChange={e => handleConfigChange('NETDEVICE_BACKUP_SCHEDULE', e.target.value)} />
+                                            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Daily backup of every device with a management connection. Empty = off.</span>
+                                        </div>
+                                        <div style={S.fieldBlock}>
+                                            <label style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-muted)' }}>Config Backups Kept per Device (NETDEVICE_BACKUP_KEEP)</label>
+                                            <input type="number" style={S.input} min="1" max="365" value={sysConfig.NETDEVICE_BACKUP_KEEP || ''} placeholder="30" onChange={e => handleConfigChange('NETDEVICE_BACKUP_KEEP', e.target.value)} />
+                                        </div>
+                                    </div>
                                     <div style={{ marginTop: 20, display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'flex-start' }}>
                                         <button style={S.btnO} onClick={handleBackupNow} disabled={backupRunning}>
                                             {backupRunning ? 'Backing up…' : '💾 Back Up Now'}

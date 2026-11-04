@@ -173,3 +173,15 @@ test('N1: save -> GET (decoded) -> edit one line -> save -> GET -> parse; the Nu
     assert.equal(cfgMod.resolveSoftware(cfg, 'X', 'linux')[1].command, 'yum install -y bar');
     assert.equal(g2.REMOTE_INSTALL_SOFTWARE_MASTER, win2);
 });
+
+test('network device backup settings: HH:MM or empty, keep 1-365 or empty', async () => {
+    fs.writeFileSync(process.env.SOMP_ENV_PATH, 'FOO=1\n');
+    for (const bad of [{ NETDEVICE_BACKUP_SCHEDULE: '24:00' }, { NETDEVICE_BACKUP_SCHEDULE: 'daily' }, { NETDEVICE_BACKUP_KEEP: '0' }, { NETDEVICE_BACKUP_KEEP: '366' }]) {
+        const r = await request(app).post('/api/settings/save').set('Authorization', superAdmin).send(v()).send({ FOO: '2', ...bad });
+        assert.equal(r.status, 400, JSON.stringify(bad));
+        assert.match(r.body.error, /NETDEVICE_BACKUP_/);
+    }
+    assert.equal(fs.readFileSync(process.env.SOMP_ENV_PATH, 'utf8'), 'FOO=1\n');
+    await request(app).post('/api/settings/save').set('Authorization', superAdmin).send(v()).send({ NETDEVICE_BACKUP_SCHEDULE: '02:30', NETDEVICE_BACKUP_KEEP: '365' }).expect(200);
+    await request(app).post('/api/settings/save').set('Authorization', superAdmin).send(v()).send({ NETDEVICE_BACKUP_SCHEDULE: '', NETDEVICE_BACKUP_KEEP: '' }).expect(200);
+});

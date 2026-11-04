@@ -225,6 +225,21 @@ Server List 是 SOMP Vanguard 的核心伺服器資產資料庫 (CMDB)，自動�
 *   **設備管理**：新增設備由伺服器產生 ID，並檢查類型、IP 格式、U 位重疊、機櫃高度與 Split 分界（不符合回 400）。修改 IP 時會在 IPAM 釋放舊 IP、登記新 IP；未填的欄位維持原值。刪除設備時會釋放 IP 並刪除該設備的 SNMP 設定。
 *   **注意**：Server Rack 中尚未儲存到機櫃的新設備無法先存 SNMP 設定，請先儲存設備。
 
+### 🔌 Network Device 廠牌整合（唯讀）
+*   **用途**：在設備視窗的「Connection」頁籤設定廠牌 API 連線後，可直接在 Vanguard 讀取設備資料：Overview（型號、韌體、序號、CPU / 記憶體 / Session 數）、Interfaces、Policies（含命中次數與最後命中時間，可搜尋、分頁）、Routes、Sessions、VPN（IPsec 通道與 SSL VPN 使用者）、HA。全部為唯讀，不會修改設備設定。
+*   **目前支援**：Firewall 的 **Fortinet FortiGate**（FortiOS REST API）、**Palo Alto Networks**（PAN-OS XML API）與 **Check Point**（Management API）。Cisco、Juniper、F5 已列在廠牌清單中，標示「尚未支援」，後續版本陸續提供。
+*   **FortiGate 設定方式**：在 FortiGate 的 System → Administrators 建立 REST API Admin，指派**唯讀**的 admin profile，並把 Trusted Hosts 設為 Vanguard 伺服器的 IP；把產生的 API token 貼到 Connection 頁籤。多 VDOM 的設備可填 VDOM 名稱（留空用設備預設）。先按「Test Connection」確認可連線（不會儲存），再按「Save Connection」。
+*   **Palo Alto 設定方式**：在 Device → Admin Roles 建立只開 XML API 讀取（Operational Requests、Configuration 唯讀）的角色並指派給 API 帳號，再用該帳號產生 API key 貼到「API Key」。也可以不填 key、改填帳號密碼：Vanguard 會用 POST 向防火牆換取 key（不會出現在網址），key 只存在記憶體，失效時自動重新換取。多 vsys 的設備可填 vsys 名稱（留空用 vsys1）。Policies 讀取的是**執行中**的 security rulebase，ID 欄為規則順序；Panorama 推送的 pre / post 規則目前不列出。Sessions 的 POLICY 欄顯示規則名稱。
+*   **Check Point 設定方式**：Check Point 透過**管理伺服器**（Security Management 或 Multi-Domain Server）讀取，管理位址請填管理伺服器，不是 Gateway。在 SmartConsole 建立唯讀權限的管理員（Permission Profile 設為 Read Only），填帳號密碼或 API key；Vanguard 一律以唯讀模式登入，Session 存在記憶體重複使用。Multi-Domain 環境請填 Domain 名稱。「Gateway 名稱 / IP」填這台設備在 SmartConsole 的 Gateway 或 Cluster 物件名稱（管理伺服器只有一台時可留空；有多台卻沒填時，畫面會列出可選的名稱）。提供 Overview、Interfaces（設定值，無連線狀態）、Policies（已安裝政策套件的第一個 Access Layer，含 Section 與命中次數，最多讀 5000 條）與 HA（Cluster 成員設定，不含目前 Active 是哪台）。管理 API 沒有 Gateway 的即時路由、Session 與 VPN 狀態，因此不提供這些頁籤。
+*   **Token 保護**：token、API key 與密碼加密儲存，畫面與 API 一律只顯示遮罩；修改其他欄位時保持遮罩即沿用原 token。**變更管理位址、埠號或廠牌時，原 token 不會帶到新位址，必須重新輸入。**
+*   **憑證驗證**：設備多半使用自簽憑證，預設不驗證；勾選「驗證設備憑證」並貼上簽發設備憑證的 CA（PEM）即可改為驗證。
+*   **權限**：Viewer 可檢視資料；Operator / SuperAdmin 可設定、測試與移除連線（皆記入稽核紀錄）。刪除設備時其管理連線一併刪除。
+*   **讀取頻率**：同一份資料 30 秒內重複開啟會使用快取（畫面顯示資料時間），按「Refresh」強制重新讀取；同一台設備同時只會送出一份相同的請求。Sessions 必須填來源 IP、目的 IP 或目的埠至少一項，最多顯示 500 筆。
+*   **設定備份（Config Backup 頁籤）**：Operator 以上可按「Back Up Now」立即備份並查看備份清單（時間、大小、行數、執行者）；**查看內容、比對差異、下載限 SuperAdmin，且都記入稽核紀錄**，因為備份含加密後的密碼與 VPN 預先共享金鑰。FortiGate 備份完整設定檔（VDOM 範圍的 token 只備份該 VDOM），Palo Alto 備份執行中的 XML 設定，Check Point 備份 Gateway 物件與已安裝政策套件的所有 Access Layer（JSON，不含 Gaia 系統設定，已去除修改時間與命中次數等每次都會變的欄位）。內容與上一份相同時不另存新檔，只更新「Last checked」時間，因此保留的份數都是真正不同的版本。勾選兩份後按「Compare Selected」可看差異（舊 → 新）。
+*   **備份檔案與保留**：檔案存於 `<DB_DATA_DIR>\netdevice_backups\<設備ID>\`，每台保留最近 `NETDEVICE_BACKUP_KEEP` 份（預設 30，1–365），刪除設備時其備份一併刪除。
+*   **排程備份**：在 System Settings 的備份區設定 `NETDEVICE_BACKUP_SCHEDULE`（HH:MM，伺服器本地時間；留空 = 關閉），由背景 Worker 每天對所有已啟用管理連線的設備依序備份。當天是否已執行會記錄下來，重啟不會重跑；Worker 在設定時間一小時後才啟動則跳過當天。
+*   **錯誤訊息**：token 錯誤或過期、權限不足、連不到設備、憑證驗證失敗、韌體不提供該資料，畫面會分別提示處理方式。設備清單的「MANAGEMENT」欄顯示廠牌、型號、韌體版本與最後一次連線狀態（滑過可看錯誤原因）。
+
 ### 🕸️ Topology Map 網路拓撲視覺化
 *   **自動拓撲繪製**：依據 Port Links 自動生成拓撲連線圖。
 *   **雙向連線同步**：配置線路時自動建立回程連線；拔線時自動雙向清除。

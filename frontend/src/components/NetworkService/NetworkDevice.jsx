@@ -1,5 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import api from '../../api';
+import ConnectionTab from './mgmt/ConnectionTab';
+import CapabilityTab from './mgmt/CapabilityTab';
+import BackupTab from './mgmt/BackupTab';
+import { capabilityTabs, statusTone } from './mgmt/mgmtTabs.js';
 
 const DEFAULT_SNMP = { enabled: false, version: 'v2c', community: '', port: 161 };
 const errText = (err) => err?.response?.data?.error || err?.message || 'Unknown error';
@@ -18,6 +22,8 @@ export default function NetworkDevice() {
     const [snmpForm, setSnmpForm] = useState(DEFAULT_SNMP);
     const [pollData, setPollData] = useState(null);
     const [pollLoading, setPollLoading] = useState(false);
+    // Vendor API connection of the open device: { device, profile, vendors, capabilities }
+    const [mgmtInfo, setMgmtInfo] = useState(null);
 
     const [selectedFilterDC, setSelectedFilterDC] = useState('All');
     const [selectedFilterType, setSelectedFilterType] = useState('All');
@@ -69,6 +75,15 @@ export default function NetworkDevice() {
         setSnmpForm({ ...DEFAULT_SNMP, ...(device.snmp || {}), enabled: device.enabled ?? device.snmp?.enabled ?? false });
         setPollData(null);
         setActiveTab('info');
+        setMgmtInfo(null);
+        api.get(`/network-device/${device.id}/mgmt`).then(res => setMgmtInfo(res.data)).catch(console.error);
+    };
+
+    const onMgmtSaved = (info) => {
+        setMgmtInfo(info);
+        if (activeTab.startsWith('cap:') && !capabilityTabs(info).some(t => `cap:${t.key}` === activeTab)) setActiveTab('mgmt');
+        if (activeTab === 'backup' && !(info && info.profile && info.backup)) setActiveTab('mgmt');
+        fetchDevices();
     };
 
     const saveDeviceInfo = () => {
@@ -180,7 +195,7 @@ export default function NetworkDevice() {
         modalOverlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, backdropFilter: 'blur(4px)' },
         modal: { background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 16, width: '90%', maxWidth: 800, maxHeight: '90vh', overflow: 'hidden', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-xl)' },
         modalHeader: { padding: '20px 24px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
-        tabContainer: { display: 'flex', gap: 10, padding: '16px 24px', borderBottom: '1px solid var(--border-color)', background: 'var(--bg-secondary)' },
+        tabContainer: { display: 'flex', flexWrap: 'wrap', gap: 10, padding: '16px 24px', borderBottom: '1px solid var(--border-color)', background: 'var(--bg-secondary)' },
         tab: active => ({ padding: '8px 16px', borderRadius: 20, fontSize: 13, fontWeight: 800, cursor: 'pointer', border: 'none', background: active ? 'var(--accent-primary)' : 'transparent', color: active ? '#fff' : 'var(--text-muted)', transition: 'all 0.2s' }),
         inputGroup: { display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 16 },
         label: { fontSize: 12, fontWeight: 700, color: 'var(--text-muted)' },
@@ -240,11 +255,12 @@ export default function NetworkDevice() {
                                 <th style={s.th}>TYPE</th>
                                 <th style={s.th}>LOCATION</th>
                                 <th style={s.th}>SNMP SETUP</th>
+                                <th style={s.th}>MANAGEMENT</th>
                             </tr>
                         </thead>
                         <tbody>
                             {filteredDevices.length === 0 ? (
-                                <tr><td colSpan="5" style={{...s.td, textAlign: 'center', color: 'var(--text-muted)'}}>No network devices found</td></tr>
+                                <tr><td colSpan="6" style={{...s.td, textAlign: 'center', color: 'var(--text-muted)'}}>No network devices found</td></tr>
                             ) : filteredDevices.map(d => (
                                 <tr key={d.id} style={{ cursor: 'pointer', transition: 'background 0.2s' }} onClick={() => openDeviceModal(d)} onMouseEnter={e => e.currentTarget.style.background='var(--bg-tertiary)'} onMouseLeave={e => e.currentTarget.style.background='transparent'}>
                                     <td style={{...s.td, fontWeight: 800, color: 'var(--accent-primary)'}}>{d.hostname || 'Unknown'}</td>
@@ -262,6 +278,13 @@ export default function NetworkDevice() {
                                             </span>
                                         )}
                                     </td>
+                                    <td style={s.td}>
+                                        {d.mgmt ? (
+                                            <span title={d.mgmt.lastError || ''} style={{ padding: '4px 10px', borderRadius: 12, fontSize: 11, fontWeight: 700, background: 'var(--bg-tertiary)', color: !d.mgmt.enabled ? 'var(--text-muted)' : { success: 'var(--success)', danger: 'var(--danger)' }[statusTone(d.mgmt.lastStatus)] || 'var(--warning)' }}>
+                                                {d.mgmt.vendorLabel}{d.mgmt.model ? ` · ${d.mgmt.model}` : ''}{d.mgmt.version ? ` ${d.mgmt.version}` : ''}{!d.mgmt.enabled ? ' (停用)' : ''}
+                                            </span>
+                                        ) : <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>-</span>}
+                                    </td>
                                 </tr>
                             ))}
                         </tbody>
@@ -272,7 +295,7 @@ export default function NetworkDevice() {
             {/* Selected Device Modal */}
             {selectedDevice && (
                 <div style={s.modalOverlay} onClick={() => setSelectedDevice(null)}>
-                    <div style={s.modal} onClick={e => e.stopPropagation()}>
+                    <div style={{ ...s.modal, maxWidth: 1100 }} onClick={e => e.stopPropagation()}>
                         <div style={s.modalHeader}>
                             <h3 style={{ fontSize: 20, fontWeight: 900, margin: 0 }}>{selectedDevice.hostname} ({selectedDevice.ip})</h3>
                             <button onClick={() => setSelectedDevice(null)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 24 }}>&times;</button>
@@ -282,6 +305,13 @@ export default function NetworkDevice() {
                             <button style={s.tab(activeTab === 'ports')} onClick={() => { setActiveTab('ports'); if(!pollData && snmpEnabled && !ipUnsaved) handlePoll(); }}>Port Status</button>
                             <button style={s.tab(activeTab === 'arp')} onClick={() => { setActiveTab('arp'); if(!pollData && snmpEnabled && !ipUnsaved) handlePoll(); }}>ARP Table</button>
                             <button style={s.tab(activeTab === 'mac')} onClick={() => { setActiveTab('mac'); if(!pollData && snmpEnabled && !ipUnsaved) handlePoll(); }}>MAC Table</button>
+                            <button style={s.tab(activeTab === 'mgmt')} onClick={() => setActiveTab('mgmt')}>Connection</button>
+                            {capabilityTabs(mgmtInfo).map(t => (
+                                <button key={t.key} style={s.tab(activeTab === `cap:${t.key}`)} onClick={() => setActiveTab(`cap:${t.key}`)}>{t.label}</button>
+                            ))}
+                            {role !== 'Viewer' && mgmtInfo && mgmtInfo.profile && mgmtInfo.backup && (
+                                <button style={s.tab(activeTab === 'backup')} onClick={() => setActiveTab('backup')}>Config Backup</button>
+                            )}
                         </div>
                         <div style={{ padding: 24, overflowY: 'auto', flex: 1 }}>
                             {activeTab === 'info' && (
@@ -356,6 +386,17 @@ export default function NetworkDevice() {
                                         )}
                                     </div>
                                 </div>
+                            )}
+
+                            {activeTab === 'mgmt' && (mgmtInfo
+                                ? <ConnectionTab key={mgmtInfo.profile ? mgmtInfo.profile.updatedAt || 'saved' : 'new'} device={selectedDevice} info={mgmtInfo} role={role} s={s} onSaved={onMgmtSaved}
+                                    onAlert={(message) => setSysAlert({ message })} onConfirm={(message, onConfirm) => setSysConfirm({ message, onConfirm })} />
+                                : <p>Loading...</p>)}
+                            {activeTab === 'backup' && mgmtInfo && (
+                                <BackupTab device={selectedDevice} s={s} onAlert={(message) => setSysAlert({ message })} />
+                            )}
+                            {activeTab.startsWith('cap:') && (
+                                <CapabilityTab key={activeTab} device={selectedDevice} capability={activeTab.slice(4)} s={s} />
                             )}
 
                             {(activeTab === 'ports' || activeTab === 'arp' || activeTab === 'mac') && (

@@ -10,6 +10,8 @@ const crypto = require('crypto');
 const rackStore = require('../lib/rackStore');
 const { placementProblem } = require('../lib/rackLayout');
 const { syncDeviceChanges } = require('../lib/rackDeviceSync');
+const { NETWORK_TYPES, listDataCenters, findNetworkDevice } = require('../lib/networkDevices');
+const mgmtProfiles = require('../lib/netDevices/profileStore');
 
 // File containing SNMP settings
 const SNMP_FILE = 'network_service/snmp_settings.json';
@@ -21,7 +23,6 @@ const IV_LENGTH = 16;
 const _testHooks = { snmp: null };
 const snmpLib = () => _testHooks.snmp || snmp;
 
-const NETWORK_TYPES = ['Switch', 'Router', 'Firewall', 'LoadBalancer'];
 const SECRET_MASK = '●●●●●●';
 const SECRET_FIELDS = ['community', 'v3AuthPass', 'v3PrivPass'];
 const SNMP_VERSIONS = ['v1', 'v2c', 'v3'];
@@ -164,34 +165,6 @@ function toPosInt(v) {
 // ---------------------------------------------------------------- rack lookup (rackStore, any DB backend)
 
 /** Every DC id that may hold a rack document: 'default' + data_center/datacenters.json. */
-function listDataCenters() {
-    const raw = readDataSync('data_center/datacenters.json', []);
-    const dcs = [{ id: 'default', name: 'Default Data Center' }];
-    (Array.isArray(raw) ? raw : []).forEach(dc => {
-        if (!dc || typeof dc.id !== 'string' || !dc.id) return;
-        const id = rackStore.normDcId(dc.id);
-        const existing = dcs.find(d => d.id === id);
-        if (existing) {
-            if (dc.name) existing.name = dc.name;
-        } else {
-            dcs.push({ id, name: dc.name || id });
-        }
-    });
-    return dcs;
-}
-
-/** Locates a device (any type) by id across all data centers -> { dcId, fileKey, rack, device } or null. */
-function findNetworkDevice(id) {
-    if (!id) return null;
-    for (const dc of listDataCenters()) {
-        for (const rack of rackStore.getRacks(dc.id)) {
-            const device = (rack && Array.isArray(rack.devices) ? rack.devices : []).find(d => d && d.id === id);
-            if (device) return { dcId: dc.id, fileKey: rackStore.rackKey(dc.id), rack, device };
-        }
-    }
-    return null;
-}
-
 /** Replaces device `id` in the DC's rack list via `fn(device) -> device | null (removed)`, saves, returns the new revision. */
 function updateDeviceInDc(dcId, id, fn) {
     const racks = rackStore.getRacks(dcId).map(rack => {
@@ -233,9 +206,10 @@ router.get('/devices', networkDeviceOnly, checkRole(['SuperAdmin', 'Operator', '
 
         // Merge with SNMP settings
         const snmpSettings = getSnmpSettings();
+        const mgmt = mgmtProfiles.listSummaries();
         res.json(allNetworkDevices.map(device => {
             const settings = effectiveSnmp(snmpSettings[device.id]);
-            return { ...device, snmp: maskSnmp(settings), enabled: settings.enabled };
+            return { ...device, snmp: maskSnmp(settings), enabled: settings.enabled, mgmt: mgmt[device.id] || null };
         }));
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -594,6 +568,9 @@ router.get('/:id/poll', checkRole(['SuperAdmin', 'Operator', 'Viewer']), async (
         res.status(500).json({ error: err.message });
     }
 });
+
+// Vendor API connection and the data read through it (behind the same login and feature checks)
+router.use(require('./networkDeviceMgmt'));
 
 router._testHooks = _testHooks;
 router.findNetworkDevice = findNetworkDevice;

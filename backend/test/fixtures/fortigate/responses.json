@@ -1,0 +1,83 @@
+{
+  "monitor/system/status": {
+    "http_method": "GET", "status": "success", "vdom": "root", "serial": "FGT60FTK00000000", "version": "v7.4.3", "build": 2573,
+    "results": { "model_name": "FortiGate", "model_number": "60F", "model": "FGT60F", "hostname": "fw-lab-01" }
+  },
+  "monitor/system/resource/usage": {
+    "status": "success",
+    "results": {
+      "cpu": [{ "current": 7, "historical": {} }],
+      "mem": [{ "current": 41 }],
+      "disk": [{ "current": 12 }],
+      "session": [{ "current": 1834 }]
+    }
+  },
+  "cmdb/system/ha": {
+    "status": "success",
+    "results": { "mode": "a-p", "group-name": "lab-cluster", "priority": 200 }
+  },
+  "monitor/system/ha-peer": {
+    "status": "success",
+    "results": [
+      { "hostname": "fw-lab-01", "serial_no": "FGT60FTK00000000", "priority": 200, "is_primary": true },
+      { "hostname": "fw-lab-02", "serial_no": "FGT60FTK00000001", "priority": 100, "is_primary": false }
+    ]
+  },
+  "monitor/system/interface": {
+    "status": "success",
+    "results": {
+      "wan1": { "name": "wan1", "alias": "ISP", "ip": "203.0.113.2", "mask": 29, "link": true, "speed": 1000, "rx_bytes": 1000, "tx_bytes": 2000, "rx_errors": 0, "tx_errors": 0 },
+      "internal": { "name": "internal", "alias": "", "ip": "192.0.2.1", "mask": 24, "link": true, "speed": 1000, "rx_bytes": 30, "tx_bytes": 40 },
+      "vlan10": { "name": "vlan10", "ip": "0.0.0.0", "mask": 0, "link": false, "vlanid": 10 }
+    }
+  },
+  "cmdb/system/interface": {
+    "status": "success",
+    "results": [
+      { "name": "wan1", "type": "physical", "status": "up", "ip": "203.0.113.2 255.255.255.248" },
+      { "name": "internal", "type": "hard-switch", "status": "up", "ip": "192.0.2.1 255.255.255.0" },
+      { "name": "vlan10", "type": "vlan", "status": "down", "vlanid": 10, "ip": "198.51.100.1 255.255.255.0" }
+    ]
+  },
+  "cmdb/system/zone": {
+    "status": "success",
+    "results": [{ "name": "LAN", "interface": [{ "interface-name": "internal" }, { "interface-name": "vlan10" }] }]
+  },
+  "cmdb/firewall/policy": {
+    "status": "success",
+    "results": [
+      { "policyid": 1, "name": "LAN-to-WAN", "status": "enable", "action": "accept", "srcintf": [{ "name": "LAN" }], "dstintf": [{ "name": "wan1" }], "srcaddr": [{ "name": "all" }], "dstaddr": [{ "name": "all" }], "service": [{ "name": "ALL" }], "nat": "enable", "comments": "default outbound" },
+      { "policyid": 7, "name": "Block-Telnet", "status": "disable", "action": "deny", "srcintf": [{ "name": "wan1" }], "dstintf": [{ "name": "LAN" }], "srcaddr": [{ "name": "all" }], "dstaddr": [{ "name": "srv-web" }], "service": [{ "name": "TELNET" }], "nat": "disable" }
+    ]
+  },
+  "monitor/firewall/policy": {
+    "status": "success",
+    "results": [{ "policyid": 1, "hit_count": 5120, "bytes": 99999, "last_used": 1762200000 }]
+  },
+  "monitor/router/ipv4": {
+    "status": "success",
+    "results": [
+      { "ip_mask": "0.0.0.0/0", "gateway": "203.0.113.1", "interface": "wan1", "type": "static", "distance": 10, "metric": 0 },
+      { "ip_mask": "192.0.2.0/24", "gateway": "0.0.0.0", "interface": "internal", "type": "connect", "distance": 0, "metric": 0 }
+    ]
+  },
+  "monitor/firewall/session": {
+    "status": "success",
+    "results": {
+      "total": 2,
+      "details": [
+        { "proto": "tcp", "saddr": "192.0.2.10", "sport": 51000, "daddr": "198.51.100.20", "dport": 443, "policyid": 1, "duration": 30, "sentbyte": 100, "rcvdbyte": 900 }
+      ]
+    }
+  },
+  "monitor/vpn/ipsec": {
+    "status": "success",
+    "results": [
+      { "name": "to-branch", "rgwy": "198.51.100.200", "incoming_bytes": 10, "outgoing_bytes": 20, "proxyid": [{ "p2name": "p2-a", "status": "up" }, { "p2name": "p2-b", "status": "down" }] }
+    ]
+  },
+  "monitor/vpn/ssl": {
+    "status": "success",
+    "results": [{ "user_name": "remote-user", "remote_host": "203.0.113.99", "last_login_time": 1762200000, "subsessions": [{ "aip": "192.0.2.200" }] }]
+  }
+}

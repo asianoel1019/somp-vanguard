@@ -122,6 +122,9 @@ async function startWorker() {
         initElkLifecycleScheduler();
         console.log('[Worker] ELK Lifecycle Scheduler initialized.');
 
+        // Network device configuration backups (NETDEVICE_BACKUP_SCHEDULE=HH:MM, off when unset)
+        try { require('./services/netDeviceBackupScheduler').initNetDeviceBackupScheduler(); } catch (e) { console.error('[Worker] Network device backup scheduler skipped:', e.message); }
+
         console.log('[Worker] All background schedulers & pollers successfully initialized.');
 
         // Notify parent process if spawned as a child

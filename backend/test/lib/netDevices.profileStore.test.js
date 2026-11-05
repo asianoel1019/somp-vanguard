@@ -101,6 +101,19 @@ test('recordTransport remembers the way that works on auto; saving forgets it', 
     assert.equal(store.getProfile('nope'), null);
 });
 
+test('F5: login provider and partition', () => {
+    const f5 = { vendor: 'f5', mgmtHost: '192.0.2.80', username: 'auditor1', password: 'pw-123456' };
+    let p = store.saveProfile('lb1', 'LoadBalancer', f5, 'a');
+    assert.deepEqual([p.loginProvider, p.scope, p.port, p.transport], ['tmos', '', 443, undefined]);
+    p = store.saveProfile('lb1', 'LoadBalancer', { ...f5, password: store.MASK, loginProvider: 'corp-ldap', scope: 'Tenant_A' }, 'a');
+    assert.deepEqual([p.loginProvider, p.scope, p.secrets.password], ['corp-ldap', 'Tenant_A', store.MASK]);
+    assert.throws(() => store.buildProfile('LoadBalancer', { ...f5, loginProvider: 'bad provider!' }, null), (e) => e.code === 'BAD_REQUEST');
+    assert.throws(() => store.buildProfile('LoadBalancer', { ...f5, scope: 'a/b' }, null), (e) => e.code === 'BAD_REQUEST');
+    assert.throws(() => store.buildProfile('Switch', f5, null), (e) => e.code === 'BAD_REQUEST', 'F5 only for load balancers');
+    const fw = store.saveProfile('fw9', 'Firewall', { vendor: 'fortigate', mgmtHost: '192.0.2.1', token: 'tok-123456', loginProvider: 'x' }, 'a');
+    assert.equal(fw.loginProvider, undefined, 'only vendors with a login provider keep one');
+});
+
 test('removeProfile', () => {
     store.saveProfile('d1', 'Firewall', base, 'a');
     assert.equal(store.removeProfile('d1'), true);

@@ -7,6 +7,7 @@ const TONES = {
     danger: { background: 'rgba(239,68,68,0.1)', color: 'var(--danger)' },
     warning: { background: 'rgba(245,158,11,0.1)', color: 'var(--warning)' },
     muted: { background: 'rgba(148,163,184,0.15)', color: 'var(--text-muted)' },
+    info: { background: 'rgba(59,130,246,0.1)', color: 'var(--accent-primary)' },
 };
 const Badge = ({ value, tone }) => (
     <span style={{ padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap', ...TONES[tone || statusTone(value)] }}>{value === null || value === undefined || value === '' ? '-' : String(value)}</span>
@@ -22,11 +23,53 @@ const INITIAL_PARAMS = {
     policies: { page: 1, limit: 50, search: '' },
     sessions: { src: '', dst: '', dport: '' },
     mac: { mac: '', port: '', vlan: '' },
+    virtuals: { search: '', nonGreen: '' },
+    pools: { search: '', nonGreen: '' },
+    certs: { expiringOnly: '' },
 };
 // A port that learned this many MACs is most likely an uplink / trunk, not a host port
 const UPLINK_MACS = 10;
 
-/** One read-only data tab (summary, interfaces, policies, routes, sessions, vpn, ha, vlans, mac) of a managed device. */
+/** Members of one F5 pool, read when the pool is opened. */
+function PoolMembers({ deviceId, pool, td, mono, colSpan }) {
+    const [state, setState] = useState({ loading: true, error: '', data: null });
+    useEffect(() => {
+        let alive = true;
+        api.get(`/network-device/${deviceId}/mgmt/data/pools${dataQuery({ pool })}`)
+            .then(res => { if (alive) setState({ loading: false, error: '', data: res.data.data }); })
+            .catch(err => { if (alive) setState({ loading: false, error: describeError(err), data: null }); });
+        return () => { alive = false; };
+    }, [deviceId, pool]);
+    const cell = { ...td, background: 'var(--bg-primary)' };
+    if (state.loading) return <tr><td colSpan={colSpan} style={cell}>Loading members...</td></tr>;
+    if (state.error) return <tr><td colSpan={colSpan} style={{ ...cell, color: 'var(--danger)' }}>{state.error}</td></tr>;
+    const members = state.data.members || [];
+    return (
+        <tr>
+            <td colSpan={colSpan} style={cell}>
+                {members.length === 0 ? <span style={{ color: 'var(--text-muted)' }}>這個 Pool 沒有成員</span> : (
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <thead><tr>{['STATUS', 'MEMBER', 'MONITOR', 'SESSION', 'CONNECTIONS', 'TRAFFIC IN / OUT', 'REASON'].map(h => <th key={h} style={{ ...td, fontSize: 11, textAlign: 'left', color: 'var(--text-muted)' }}>{h}</th>)}</tr></thead>
+                        <tbody>{members.map(m => (
+                            <tr key={m.fullPath}>
+                                <td style={td}><Badge value={m.status} /></td>
+                                <td style={mono}>{m.name}</td>
+                                <td style={td}>{dash(m.monitor)}</td>
+                                <td style={td}><Badge value={m.session} tone={m.session === 'enabled' ? 'success' : 'muted'} /></td>
+                                <td style={td}>{dash(m.curConns)}</td>
+                                <td style={td}>{m.bitsIn === null ? '-' : `${formatBytes(m.bitsIn / 8)} / ${formatBytes(m.bitsOut / 8)}`}</td>
+                                <td style={{ ...td, color: 'var(--text-muted)' }}>{dash(m.statusReason)}</td>
+                            </tr>
+                        ))}</tbody>
+                    </table>
+                )}
+                {!state.data.statsAvailable && <p style={{ fontSize: 12, color: 'var(--warning)', margin: '6px 0 0' }}>帳號無法讀取成員統計，只顯示設定與 monitor 狀態。</p>}
+            </td>
+        </tr>
+    );
+}
+
+/** One read-only data tab (summary, interfaces, policies, routes, sessions, vpn, ha, vlans, mac, virtuals, pools, certs) of a managed device. */
 export default function CapabilityTab({ device, capability, s }) {
     const [data, setData] = useState(null);
     const [meta, setMeta] = useState(null);
@@ -34,6 +77,8 @@ export default function CapabilityTab({ device, capability, s }) {
     const [loading, setLoading] = useState(false);
     const [params, setParams] = useState(INITIAL_PARAMS[capability] || {});
     const [ifFilter, setIfFilter] = useState({ errorsOnly: false, downOnly: false });
+    const [openPools, setOpenPools] = useState({});
+    const togglePool = (p) => setOpenPools(o => ({ ...o, [p]: !o[p] }));
 
     const load = useCallback((refresh = false, p = params) => {
         setLoading(true);
@@ -100,6 +145,22 @@ export default function CapabilityTab({ device, capability, s }) {
         </form>
     );
 
+    const virtualSearch = (capability === 'virtuals' || capability === 'pools') && (
+        <form style={{ display: 'flex', gap: 12, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }} onSubmit={e => { e.preventDefault(); load(false); }}>
+            <input style={{ ...s.input, maxWidth: 280 }} placeholder={capability === 'pools' ? 'Pool 名稱' : '名稱、IP 或 Pool'} value={params.search} onChange={e => setParams(p => ({ ...p, search: e.target.value }))} />
+            <label style={{ fontSize: 13 }}>
+                <input type="checkbox" checked={params.nonGreen === '1'} onChange={(e) => { const p = { ...params, nonGreen: e.target.checked ? '1' : '' }; setParams(p); load(false, p); }} /> 只看非綠燈
+            </label>
+            <button type="submit" style={{ ...s.btnPrimary, padding: '9px 16px', opacity: loading ? 0.6 : 1 }} disabled={loading}>{loading ? 'Searching...' : 'Search'}</button>
+        </form>
+    );
+
+    const certFilter = capability === 'certs' && (
+        <label style={{ display: 'block', fontSize: 13, marginBottom: 12 }}>
+            <input type="checkbox" checked={params.expiringOnly === '1'} onChange={(e) => { const p = { ...params, expiringOnly: e.target.checked ? '1' : '' }; setParams(p); load(false, p); }} /> 只看已過期或 30 天內到期
+        </label>
+    );
+
     const policySearch = capability === 'policies' && (
         <form style={{ display: 'flex', gap: 8, marginBottom: 12 }} onSubmit={e => { e.preventDefault(); const p = { ...params, page: 1 }; setParams(p); load(false, p); }}>
             <input style={{ ...s.input, maxWidth: 280 }} placeholder="Search id, name, address, service..." value={params.search} onChange={e => setParams(p => ({ ...p, search: e.target.value }))} />
@@ -115,6 +176,7 @@ export default function CapabilityTab({ device, capability, s }) {
         const tiles = [['Model', data.model], ['Hostname', data.hostname], ['Firmware', data.version], ['Serial', data.serial],
             ['VDOM', data.vdom], ['vsys', data.vsys], ['Domain', data.domain], ['Uptime', data.uptime],
             ['Policy', data.policy === undefined ? undefined : `${dash(data.policy)}${data.policyInstalled === false ? '（未安裝）' : ''}`],
+            ['Build', data.build], ['Partition', data.partition],
             ['Mgmt API', data.managementApi], ['HA Mode', data.haMode],
             ['CPU', data.cpu !== null && data.cpu !== undefined ? `${data.cpu}%` : null], ['Memory', data.memory !== null && data.memory !== undefined ? `${data.memory}%` : null],
             ['Sessions', data.sessions]].filter(([, v]) => v !== undefined);
@@ -281,13 +343,72 @@ export default function CapabilityTab({ device, capability, s }) {
                 )))}
             </>
         );
+    } else if (capability === 'virtuals') {
+        body = (
+            <>
+                {table(['STATUS', 'VIRTUAL SERVER', 'DESTINATION', 'PROTOCOL', 'POOL', 'CONNECTIONS', 'TRAFFIC IN / OUT'], data.items.map(v => (
+                    <tr key={v.fullPath} title={v.statusReason || ''}>
+                        <td style={td}><Badge value={v.status} /></td>
+                        <td style={{ ...td, fontWeight: 700 }}>{v.name}<div style={{ fontSize: 11, fontWeight: 400, color: 'var(--text-muted)' }}>{v.partition}{v.description ? ` · ${v.description}` : ''}</div></td>
+                        <td style={mono}>{dash(v.destination)}</td>
+                        <td style={td}>{dash(v.protocol)}</td>
+                        <td style={mono}>{dash(v.pool)}</td>
+                        <td style={td}>{dash(v.curConns)}</td>
+                        <td style={td}>{v.bitsIn === null ? '-' : `${formatBytes(v.bitsIn / 8)} / ${formatBytes(v.bitsOut / 8)}`}</td>
+                    </tr>
+                )))}
+                <p style={{ fontSize: 12, color: data.statsAvailable ? 'var(--text-muted)' : 'var(--warning)' }}>
+                    共 {data.total} 個{data.statsAvailable ? '；滑鼠移到列上可看狀態原因，流量為開機以來累計' : '；帳號無法讀取統計資料，只顯示設定（燈號為設定的啟用 / 停用）'}
+                </p>
+            </>
+        );
+    } else if (capability === 'pools') {
+        const head = ['', 'STATUS', 'POOL', 'MEMBERS UP', 'LB METHOD', 'MONITOR', 'CONNECTIONS'];
+        body = (
+            <>
+                {table(head, data.items.flatMap(p => [
+                    <tr key={p.fullPath} title={p.statusReason || ''} style={{ cursor: 'pointer' }} onClick={() => togglePool(p.fullPath)}>
+                        <td style={{ ...td, width: 24 }}>{openPools[p.fullPath] ? '▾' : '▸'}</td>
+                        <td style={td}><Badge value={p.status} /></td>
+                        <td style={{ ...td, fontWeight: 700 }}>{p.name}<div style={{ fontSize: 11, fontWeight: 400, color: 'var(--text-muted)' }}>{p.partition}</div></td>
+                        <td style={{ ...td, color: p.membersTotal && p.membersUp < p.membersTotal ? 'var(--warning)' : undefined, fontWeight: 700 }}>{p.membersUp} / {p.membersTotal}</td>
+                        <td style={td}>{dash(p.lbMode)}</td>
+                        <td style={mono}>{dash(p.monitor)}</td>
+                        <td style={td}>{dash(p.curConns)}</td>
+                    </tr>,
+                    openPools[p.fullPath] ? <PoolMembers key={`${p.fullPath}-members`} deviceId={device.id} pool={p.fullPath} td={td} mono={mono} colSpan={head.length} /> : null,
+                ].filter(Boolean)))}
+                <p style={{ fontSize: 12, color: data.statsAvailable ? 'var(--text-muted)' : 'var(--warning)' }}>
+                    共 {data.total} 個；點選 Pool 展開成員狀態{data.statsAvailable ? '' : '；帳號無法讀取統計資料，燈號未知'}
+                </p>
+            </>
+        );
+    } else if (capability === 'certs') {
+        const tone = (c) => (c.daysLeft === null ? 'muted' : c.daysLeft < 0 ? 'danger' : c.daysLeft <= data.warnDays ? 'warning' : 'success');
+        const label = (c) => (c.daysLeft === null ? '-' : c.daysLeft < 0 ? `已過期 ${-c.daysLeft} 天` : `剩 ${c.daysLeft} 天`);
+        body = (
+            <>
+                {table(['STATUS', 'CERTIFICATE', 'COMMON NAME', 'ISSUER', 'EXPIRES'], data.items.map(c => (
+                    <tr key={c.fullPath}>
+                        <td style={td}><Badge value={label(c)} tone={c.isBundle ? 'muted' : tone(c)} /></td>
+                        <td style={{ ...td, fontWeight: 700 }}>{c.name}<div style={{ fontSize: 11, fontWeight: 400, color: 'var(--text-muted)' }}>{c.partition}{c.isBundle ? ' · CA bundle' : ''}</div></td>
+                        <td style={mono}>{dash(c.commonName)}</td>
+                        <td style={td}>{dash(c.issuer)}</td>
+                        <td style={td}>{c.expiresAt ? new Date(c.expiresAt).toLocaleDateString() : '-'}</td>
+                    </tr>
+                )))}
+                <p style={{ fontSize: 12, color: data.expiring ? 'var(--warning)' : 'var(--text-muted)' }}>
+                    共 {data.total} 張；已過期或 {data.warnDays} 天內到期：{data.expiring} 張（CA bundle 不計）
+                </p>
+            </>
+        );
     } else if (capability === 'ha') {
         body = (
             <>
-                <p style={{ fontSize: 14 }}>Mode：<b>{dash(data.mode)}</b>{data.group ? ` · Group：${data.group}` : ''}{data.priority !== null && data.priority !== undefined ? ` · Priority：${data.priority}` : ''}</p>
+                <p style={{ fontSize: 14 }}>Mode：<b>{dash(data.mode)}</b>{data.group ? ` · Group：${data.group}` : ''}{data.priority !== null && data.priority !== undefined ? ` · Priority：${data.priority}` : ''}{data.syncStatus ? <> · Sync：<Badge value={data.syncStatus} tone={data.syncColor ? statusTone(data.syncColor) : undefined} /></> : null}</p>
                 {table(['HOSTNAME', 'SERIAL', 'PRIORITY', 'ROLE'], (data.members || []).map((m, i) => (
                     <tr key={`${m.serial}-${i}`}>
-                        <td style={{ ...td, fontWeight: 700 }}>{dash(m.hostname)}</td><td style={mono}>{dash(m.serial)}</td><td style={td}>{dash(m.priority)}</td>
+                        <td style={{ ...td, fontWeight: 700 }}>{dash(m.hostname)}{m.self ? '（本機）' : ''}{m.mgmtIp && <div style={{ fontSize: 11, fontWeight: 400, color: 'var(--text-muted)' }}>{m.mgmtIp}</div>}</td><td style={mono}>{dash(m.serial)}</td><td style={td}>{dash(m.priority)}</td>
                         <td style={td}>{m.primary === null || m.primary === undefined ? (m.state || '-') : <Badge value={m.primary ? 'primary' : 'secondary'} tone={m.primary ? 'success' : 'muted'} />}</td>
                     </tr>
                 )))}
@@ -300,6 +421,8 @@ export default function CapabilityTab({ device, capability, s }) {
             {toolbar}
             {policySearch}
             {macSearch}
+            {virtualSearch}
+            {certFilter}
             {sessionFilter}
             {body}
         </div>

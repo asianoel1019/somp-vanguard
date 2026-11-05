@@ -213,6 +213,14 @@ test('switch: MAC query options reach the driver; host key reset is Operator+ an
         assert.equal(g.body.device.type, 'Switch');
         let r = await call('get', '/sw1/mgmt/data/mac?mac=0000.5e00&port=Gi1/0/1&vlan=10&x=1', VIEWER);
         assert.deepEqual(r.body.data.opts, { mac: '0000.5e00', port: 'Gi1/0/1', vlan: '10' });
+        registry._drivers['cisco-ios'].capabilities.push('virtuals');
+        registry._drivers['cisco-ios'].getVirtuals = async (p, opts) => ({ opts });
+        r = await call('get', '/sw1/mgmt/data/virtuals?search=web&nonGreen=true&limit=5', VIEWER);
+        assert.deepEqual(r.body.data.opts, { search: 'web', nonGreen: 'true' });
+        registry._drivers['cisco-ios'].capabilities.push('pools');
+        registry._drivers['cisco-ios'].getPools = async (p, opts) => ({ opts });
+        r = await call('get', `/sw1/mgmt/data/pools?pool=${encodeURIComponent('/Common/pool_web')}&x=1`, VIEWER);
+        assert.deepEqual(r.body.data.opts, { pool: '/Common/pool_web' });
 
         assert.equal((await call('post', '/sw1/mgmt/hostkey/reset', VIEWER)).status, 403);
         r = await call('post', '/sw1/mgmt/hostkey/reset', OP);

@@ -1,0 +1,32 @@
+{
+  "kind": "tm:ltm:virtual:virtualcollectionstats",
+  "entries": {
+    "https://localhost/mgmt/tm/ltm/virtual/~Common~vs_web/~Common~vs_web/stats": {
+      "nestedStats": {
+        "entries": {
+          "tmName": {
+            "description": "/Common/vs_web"
+          },
+          "status.availabilityState": {
+            "description": "available"
+          },
+          "status.enabledState": {
+            "description": "enabled"
+          },
+          "status.statusReason": {
+            "description": "The virtual server is available"
+          },
+          "clientside.curConns": {
+            "value": 7
+          },
+          "clientside.bitsIn": {
+            "value": 1
+          },
+          "clientside.bitsOut": {
+            "value": 2
+          }
+        }
+      }
+    }
+  }
+}

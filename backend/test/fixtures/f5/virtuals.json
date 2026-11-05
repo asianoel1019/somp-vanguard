@@ -1,0 +1,58 @@
+{
+  "kind": "tm:ltm:virtual:virtualcollectionstate",
+  "items": [
+    {
+      "name": "vs_web",
+      "partition": "Common",
+      "fullPath": "/Common/vs_web",
+      "destination": "/Common/192.0.2.10:443",
+      "ipProtocol": "tcp",
+      "pool": "/Common/pool_web",
+      "enabled": true,
+      "description": "lab web"
+    },
+    {
+      "name": "vs_api",
+      "partition": "Common",
+      "fullPath": "/Common/vs_api",
+      "destination": "/Common/192.0.2.11:8443",
+      "ipProtocol": "tcp",
+      "pool": "/Common/pool_api",
+      "enabled": true
+    },
+    {
+      "name": "vs_old",
+      "partition": "Common",
+      "fullPath": "/Common/vs_old",
+      "destination": "/Common/192.0.2.12:80",
+      "ipProtocol": "tcp",
+      "disabled": true
+    },
+    {
+      "name": "vs_rd",
+      "partition": "Tenant_A",
+      "fullPath": "/Tenant_A/vs_rd",
+      "destination": "/Tenant_A/198.51.100.20%2:443",
+      "ipProtocol": "tcp",
+      "pool": "/Tenant_A/pool_rd",
+      "enabled": true
+    },
+    {
+      "name": "vs_v6",
+      "partition": "Common",
+      "fullPath": "/Common/vs_v6",
+      "destination": "/Common/2001:db8::10.443",
+      "ipProtocol": "tcp",
+      "pool": "/Common/pool_web",
+      "enabled": true
+    },
+    {
+      "name": "vs_any",
+      "partition": "Common",
+      "fullPath": "/Common/vs_any",
+      "destination": "/Common/0.0.0.0:any",
+      "ipProtocol": "any",
+      "enabled": true
+    }
+  ]
+}

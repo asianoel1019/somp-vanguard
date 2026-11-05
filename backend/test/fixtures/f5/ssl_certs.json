@@ -1,0 +1,41 @@
+{
+  "kind": "tm:sys:file:ssl-cert:ssl-certcollectionstate",
+  "items": [
+    {
+      "name": "web.example.test.crt",
+      "partition": "Common",
+      "fullPath": "/Common/web.example.test.crt",
+      "commonName": "web.example.test",
+      "issuer": "CN=Lab Issuing CA,O=Example Lab,C=TW",
+      "subject": "CN=web.example.test,O=Example Lab",
+      "expirationDate": 1811116800,
+      "isBundle": "false"
+    },
+    {
+      "name": "api.example.test.crt",
+      "partition": "Common",
+      "fullPath": "/Common/api.example.test.crt",
+      "issuer": "CN=Lab Issuing CA,O=Example Lab",
+      "subject": "CN=api.example.test,O=Example Lab",
+      "expirationDate": 1794877200,
+      "isBundle": "false"
+    },
+    {
+      "name": "old.example.test.crt",
+      "partition": "Tenant_A",
+      "fullPath": "/Tenant_A/old.example.test.crt",
+      "commonName": "old.example.test",
+      "issuer": "CN=Lab Issuing CA",
+      "expirationDate": 1793577600,
+      "isBundle": "false"
+    },
+    {
+      "name": "ca-bundle.crt",
+      "partition": "Common",
+      "fullPath": "/Common/ca-bundle.crt",
+      "issuer": "CN=Old Root",
+      "expirationDate": 1759276800,
+      "isBundle": "true"
+    }
+  ]
+}

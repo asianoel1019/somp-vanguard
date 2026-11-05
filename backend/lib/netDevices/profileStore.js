@@ -24,13 +24,16 @@ const VENDORS = {
     'cisco-ios': { label: 'Cisco IOS / IOS-XE', types: ['Switch', 'Router'], available: true, defaultPort: 443, auth: 'password', scope: null, transports: ['api', 'ssh'], enable: true },
     'cisco-nxos': { label: 'Cisco NX-OS', types: ['Switch'], available: true, defaultPort: 443, auth: 'password', scope: null, transports: ['api', 'ssh'] },
     juniper: { label: 'Juniper Junos', types: ['Switch', 'Router'], available: true, defaultPort: 3443, auth: 'password', scope: null, transports: ['api', 'ssh'] },
-    f5: { label: 'F5 BIG-IP', types: ['LoadBalancer'], available: false, defaultPort: 443, auth: 'password', scope: null },
+    // F5 is read through iControl REST with a login token; `loginProvider`: tmos (local accounts) or a remote auth provider
+    f5: { label: 'F5 BIG-IP', types: ['LoadBalancer'], available: true, defaultPort: 443, auth: 'password', scope: 'partition', loginProvider: true },
 };
 
 const HOSTNAME_RE = /^(?=.{1,253}$)[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$/;
 const SCOPE_RE = /^[\w.-]{1,64}$/;
 const USER_RE = /^[^\x00-\x1f]{1,128}$/;
 const TARGET_RE = /^[^\x00-\x1f<>]{1,128}$/;
+const PROVIDER_RE = /^[\w.-]{1,64}$/;
+const DEFAULT_LOGIN_PROVIDER = 'tmos';
 
 const isHost = (v) => typeof v === 'string' && (net.isIP(v) !== 0 || HOSTNAME_RE.test(v));
 
@@ -100,7 +103,7 @@ function buildProfile(deviceType, input, previous) {
     if (!Number.isInteger(port) || port < 1 || port > 65535) throw netError('BAD_REQUEST', 'Port must be 1-65535');
 
     const scope = String(body.scope || '').trim();
-    if (scope && (!meta.scope || !SCOPE_RE.test(scope))) throw netError('BAD_REQUEST', 'Invalid scope (VDOM / vsys / domain) name');
+    if (scope && (!meta.scope || !SCOPE_RE.test(scope))) throw netError('BAD_REQUEST', 'Invalid scope (VDOM / vsys / domain / partition) name');
     const username = String(body.username || '').trim();
     if (username && !USER_RE.test(username)) throw netError('BAD_REQUEST', 'Invalid user name');
     const target = String(body.target || '').trim();
@@ -112,6 +115,11 @@ function buildProfile(deviceType, input, previous) {
         if (!TRANSPORTS.includes(transport)) throw netError('BAD_REQUEST', `Connection method must be one of ${TRANSPORTS.join(', ')}`);
         sshPort = body.sshPort === undefined || body.sshPort === null || body.sshPort === '' ? DEFAULT_SSH_PORT : Number(body.sshPort);
         if (!Number.isInteger(sshPort) || sshPort < 1 || sshPort > 65535) throw netError('BAD_REQUEST', 'SSH port must be 1-65535');
+    }
+    let loginProvider = DEFAULT_LOGIN_PROVIDER;
+    if (meta.loginProvider) {
+        loginProvider = String(body.loginProvider || '').trim() || DEFAULT_LOGIN_PROVIDER;
+        if (!PROVIDER_RE.test(loginProvider)) throw netError('BAD_REQUEST', 'Invalid login provider name');
     }
     const caCert = body.caCert ? String(body.caCert) : '';
     if (caCert && (caCert.length > 65536 || !/-----BEGIN CERTIFICATE-----/.test(caCert))) throw netError('BAD_REQUEST', 'CA certificate must be PEM text (max 64 KB)');
@@ -147,6 +155,7 @@ function buildProfile(deviceType, input, previous) {
         scope: meta.scope ? scope : '',
         target: meta.target ? target : '',
         ...(meta.transports ? { transport, sshPort } : {}),
+        ...(meta.loginProvider ? { loginProvider } : {}),
         tlsVerify: body.tlsVerify === true,
         caCert: body.tlsVerify === true ? caCert : '',
         enabled: body.enabled !== false,

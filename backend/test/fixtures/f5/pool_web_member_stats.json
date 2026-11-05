@@ -1,0 +1,149 @@
+{
+  "kind": "tm:ltm:pool:members:membersstats",
+  "entries": {
+    "https://localhost/mgmt/tm/ltm/pool/~Common~pool_web/members/~Common~192.0.2.21:80/stats": {
+      "nestedStats": {
+        "entries": {
+          "addr": {
+            "description": "192.0.2.21"
+          },
+          "nodeName": {
+            "description": "/Common/192.0.2.21"
+          },
+          "poolName": {
+            "description": "/Common/pool_web"
+          },
+          "port": {
+            "value": 80
+          },
+          "status.availabilityState": {
+            "description": "available"
+          },
+          "status.enabledState": {
+            "description": "enabled"
+          },
+          "status.statusReason": {
+            "description": "Pool member is available"
+          },
+          "serverside.curConns": {
+            "value": 20
+          },
+          "serverside.bitsIn": {
+            "value": 16000
+          },
+          "serverside.bitsOut": {
+            "value": 32000
+          }
+        }
+      }
+    },
+    "https://localhost/mgmt/tm/ltm/pool/~Common~pool_web/members/~Common~192.0.2.22:80/stats": {
+      "nestedStats": {
+        "entries": {
+          "addr": {
+            "description": "192.0.2.22"
+          },
+          "nodeName": {
+            "description": "/Common/192.0.2.22"
+          },
+          "poolName": {
+            "description": "/Common/pool_web"
+          },
+          "port": {
+            "value": 80
+          },
+          "status.availabilityState": {
+            "description": "offline"
+          },
+          "status.enabledState": {
+            "description": "enabled"
+          },
+          "status.statusReason": {
+            "description": "Pool member has been marked down by a monitor"
+          },
+          "serverside.curConns": {
+            "value": 0
+          },
+          "serverside.bitsIn": {
+            "value": 0
+          },
+          "serverside.bitsOut": {
+            "value": 0
+          }
+        }
+      }
+    },
+    "https://localhost/mgmt/tm/ltm/pool/~Common~pool_web/members/~Common~192.0.2.23:80/stats": {
+      "nestedStats": {
+        "entries": {
+          "addr": {
+            "description": "192.0.2.23"
+          },
+          "nodeName": {
+            "description": "/Common/192.0.2.23"
+          },
+          "poolName": {
+            "description": "/Common/pool_web"
+          },
+          "port": {
+            "value": 80
+          },
+          "status.availabilityState": {
+            "description": "available"
+          },
+          "status.enabledState": {
+            "description": "disabled"
+          },
+          "status.statusReason": {
+            "description": "Pool member is available, user disabled"
+          },
+          "serverside.curConns": {
+            "value": 10
+          },
+          "serverside.bitsIn": {
+            "value": 8000
+          },
+          "serverside.bitsOut": {
+            "value": 16000
+          }
+        }
+      }
+    },
+    "https://localhost/mgmt/tm/ltm/pool/~Common~pool_web/members/~Common~192.0.2.24:80/stats": {
+      "nestedStats": {
+        "entries": {
+          "addr": {
+            "description": "192.0.2.24"
+          },
+          "nodeName": {
+            "description": "/Common/192.0.2.24"
+          },
+          "poolName": {
+            "description": "/Common/pool_web"
+          },
+          "port": {
+            "value": 80
+          },
+          "status.availabilityState": {
+            "description": "offline"
+          },
+          "status.enabledState": {
+            "description": "disabled"
+          },
+          "status.statusReason": {
+            "description": "Forced down"
+          },
+          "serverside.curConns": {
+            "value": 0
+          },
+          "serverside.bitsIn": {
+            "value": 0
+          },
+          "serverside.bitsOut": {
+            "value": 0
+          }
+        }
+      }
+    }
+  }
+}

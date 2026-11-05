@@ -1,0 +1,20 @@
+{
+  "kind": "tm:cm:failover-status:failover-statusstats",
+  "entries": {
+    "https://localhost/mgmt/tm/cm/failover-status/0": {
+      "nestedStats": {
+        "entries": {
+          "color": {
+            "description": "green"
+          },
+          "status": {
+            "description": "ACTIVE"
+          },
+          "summary": {
+            "description": "1/1 active"
+          }
+        }
+      }
+    }
+  }
+}

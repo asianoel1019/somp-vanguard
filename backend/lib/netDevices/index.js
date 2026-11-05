@@ -6,8 +6,8 @@ const macHosts = require('./macHosts');
 const { netError } = require('./errors');
 
 const CACHE_MS = 30 * 1000;
-const CAPABILITIES = ['summary', 'interfaces', 'policies', 'routes', 'sessions', 'vpn', 'ha', 'vlans', 'mac'];
-const METHOD = { summary: 'getSummary', interfaces: 'getInterfaces', policies: 'getPolicies', routes: 'getRoutes', sessions: 'getSessions', vpn: 'getVpn', ha: 'getHa', vlans: 'getVlans', mac: 'getMac' };
+const CAPABILITIES = ['summary', 'interfaces', 'policies', 'routes', 'sessions', 'vpn', 'ha', 'vlans', 'mac', 'virtuals', 'pools', 'certs'];
+const METHOD = { summary: 'getSummary', interfaces: 'getInterfaces', policies: 'getPolicies', routes: 'getRoutes', sessions: 'getSessions', vpn: 'getVpn', ha: 'getHa', vlans: 'getVlans', mac: 'getMac', virtuals: 'getVirtuals', pools: 'getPools', certs: 'getCerts' };
 
 const drivers = {
     fortigate: require('./drivers/fortigate'),
@@ -16,6 +16,7 @@ const drivers = {
     'cisco-ios': require('./drivers/ciscoIos'),
     'cisco-nxos': require('./drivers/ciscoNxos'),
     juniper: require('./drivers/juniper'),
+    f5: require('./drivers/f5'),
 };
 backups.setDrivers(drivers);
 

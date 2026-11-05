@@ -9,6 +9,7 @@ const profileStore = require('../lib/netDevices/profileStore');
 const registry = require('../lib/netDevices');
 const backups = require('../lib/netDevices/backups');
 const sshCli = require('../lib/netDevices/sshCli');
+const f5Session = require('../lib/netDevices/f5Session');
 
 const networkDeviceOnly = checkFeature('networkDevice');
 const READ = checkRole(['SuperAdmin', 'Operator', 'Viewer']);
@@ -21,6 +22,9 @@ const OPTS = {
     policies: ['page', 'limit', 'search'],
     sessions: ['src', 'dst', 'dport'],
     mac: ['mac', 'port', 'vlan'],
+    virtuals: ['search', 'nonGreen'],
+    pools: ['search', 'nonGreen', 'pool'],
+    certs: ['expiringOnly'],
 };
 
 function fail(res, err) {
@@ -64,6 +68,8 @@ router.put('/:id/mgmt', networkDeviceOnly, WRITE, (req, res) => {
     try {
         const device = deviceOr404(req, res);
         if (!device) return;
+        // tokens of the old connection are not reused (F5 logs in again with the saved values)
+        f5Session.forget(profileStore.getProfile(device.id));
         const profile = profileStore.saveProfile(device.id, device.type, req.body, req.user.username);
         registry.clearCache(device.id);
         auditLog(req.user.username, 'Network Device', `Saved management connection of ${label(device)} (${profile.vendor} ${profile.mgmtHost}:${profile.port})`);
@@ -75,6 +81,7 @@ router.delete('/:id/mgmt', networkDeviceOnly, WRITE, (req, res) => {
     try {
         const device = deviceOr404(req, res);
         if (!device) return;
+        f5Session.forget(profileStore.getProfile(device.id));
         const existed = profileStore.removeProfile(device.id);
         registry.clearCache(device.id);
         if (existed) auditLog(req.user.username, 'Network Device', `Removed management connection of ${label(device)}`);

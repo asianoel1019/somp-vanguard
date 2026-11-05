@@ -264,6 +264,17 @@ Server List 是 SOMP Vanguard 的核心伺服器資產資料庫 (CMDB)，自動�
 *   **分頁**：Overview（型號、版本、序號、運作時間、CPU、記憶體；Virtual Chassis 列出各成員與 master / backup 角色）、Interfaces（只列實體 Port、ae、管理介面與 irb 的各 unit，如 `irb.10`）、VLAN、MAC Table（EX2300 / 3400 / 4300 以後、QFX 等 ELS 平台；舊版 EX 的 VLAN、MAC 格式不支援）、Config Backup（`show configuration | display set`，已去除「## Last commit」行；一律走 SSH）。Router 類型只顯示 Overview、Interfaces 與 Config Backup。
 *   **注意**：Junos 回報的是當下速率，不是區間平均；錯誤計數的 CRC 取自 MAC 統計（沒有時用 framing errors）。
 
+### ⚖️ Network Device：Load Balancer 整合（F5 BIG-IP，唯讀）
+*   **連線方式**：設備類型為 LoadBalancer 時，Connection 頁籤選「F5 BIG-IP」，填管理位址、Port（預設 443）、帳號密碼。Vanguard 以 **iControl REST** 登入取得 token（只存在記憶體，快到期時自動重新登入），之後只做讀取，不執行任何指令、不改任何設定。
+*   **登入來源**：本機帳號用 `tmos`（預設）；遠端驗證（LDAP / RADIUS / TACACS）帳號填 F5 上的 provider 名稱。
+*   **Partition（選填）**：填了只看該 partition 的 Virtual Server；留空看全部 partition。
+*   **建議帳號**：F5 角色 `Auditor`（唯讀）。帳號登入被拒且訊息提到 token 時，可能是同帳號的有效 token 太多，稍候（約 20 分鐘）再試。
+*   **分頁**：Overview（平台、版本與 Build、序號、CPU、記憶體）、HA（本機角色 Active / Standby、Device Group、同步狀態 In Sync / Changes Pending、各設備角色與管理位址）、Virtual Servers（燈號：綠＝可用、黃＝暫不可用如連線數上限、紅＝離線、藍＝未知、灰＝停用；目的 IP:Port、協定、Pool、目前連線數、累計流量；可用名稱 / IP / Pool 搜尋、只看非綠燈；滑鼠移到列上顯示狀態原因）。
+*   **Pools**：列出每個 Pool 的燈號、成員上線數 / 總數（有成員沒上線時標黃）、負載平衡方式、monitor、目前連線數；可搜尋 Pool 名稱、只看非綠燈。點選 Pool 展開成員明細：每個成員的燈號、monitor 狀態、啟用狀態（enabled / disabled / forced-offline）、連線數、流量與狀態原因（例如被 monitor 標記為 down）。成員明細在展開時才讀取。
+*   **Certificates**：依到期日排序列出 SSL 憑證（名稱、Common Name、簽發者、到期日），已過期標紅、30 天內到期標黃；可只看已過期或快到期的。CA bundle（如 `ca-bundle.crt`）只列出、不計入快到期數量。
+*   **Config Backup（設定快照）**：iControl REST 無法以唯讀權限取得 tmsh 文字設定，因此備份存的是 **JSON 設定快照**：Virtual Server、Pool（含成員）、Node、Monitor（http / https / tcp / icmp / gateway-icmp）、client-ssl / server-ssl / http Profile、iRule、Data Group、SNAT、SNAT Pool、Self IP、VLAN、Route，依名稱排序，並去除版本連結、generation 等會自行變動的欄位；Pool 成員與 Node 的 monitor 結果（up / down）屬於狀態不是設定，不存，只保留 forced offline。帳號讀不到的項目列在 `_skipped`。沿用手動 / 排程備份、內容相同不重存、差異比對（SuperAdmin 查看並稽核）。**快照用於追蹤變更，不能直接還原設備；完整還原請使用 F5 的 UCS 備份。**
+*   **注意**：Route domain 的位址顯示為 `IP%編號`，IPv6 以 `.` 分隔 Port（F5 的寫法）。
+
 ### 🕸️ Topology Map 網路拓撲視覺化
 *   **自動拓撲繪製**：依據 Port Links 自動生成拓撲連線圖。
 *   **雙向連線同步**：配置線路時自動建立回程連線；拔線時自動雙向清除。

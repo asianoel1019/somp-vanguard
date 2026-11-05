@@ -1,0 +1,50 @@
+{
+  "kind": "tm:sys:hardware:hardwarestats",
+  "entries": {
+    "https://localhost/mgmt/tm/sys/hardware/platform": {
+      "nestedStats": {
+        "entries": {
+          "https://localhost/mgmt/tm/sys/hardware/platform/0": {
+            "nestedStats": {
+              "entries": {
+                "baseMac": {
+                  "description": "00:00:5e:00:53:f0"
+                },
+                "biosRev": {
+                  "description": "OBJ-0753-xx"
+                },
+                "marketingName": {
+                  "description": "BIG-IP i5800"
+                },
+                "pvaVersion": {
+                  "description": "none"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "https://localhost/mgmt/tm/sys/hardware/system-info": {
+      "nestedStats": {
+        "entries": {
+          "https://localhost/mgmt/tm/sys/hardware/system-info/0": {
+            "nestedStats": {
+              "entries": {
+                "bigipChassisSerialNum": {
+                  "description": "f5-lab0-0001"
+                },
+                "platform": {
+                  "description": "C119"
+                },
+                "product": {
+                  "description": "BIG-IP"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

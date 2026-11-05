@@ -13,6 +13,9 @@ export const CAPABILITY_TABS = [
     { key: 'ha', label: 'HA' },
     { key: 'vlans', label: 'VLAN' },
     { key: 'mac', label: 'MAC Table' },
+    { key: 'virtuals', label: 'Virtual Servers' },
+    { key: 'pools', label: 'Pools' },
+    { key: 'certs', label: 'Certificates' },
 ];
 
 // Tabs that only make sense on a switch (a router with the same driver has no VLAN / MAC table)
@@ -34,7 +37,7 @@ export const apiName = (vendorId) => API_NAMES[vendorId] || 'API';
 /** What the Connection tab says about a vendor's API and SSH ways in. */
 export const transportHint = (vendorId) => TRANSPORT_HINTS[vendorId] || `「自動」先試 API，設備沒回應才改用 SSH；${AUTO_RULE}`;
 
-export const SCOPE_LABELS ={ vdom: 'VDOM', vsys: 'vsys', domain: 'Domain' };
+export const SCOPE_LABELS = { vdom: 'VDOM', vsys: 'vsys', domain: 'Domain', partition: 'Partition' };
 
 /** Tabs to show for a device: capability tabs only when a connection is saved and enabled. */
 export function capabilityTabs(info) {
@@ -62,10 +65,11 @@ export function formFromProfile(profile, vendors = []) {
             enableSecret: profile.secrets && profile.secrets.enableSecret ? SECRET_MASK : '',
             transport: profile.transport || 'auto',
             sshPort: profile.sshPort || 22,
+            loginProvider: profile.loginProvider || 'tmos',
         };
     }
     const v = vendors.find(x => x.available) || vendors[0] || {};
-    return { vendor: v.id || '', mgmtHost: '', port: v.defaultPort || 443, username: '', scope: '', target: '', tlsVerify: false, caCert: '', enabled: true, token: '', password: '', apiKey: '', enableSecret: '', transport: 'auto', sshPort: 22 };
+    return { vendor: v.id || '', mgmtHost: '', port: v.defaultPort || 443, username: '', scope: '', target: '', tlsVerify: false, caCert: '', enabled: true, token: '', password: '', apiKey: '', enableSecret: '', transport: 'auto', sshPort: 22, loginProvider: 'tmos' };
 }
 
 /** True when the saved secrets will be dropped by the server on save (address, port, SSH port or vendor changed). */
@@ -96,6 +100,7 @@ export function payloadFromForm(form, vendor) {
         body.sshPort = form.sshPort === '' ? undefined : Number(form.sshPort);
     }
     if (vendor && vendor.enable) body.enableSecret = form.enableSecret;
+    if (vendor && vendor.loginProvider) body.loginProvider = String(form.loginProvider || '').trim() || 'tmos';
     return body;
 }
 
@@ -152,10 +157,11 @@ export function formatBps(n) {
 /** Badge colors for a status word. */
 export function statusTone(status) {
     const s = String(status || '').toLowerCase();
-    if (['up', 'ok', 'accept', 'enabled', 'active', 'connected'].includes(s)) return 'success';
-    if (['down', 'error', 'deny', 'disabled', 'err-disabled', 'suspended'].includes(s)) return 'danger';
-    if (['admin-down'].includes(s)) return 'muted';
-    if (['partial', 'unknown'].includes(s)) return 'warning';
+    if (['up', 'ok', 'accept', 'enabled', 'active', 'connected', 'green', 'in sync'].includes(s)) return 'success';
+    if (['down', 'error', 'deny', 'disabled', 'err-disabled', 'suspended', 'red', 'offline', 'forced-offline'].includes(s)) return 'danger';
+    if (['admin-down', 'gray', 'standby'].includes(s)) return 'muted';
+    if (['partial', 'unknown', 'yellow', 'changes pending', 'awaiting initial sync'].includes(s)) return 'warning';
+    if (['blue'].includes(s)) return 'info';
     return 'muted';
 }
 
@@ -165,7 +171,7 @@ export function describeError(err) {
     const msg = (data && data.error) || (err && err.message) || 'Request failed';
     const hint = {
         AUTH: '請檢查 API token / key 或帳號密碼是否正確、是否已過期。',
-        FORBIDDEN: '帳號權限不足：Firewall 需要唯讀的 admin profile；Cisco 走 RESTCONF 需要 privilege 15 帳號（不允許時改用「只用 SSH」），設定備份需要 privilege 15 或設定 Enable 密碼；NX-OS 帳號需要 network-operator 以上角色；Junos 帳號需要 read-only 以上 login class。',
+        FORBIDDEN: '帳號權限不足：Firewall 需要唯讀的 admin profile；Cisco 走 RESTCONF 需要 privilege 15 帳號（不允許時改用「只用 SSH」），設定備份需要 privilege 15 或設定 Enable 密碼；NX-OS 帳號需要 network-operator 以上角色；Junos 帳號需要 read-only 以上 login class；F5 帳號需要 Auditor 以上角色（並可看到該 partition）。',
         UNREACHABLE: '連不到設備：請確認管理位址、埠號與防火牆是否允許 Vanguard 連線。',
         TLS: '憑證驗證失敗：請提供設備的 CA 憑證，或關閉憑證驗證。',
         NOT_CONFIGURED: '尚未設定管理連線，請到 Connection 頁籤設定。',

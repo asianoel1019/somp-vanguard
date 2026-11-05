@@ -121,3 +121,20 @@ test('API names and connection hints per switch vendor', async () => {
     assert.match(m.transportHint('cisco-nxos'), /feature nxapi/);
     assert.match(m.transportHint('other'), /不會改試/);
 });
+
+test('F5: login provider in the form, partition label, tabs, status colours', async () => {
+    const m = await import('./mgmtTabs.js');
+    const f5 = { id: 'f5', available: true, auth: 'password', scope: 'partition', loginProvider: true, defaultPort: 443 };
+    assert.equal(m.formFromProfile(null, [f5]).loginProvider, 'tmos');
+    const profile = { vendor: 'f5', mgmtHost: '192.0.2.80', port: 443, username: 'auditor1', scope: 'Tenant_A', loginProvider: 'corp-ldap', enabled: true, secrets: { password: m.SECRET_MASK } };
+    const form = m.formFromProfile(profile, [f5]);
+    assert.deepEqual([form.loginProvider, form.scope], ['corp-ldap', 'Tenant_A']);
+    const body = m.payloadFromForm({ ...form, loginProvider: '  ' }, f5);
+    assert.deepEqual([body.loginProvider, body.scope, body.username, body.transport], ['tmos', 'Tenant_A', 'auditor1', undefined]);
+    assert.equal(m.payloadFromForm(form, { id: 'fortigate', auth: 'token' }).loginProvider, undefined);
+    assert.equal(m.SCOPE_LABELS.partition, 'Partition');
+    const caps = ['summary', 'ha', 'virtuals'];
+    assert.deepEqual(m.capabilityTabs({ profile, capabilities: caps, device: { type: 'LoadBalancer' } }).map(t => t.label), ['Overview', 'HA', 'Virtual Servers']);
+    assert.deepEqual(['green', 'yellow', 'red', 'blue', 'gray', 'In Sync', 'Changes Pending', 'standby'].map(m.statusTone),
+        ['success', 'warning', 'danger', 'info', 'muted', 'success', 'warning', 'muted']);
+});

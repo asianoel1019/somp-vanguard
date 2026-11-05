@@ -1,0 +1,91 @@
+{
+  "kind": "tm:ltm:pool:poolcollectionstate",
+  "items": [
+    {
+      "name": "pool_web",
+      "partition": "Common",
+      "fullPath": "/Common/pool_web",
+      "loadBalancingMode": "round-robin",
+      "monitor": "/Common/http ",
+      "membersReference": {
+        "items": [
+          {
+            "name": "192.0.2.21:80",
+            "partition": "Common",
+            "fullPath": "/Common/192.0.2.21:80",
+            "address": "192.0.2.21",
+            "state": "up",
+            "session": "monitor-enabled"
+          },
+          {
+            "name": "192.0.2.22:80",
+            "partition": "Common",
+            "fullPath": "/Common/192.0.2.22:80",
+            "address": "192.0.2.22",
+            "state": "down",
+            "session": "monitor-enabled"
+          },
+          {
+            "name": "192.0.2.23:80",
+            "partition": "Common",
+            "fullPath": "/Common/192.0.2.23:80",
+            "address": "192.0.2.23",
+            "state": "up",
+            "session": "user-disabled"
+          },
+          {
+            "name": "192.0.2.24:80",
+            "partition": "Common",
+            "fullPath": "/Common/192.0.2.24:80",
+            "address": "192.0.2.24",
+            "state": "user-down",
+            "session": "user-disabled"
+          }
+        ]
+      }
+    },
+    {
+      "name": "pool_api",
+      "partition": "Common",
+      "fullPath": "/Common/pool_api",
+      "loadBalancingMode": "least-connections-member",
+      "monitor": "min 1 of { /Common/https /Common/tcp }",
+      "membersReference": {
+        "items": [
+          {
+            "name": "192.0.2.31:8443",
+            "partition": "Common",
+            "fullPath": "/Common/192.0.2.31:8443",
+            "address": "192.0.2.31",
+            "state": "down",
+            "session": "monitor-enabled"
+          }
+        ]
+      }
+    },
+    {
+      "name": "pool_rd",
+      "partition": "Tenant_A",
+      "fullPath": "/Tenant_A/pool_rd",
+      "loadBalancingMode": "round-robin",
+      "membersReference": {
+        "items": [
+          {
+            "name": "198.51.100.21%2:443",
+            "partition": "Tenant_A",
+            "fullPath": "/Tenant_A/198.51.100.21%2:443",
+            "address": "198.51.100.21%2",
+            "state": "up",
+            "session": "monitor-enabled"
+          }
+        ]
+      }
+    },
+    {
+      "name": "pool_empty",
+      "partition": "Common",
+      "fullPath": "/Common/pool_empty",
+      "loadBalancingMode": "round-robin"
+    }
+  ]
+}

@@ -1,0 +1,140 @@
+{
+  "kind": "tm:ltm:virtual:virtualcollectionstats",
+  "entries": {
+    "https://localhost/mgmt/tm/ltm/virtual/~Common~vs_web/stats": {
+      "nestedStats": {
+        "entries": {
+          "tmName": {
+            "description": "/Common/vs_web"
+          },
+          "status.availabilityState": {
+            "description": "available"
+          },
+          "status.enabledState": {
+            "description": "enabled"
+          },
+          "status.statusReason": {
+            "description": "The virtual server is available"
+          },
+          "clientside.curConns": {
+            "value": 12
+          },
+          "clientside.bitsIn": {
+            "value": 1000
+          },
+          "clientside.bitsOut": {
+            "value": 5000
+          }
+        }
+      }
+    },
+    "https://localhost/mgmt/tm/ltm/virtual/~Common~vs_api/stats": {
+      "nestedStats": {
+        "entries": {
+          "tmName": {
+            "description": "/Common/vs_api"
+          },
+          "status.availabilityState": {
+            "description": "offline"
+          },
+          "status.enabledState": {
+            "description": "enabled"
+          },
+          "status.statusReason": {
+            "description": "The children pool member(s) are down"
+          },
+          "clientside.curConns": {
+            "value": 0
+          },
+          "clientside.bitsIn": {
+            "value": 0
+          },
+          "clientside.bitsOut": {
+            "value": 0
+          }
+        }
+      }
+    },
+    "https://localhost/mgmt/tm/ltm/virtual/~Common~vs_old/stats": {
+      "nestedStats": {
+        "entries": {
+          "tmName": {
+            "description": "/Common/vs_old"
+          },
+          "status.availabilityState": {
+            "description": "unknown"
+          },
+          "status.enabledState": {
+            "description": "disabled"
+          },
+          "status.statusReason": {
+            "description": "The virtual server is disabled"
+          },
+          "clientside.curConns": {
+            "value": 0
+          },
+          "clientside.bitsIn": {
+            "value": 0
+          },
+          "clientside.bitsOut": {
+            "value": 0
+          }
+        }
+      }
+    },
+    "https://localhost/mgmt/tm/ltm/virtual/~Tenant_A~vs_rd/stats": {
+      "nestedStats": {
+        "entries": {
+          "tmName": {
+            "description": "/Tenant_A/vs_rd"
+          },
+          "status.availabilityState": {
+            "description": "unavailable"
+          },
+          "status.enabledState": {
+            "description": "enabled"
+          },
+          "status.statusReason": {
+            "description": "Connection limit reached"
+          },
+          "clientside.curConns": {
+            "value": 500
+          },
+          "clientside.bitsIn": {
+            "value": 10
+          },
+          "clientside.bitsOut": {
+            "value": 20
+          }
+        }
+      }
+    },
+    "https://localhost/mgmt/tm/ltm/virtual/~Common~vs_v6/stats": {
+      "nestedStats": {
+        "entries": {
+          "tmName": {
+            "description": "/Common/vs_v6"
+          },
+          "status.availabilityState": {
+            "description": "unknown"
+          },
+          "status.enabledState": {
+            "description": "enabled"
+          },
+          "status.statusReason": {
+            "description": "The children pool member(s) either don't have service checking enabled"
+          },
+          "clientside.curConns": {
+            "value": 1
+          },
+          "clientside.bitsIn": {
+            "value": 1
+          },
+          "clientside.bitsOut": {
+            "value": 1
+          }
+        }
+      }
+    }
+  }
+}

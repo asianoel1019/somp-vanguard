@@ -1,0 +1,5 @@
+{
+  "kind": "tm:sys:global-settings:global-settingsstate",
+  "hostname": "bigip-lab-01.example.test",
+  "guiSetup": "disabled"
+}

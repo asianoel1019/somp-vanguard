@@ -50,7 +50,9 @@ test('vendor list by device type', () => {
     assert.equal(registry.canBackup('cisco-nxos'), true);
     assert.deepEqual(registry.capabilitiesOf('cisco-ios'), ['summary', 'interfaces', 'vlans', 'mac']);
     assert.equal(registry.canBackup('cisco-ios'), true);
-    assert.deepEqual(registry.vendorList('LoadBalancer').map(v => v.id), ['f5']);
+    assert.deepEqual(registry.vendorList('LoadBalancer').map(v => [v.id, v.available, v.scope, v.loginProvider]), [['f5', true, 'partition', true]]);
+    assert.deepEqual(registry.capabilitiesOf('f5'), ['summary', 'ha', 'virtuals', 'pools', 'certs']);
+    assert.equal(registry.canBackup('f5'), true);
 });
 
 test('unknown device, disabled profile, unsupported capability', async () => {

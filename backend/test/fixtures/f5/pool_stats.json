@@ -1,0 +1,101 @@
+{
+  "kind": "tm:ltm:pool:poolcollectionstats",
+  "entries": {
+    "https://localhost/mgmt/tm/ltm/pool/~Common~pool_web/stats": {
+      "nestedStats": {
+        "entries": {
+          "tmName": {
+            "description": "/Common/pool_web"
+          },
+          "status.availabilityState": {
+            "description": "available"
+          },
+          "status.enabledState": {
+            "description": "enabled"
+          },
+          "status.statusReason": {
+            "description": "The pool is available"
+          },
+          "serverside.curConns": {
+            "value": 30
+          },
+          "activeMemberCnt": {
+            "value": 0
+          }
+        }
+      }
+    },
+    "https://localhost/mgmt/tm/ltm/pool/~Common~pool_api/stats": {
+      "nestedStats": {
+        "entries": {
+          "tmName": {
+            "description": "/Common/pool_api"
+          },
+          "status.availabilityState": {
+            "description": "offline"
+          },
+          "status.enabledState": {
+            "description": "enabled"
+          },
+          "status.statusReason": {
+            "description": "The children pool member(s) are down"
+          },
+          "serverside.curConns": {
+            "value": 0
+          },
+          "activeMemberCnt": {
+            "value": 0
+          }
+        }
+      }
+    },
+    "https://localhost/mgmt/tm/ltm/pool/~Tenant_A~pool_rd/stats": {
+      "nestedStats": {
+        "entries": {
+          "tmName": {
+            "description": "/Tenant_A/pool_rd"
+          },
+          "status.availabilityState": {
+            "description": "available"
+          },
+          "status.enabledState": {
+            "description": "enabled"
+          },
+          "status.statusReason": {
+            "description": "The pool is available"
+          },
+          "serverside.curConns": {
+            "value": 4
+          },
+          "activeMemberCnt": {
+            "value": 0
+          }
+        }
+      }
+    },
+    "https://localhost/mgmt/tm/ltm/pool/~Common~pool_empty/stats": {
+      "nestedStats": {
+        "entries": {
+          "tmName": {
+            "description": "/Common/pool_empty"
+          },
+          "status.availabilityState": {
+            "description": "unknown"
+          },
+          "status.enabledState": {
+            "description": "enabled"
+          },
+          "status.statusReason": {
+            "description": "The children pool member(s) either don't have service checking enabled, or service check results are not available yet"
+          },
+          "serverside.curConns": {
+            "value": 0
+          },
+          "activeMemberCnt": {
+            "value": 0
+          }
+        }
+      }
+    }
+  }
+}

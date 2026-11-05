@@ -129,6 +129,13 @@ export default function ConnectionTab({ device, info, role, s, onSaved, onAlert,
                         </div>
                     </div>
                 )}
+                {vendor && vendor.loginProvider && (
+                    <div style={s.inputGroup}>
+                        <label style={s.label}>登入來源（Login Provider）</label>
+                        <input type="text" style={{ ...s.input, maxWidth: 260 }} disabled={!canEdit} placeholder="tmos" value={form.loginProvider} onChange={e => set({ loginProvider: e.target.value })} />
+                        <p style={hint}>本機帳號用 tmos（預設）；遠端驗證（LDAP / RADIUS / TACACS）帳號填 F5 上設定的 provider 名稱。建議使用 Auditor 角色（唯讀）的帳號；Vanguard 以 iControl REST 登入取得 token（只存在記憶體），只讀不改。</p>
+                    </div>
+                )}
                 {vendor && vendor.transports && (
                     <div style={{ display: 'grid', gridTemplateColumns: vendor.enable ? '2fr 1fr 2fr' : '2fr 1fr', gap: 16 }}>
                         <div style={s.inputGroup}>

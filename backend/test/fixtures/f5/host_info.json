@@ -1,0 +1,50 @@
+{
+  "kind": "tm:sys:host-info:host-infostats",
+  "entries": {
+    "https://localhost/mgmt/tm/sys/host-info/0": {
+      "nestedStats": {
+        "entries": {
+          "cpuCount": {
+            "value": 2
+          },
+          "memoryTotal": {
+            "value": 16000000000
+          },
+          "memoryUsed": {
+            "value": 6000000000
+          },
+          "https://localhost/mgmt/tm/sys/hostInfo/0/cpuInfo": {
+            "nestedStats": {
+              "entries": {
+                "https://localhost/mgmt/tm/sys/hostInfo/0/cpuInfo/0": {
+                  "nestedStats": {
+                    "entries": {
+                      "cpuId": {
+                        "value": 0
+                      },
+                      "oneMinAvgIdle": {
+                        "value": 90
+                      }
+                    }
+                  }
+                },
+                "https://localhost/mgmt/tm/sys/hostInfo/0/cpuInfo/1": {
+                  "nestedStats": {
+                    "entries": {
+                      "cpuId": {
+                        "value": 1
+                      },
+                      "oneMinAvgIdle": {
+                        "value": 80
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

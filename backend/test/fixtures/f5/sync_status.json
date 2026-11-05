@@ -1,0 +1,56 @@
+{
+  "kind": "tm:cm:sync-status:sync-statusstats",
+  "entries": {
+    "https://localhost/mgmt/tm/cm/sync-status/0": {
+      "nestedStats": {
+        "entries": {
+          "color": {
+            "description": "green"
+          },
+          "mode": {
+            "description": "high-availability"
+          },
+          "status": {
+            "description": "In Sync"
+          },
+          "summary": {
+            "description": "All devices in the device group are in sync"
+          },
+          "https://localhost/mgmt/tm/cm/syncStatus/0/details": {
+            "nestedStats": {
+              "entries": {
+                "https://localhost/mgmt/tm/cm/syncStatus/0/details/0": {
+                  "nestedStats": {
+                    "entries": {
+                      "details": {
+                        "description": "bigip-lab-02.example.test: connected (for 3600 seconds)"
+                      }
+                    }
+                  }
+                },
+                "https://localhost/mgmt/tm/cm/syncStatus/0/details/1": {
+                  "nestedStats": {
+                    "entries": {
+                      "details": {
+                        "description": "dg-lab-failover (In Sync): All devices in the device group are in sync"
+                      }
+                    }
+                  }
+                },
+                "https://localhost/mgmt/tm/cm/syncStatus/0/details/2": {
+                  "nestedStats": {
+                    "entries": {
+                      "details": {
+                        "description": "device_trust_group (In Sync): All devices in the device group are in sync"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

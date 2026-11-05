@@ -1,0 +1,543 @@
+{
+  "interface-information": [
+    {
+      "physical-interface": [
+        {
+          "name": [
+            {
+              "data": "ge-0/0/1"
+            }
+          ],
+          "admin-status": [
+            {
+              "data": "up"
+            }
+          ],
+          "oper-status": [
+            {
+              "data": "up"
+            }
+          ],
+          "description": [
+            {
+              "data": "lab host 1"
+            }
+          ],
+          "mtu": [
+            {
+              "data": "1514"
+            }
+          ],
+          "speed": [
+            {
+              "data": "1000mbps"
+            }
+          ],
+          "duplex": [
+            {
+              "data": "Full-Duplex"
+            }
+          ],
+          "current-physical-address": [
+            {
+              "data": "00:00:5e:00:53:b1"
+            }
+          ],
+          "traffic-statistics": [
+            {
+              "input-bytes": [
+                {
+                  "data": "987654321"
+                }
+              ],
+              "output-bytes": [
+                {
+                  "data": "123456789"
+                }
+              ],
+              "input-bps": [
+                {
+                  "data": "2500000"
+                }
+              ],
+              "output-bps": [
+                {
+                  "data": "1200000"
+                }
+              ]
+            }
+          ],
+          "input-error-list": [
+            {
+              "input-errors": [
+                {
+                  "data": "4"
+                }
+              ],
+              "input-drops": [
+                {
+                  "data": "1"
+                }
+              ],
+              "framing-errors": [
+                {
+                  "data": "2"
+                }
+              ]
+            }
+          ],
+          "output-error-list": [
+            {
+              "output-errors": [
+                {
+                  "data": "0"
+                }
+              ],
+              "output-drops": [
+                {
+                  "data": "7"
+                }
+              ]
+            }
+          ],
+          "ethernet-mac-statistics": [
+            {
+              "input-crc-errors": [
+                {
+                  "data": "2"
+                }
+              ]
+            }
+          ],
+          "logical-interface": [
+            {
+              "name": [
+                {
+                  "data": "ge-0/0/1.0"
+                }
+              ],
+              "address-family": [
+                {
+                  "address-family-name": [
+                    {
+                      "data": "eth-switch"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": [
+            {
+              "data": "ge-0/0/2"
+            }
+          ],
+          "admin-status": [
+            {
+              "data": "up"
+            }
+          ],
+          "oper-status": [
+            {
+              "data": "down"
+            }
+          ],
+          "mtu": [
+            {
+              "data": "1514"
+            }
+          ],
+          "speed": [
+            {
+              "data": "Auto"
+            }
+          ],
+          "logical-interface": [
+            {
+              "name": [
+                {
+                  "data": "ge-0/0/2.0"
+                }
+              ],
+              "address-family": [
+                {
+                  "address-family-name": [
+                    {
+                      "data": "eth-switch"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": [
+            {
+              "data": "ge-0/0/3"
+            }
+          ],
+          "admin-status": [
+            {
+              "data": "down"
+            }
+          ],
+          "oper-status": [
+            {
+              "data": "down"
+            }
+          ],
+          "mtu": [
+            {
+              "data": "1514"
+            }
+          ],
+          "speed": [
+            {
+              "data": "Auto"
+            }
+          ]
+        },
+        {
+          "name": [
+            {
+              "data": "xe-0/2/0"
+            }
+          ],
+          "admin-status": [
+            {
+              "data": "up"
+            }
+          ],
+          "oper-status": [
+            {
+              "data": "up"
+            }
+          ],
+          "description": [
+            {
+              "data": "uplink to core"
+            }
+          ],
+          "mtu": [
+            {
+              "data": "9216"
+            }
+          ],
+          "speed": [
+            {
+              "data": "10Gbps"
+            }
+          ],
+          "link-mode": [
+            {
+              "data": "Full-duplex"
+            }
+          ],
+          "traffic-statistics": [
+            {
+              "input-bps": [
+                {
+                  "data": "45000000"
+                }
+              ],
+              "output-bps": [
+                {
+                  "data": "38000000"
+                }
+              ]
+            }
+          ],
+          "logical-interface": [
+            {
+              "name": [
+                {
+                  "data": "xe-0/2/0.0"
+                }
+              ],
+              "address-family": [
+                {
+                  "address-family-name": [
+                    {
+                      "data": "eth-switch"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": [
+            {
+              "data": "xe-1/2/0"
+            }
+          ],
+          "admin-status": [
+            {
+              "data": "up"
+            }
+          ],
+          "oper-status": [
+            {
+              "data": "up"
+            }
+          ],
+          "mtu": [
+            {
+              "data": "1514"
+            }
+          ],
+          "speed": [
+            {
+              "data": "10Gbps"
+            }
+          ],
+          "logical-interface": [
+            {
+              "name": [
+                {
+                  "data": "xe-1/2/0.0"
+                }
+              ],
+              "address-family": [
+                {
+                  "address-family-name": [
+                    {
+                      "data": "inet"
+                    }
+                  ],
+                  "interface-address": [
+                    {
+                      "ifa-local": [
+                        {
+                          "data": "198.51.100.5"
+                        }
+                      ],
+                      "ifa-destination": [
+                        {
+                          "data": "198.51.100.4/30"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": [
+            {
+              "data": "ae0"
+            }
+          ],
+          "admin-status": [
+            {
+              "data": "up"
+            }
+          ],
+          "oper-status": [
+            {
+              "data": "up"
+            }
+          ],
+          "mtu": [
+            {
+              "data": "9216"
+            }
+          ],
+          "speed": [
+            {
+              "data": "20Gbps"
+            }
+          ],
+          "logical-interface": [
+            {
+              "name": [
+                {
+                  "data": "ae0.0"
+                }
+              ],
+              "address-family": [
+                {
+                  "address-family-name": [
+                    {
+                      "data": "eth-switch"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": [
+            {
+              "data": "irb"
+            }
+          ],
+          "admin-status": [
+            {
+              "data": "up"
+            }
+          ],
+          "oper-status": [
+            {
+              "data": "up"
+            }
+          ],
+          "mtu": [
+            {
+              "data": "1514"
+            }
+          ],
+          "logical-interface": [
+            {
+              "name": [
+                {
+                  "data": "irb.10"
+                }
+              ],
+              "address-family": [
+                {
+                  "address-family-name": [
+                    {
+                      "data": "inet"
+                    }
+                  ],
+                  "interface-address": [
+                    {
+                      "ifa-local": [
+                        {
+                          "data": "192.0.2.1"
+                        }
+                      ],
+                      "ifa-destination": [
+                        {
+                          "data": "192.0.2/24"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": [
+            {
+              "data": "me0"
+            }
+          ],
+          "admin-status": [
+            {
+              "data": "up"
+            }
+          ],
+          "oper-status": [
+            {
+              "data": "up"
+            }
+          ],
+          "mtu": [
+            {
+              "data": "1514"
+            }
+          ],
+          "speed": [
+            {
+              "data": "1000mbps"
+            }
+          ],
+          "logical-interface": [
+            {
+              "name": [
+                {
+                  "data": "me0.0"
+                }
+              ],
+              "address-family": [
+                {
+                  "address-family-name": [
+                    {
+                      "data": "inet"
+                    }
+                  ],
+                  "interface-address": [
+                    {
+                      "ifa-local": [
+                        {
+                          "data": "192.0.2.60"
+                        }
+                      ],
+                      "ifa-destination": [
+                        {
+                          "data": "192.0.2/24"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": [
+            {
+              "data": "bme0"
+            }
+          ],
+          "admin-status": [
+            {
+              "data": "up"
+            }
+          ],
+          "oper-status": [
+            {
+              "data": "up"
+            }
+          ]
+        },
+        {
+          "name": [
+            {
+              "data": "jsrv"
+            }
+          ],
+          "admin-status": [
+            {
+              "data": "up"
+            }
+          ],
+          "oper-status": [
+            {
+              "data": "up"
+            }
+          ]
+        },
+        {
+          "name": [
+            {
+              "data": "vtep"
+            }
+          ],
+          "admin-status": [
+            {
+              "data": "up"
+            }
+          ],
+          "oper-status": [
+            {
+              "data": "up"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -9,7 +9,9 @@ const { netError } = require('./errors');
 
 const KEY = 'network_service/device_mgmt.json';
 const MASK = '********';
-const SECRET_FIELDS = ['token', 'password', 'apiKey'];
+const SECRET_FIELDS = ['token', 'password', 'apiKey', 'enableSecret'];
+const TRANSPORTS = ['auto', 'api', 'ssh'];
+const DEFAULT_SSH_PORT = 22;
 
 // The vendors of the spec. Only those with a driver are available; the rest are listed so the page can say so.
 const VENDORS = {
@@ -17,9 +19,11 @@ const VENDORS = {
     paloalto: { label: 'Palo Alto Networks', types: ['Firewall'], available: true, defaultPort: 443, auth: 'apiKey', scope: 'vsys' },
     // Check Point is read through its management server; `target` names the gateway of this device there
     checkpoint: { label: 'Check Point', types: ['Firewall'], available: true, defaultPort: 443, auth: 'apiKey', scope: 'domain', target: 'gateway' },
-    'cisco-ios': { label: 'Cisco IOS / IOS-XE', types: ['Switch', 'Router'], available: false, defaultPort: 443, auth: 'password', scope: null },
-    'cisco-nxos': { label: 'Cisco NX-OS', types: ['Switch'], available: false, defaultPort: 443, auth: 'password', scope: null },
-    juniper: { label: 'Juniper Junos', types: ['Switch', 'Router'], available: false, defaultPort: 443, auth: 'password', scope: null },
+    // Switch / router vendors: an API (RESTCONF, NX-API, Junos REST) with SSH as fallback (`transports`);
+    // `enable`: an optional enable secret for SSH sessions that start below privilege 15
+    'cisco-ios': { label: 'Cisco IOS / IOS-XE', types: ['Switch', 'Router'], available: true, defaultPort: 443, auth: 'password', scope: null, transports: ['api', 'ssh'], enable: true },
+    'cisco-nxos': { label: 'Cisco NX-OS', types: ['Switch'], available: true, defaultPort: 443, auth: 'password', scope: null, transports: ['api', 'ssh'] },
+    juniper: { label: 'Juniper Junos', types: ['Switch', 'Router'], available: true, defaultPort: 3443, auth: 'password', scope: null, transports: ['api', 'ssh'] },
     f5: { label: 'F5 BIG-IP', types: ['LoadBalancer'], available: false, defaultPort: 443, auth: 'password', scope: null },
 };
 
@@ -101,14 +105,24 @@ function buildProfile(deviceType, input, previous) {
     if (username && !USER_RE.test(username)) throw netError('BAD_REQUEST', 'Invalid user name');
     const target = String(body.target || '').trim();
     if (target && (!meta.target || !TARGET_RE.test(target))) throw netError('BAD_REQUEST', 'Invalid gateway name');
+    let transport = 'auto';
+    let sshPort = DEFAULT_SSH_PORT;
+    if (meta.transports) {
+        transport = body.transport === undefined || body.transport === null || body.transport === '' ? 'auto' : String(body.transport);
+        if (!TRANSPORTS.includes(transport)) throw netError('BAD_REQUEST', `Connection method must be one of ${TRANSPORTS.join(', ')}`);
+        sshPort = body.sshPort === undefined || body.sshPort === null || body.sshPort === '' ? DEFAULT_SSH_PORT : Number(body.sshPort);
+        if (!Number.isInteger(sshPort) || sshPort < 1 || sshPort > 65535) throw netError('BAD_REQUEST', 'SSH port must be 1-65535');
+    }
     const caCert = body.caCert ? String(body.caCert) : '';
     if (caCert && (caCert.length > 65536 || !/-----BEGIN CERTIFICATE-----/.test(caCert))) throw netError('BAD_REQUEST', 'CA certificate must be PEM text (max 64 KB)');
 
     // Stored secrets survive only when the device address and vendor stay the same
-    const sameTarget = previous && previous.vendor === vendor && previous.mgmtHost === mgmtHost && Number(previous.port) === port;
+    const sameTarget = previous && previous.vendor === vendor && previous.mgmtHost === mgmtHost && Number(previous.port) === port
+        && (!meta.transports || Number(previous.sshPort || DEFAULT_SSH_PORT) === sshPort);
     const prevSecrets = sameTarget && body.clearSecrets !== true ? (previous.secrets || {}) : {};
     const secrets = {};
     for (const f of SECRET_FIELDS) {
+        if (f === 'enableSecret' && !meta.enable) continue;
         const v = body[f];
         if (typeof v === 'string' && v && v !== MASK) {
             if (v.length > 4096) throw netError('BAD_REQUEST', `${f} is too long`);
@@ -121,7 +135,7 @@ function buildProfile(deviceType, input, previous) {
         throw netError('BAD_REQUEST', previous && !sameTarget ? 'Address, port or vendor changed: enter the API token again' : 'API token is required');
     }
     if (meta.auth === 'password' && (!username || !secrets.password)) {
-        throw netError('BAD_REQUEST', previous && !sameTarget ? 'Address, port or vendor changed: enter the password again' : 'User name and password are required');
+        throw netError('BAD_REQUEST', previous && !sameTarget ? 'Address, port, SSH port or vendor changed: enter the password again' : 'User name and password are required');
     }
     if (meta.auth === 'apiKey' && !secrets.apiKey && !(username && secrets.password)) {
         throw netError('BAD_REQUEST', 'API key, or user name and password, is required');
@@ -132,6 +146,7 @@ function buildProfile(deviceType, input, previous) {
         username: username || '',
         scope: meta.scope ? scope : '',
         target: meta.target ? target : '',
+        ...(meta.transports ? { transport, sshPort } : {}),
         tlsVerify: body.tlsVerify === true,
         caCert: body.tlsVerify === true ? caCert : '',
         enabled: body.enabled !== false,
@@ -170,6 +185,17 @@ function recordStatus(id, { ok, error, facts }) {
     }, { defaultValue: {}, fnName: 'netDevices.recordStatus', label: 'Device management' });
 }
 
+/** Remember which way ('api' / 'ssh') works for a device on 'auto'; null forgets it so the next call finds out again. */
+function recordTransport(id, transport) {
+    if (transport !== null && !['api', 'ssh'].includes(transport)) return;
+    mutateDocument(KEY, (doc) => {
+        const p = doc[id];
+        if (!p) return;
+        if (transport) p.lastTransport = transport;
+        else delete p.lastTransport;
+    }, { defaultValue: {}, fnName: 'netDevices.recordTransport', label: 'Device management' });
+}
+
 /**
  * Connection target for a test with values from the page: secrets left blank or masked are taken from the stored
  * profile only when vendor, address and port are unchanged.
@@ -179,4 +205,4 @@ function testTarget(id, deviceType, input) {
     return buildProfile(deviceType, input, previous);
 }
 
-module.exports = { KEY, MASK, VENDORS, getProfile, publicProfile, listSummaries, saveProfile, removeProfile, recordStatus, testTarget, buildProfile };
+module.exports = { KEY, MASK, VENDORS, getProfile, publicProfile, listSummaries, saveProfile, removeProfile, recordStatus, recordTransport, testTarget, buildProfile };

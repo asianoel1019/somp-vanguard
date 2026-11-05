@@ -84,9 +84,50 @@ test('recordStatus keeps facts for the list; a target change resets them', () =>
     assert.equal(s.lastStatus, 'unknown');
 });
 
+test('recordTransport remembers the way that works on auto; saving forgets it', () => {
+    const ios = { vendor: 'cisco-ios', mgmtHost: '192.0.2.20', username: 'netro', password: 'pw-123456' };
+    store.saveProfile('sw1', 'Switch', ios, 'a');
+    store.recordTransport('sw1', 'ssh');
+    assert.equal(store.getProfile('sw1').lastTransport, 'ssh');
+    assert.equal(store.publicProfile(store.getProfile('sw1')).lastTransport, 'ssh');
+    store.recordTransport('sw1', 'telnet');
+    assert.equal(store.getProfile('sw1').lastTransport, 'ssh', 'unknown ways are ignored');
+    store.recordTransport('sw1', null);
+    assert.equal(store.getProfile('sw1').lastTransport, undefined);
+    store.recordTransport('sw1', 'api');
+    store.saveProfile('sw1', 'Switch', { ...ios, password: store.MASK }, 'a');
+    assert.equal(store.getProfile('sw1').lastTransport, undefined, 'a saved connection decides afresh');
+    store.recordTransport('nope', 'api');
+    assert.equal(store.getProfile('nope'), null);
+});
+
 test('removeProfile', () => {
     store.saveProfile('d1', 'Firewall', base, 'a');
     assert.equal(store.removeProfile('d1'), true);
     assert.equal(store.getProfile('d1'), null);
     assert.equal(store.removeProfile('d1'), false);
+});
+
+test('switch vendors: connection method, SSH port, enable secret', () => {
+    const ios = { vendor: 'cisco-ios', mgmtHost: '192.0.2.20', username: 'netro', password: 'pw-123456', enableSecret: 'en-123456' };
+    const p = store.saveProfile('sw1', 'Switch', ios, 'a');
+    assert.equal(p.transport, 'auto');
+    assert.equal(p.sshPort, 22);
+    assert.equal(p.secrets.enableSecret, store.MASK);
+    assert.equal(store.getProfile('sw1').secrets.enableSecret, 'en-123456');
+    // same target: masked secrets kept
+    store.saveProfile('sw1', 'Switch', { ...ios, password: store.MASK, enableSecret: store.MASK, transport: 'ssh' }, 'a');
+    assert.equal(store.getProfile('sw1').secrets.enableSecret, 'en-123456');
+    assert.equal(store.getProfile('sw1').transport, 'ssh');
+    // a different SSH port is a different target
+    assert.throws(() => store.saveProfile('sw1', 'Switch', { ...ios, password: store.MASK, enableSecret: store.MASK, sshPort: 2222 }, 'a'), (e) => /enter the password again/.test(e.message));
+    for (const bad of [{ transport: 'telnet' }, { sshPort: 0 }, { sshPort: 70000 }]) {
+        assert.throws(() => store.buildProfile('Switch', { ...ios, ...bad }, null), (e) => e.code === 'BAD_REQUEST', JSON.stringify(bad));
+    }
+    assert.equal(store.buildProfile('Router', ios, null).vendor, 'cisco-ios');
+    // vendors without transports / enable ignore those fields
+    const fgt = store.buildProfile('Firewall', { ...base, transport: 'ssh', sshPort: 2222, enableSecret: 'x-123456' }, null);
+    assert.equal(fgt.transport, undefined);
+    assert.equal(fgt.sshPort, undefined);
+    assert.equal(fgt.secrets.enableSecret, undefined);
 });

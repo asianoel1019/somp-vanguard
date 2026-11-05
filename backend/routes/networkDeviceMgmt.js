@@ -8,6 +8,7 @@ const { findNetworkDevice, NETWORK_TYPES } = require('../lib/networkDevices');
 const profileStore = require('../lib/netDevices/profileStore');
 const registry = require('../lib/netDevices');
 const backups = require('../lib/netDevices/backups');
+const sshCli = require('../lib/netDevices/sshCli');
 
 const networkDeviceOnly = checkFeature('networkDevice');
 const READ = checkRole(['SuperAdmin', 'Operator', 'Viewer']);
@@ -19,6 +20,7 @@ const SUPER = checkRole(['SuperAdmin']);
 const OPTS = {
     policies: ['page', 'limit', 'search'],
     sessions: ['src', 'dst', 'dport'],
+    mac: ['mac', 'port', 'vlan'],
 };
 
 function fail(res, err) {
@@ -80,6 +82,21 @@ router.delete('/:id/mgmt', networkDeviceOnly, WRITE, (req, res) => {
     } catch (err) { fail(res, err); }
 });
 
+// Forget the pinned SSH host key (the switch was replaced): the next SSH connection pins the new key
+router.post('/:id/mgmt/hostkey/reset', networkDeviceOnly, WRITE, (req, res) => {
+    try {
+        const device = deviceOr404(req, res);
+        if (!device) return;
+        const profile = profileStore.getProfile(device.id);
+        const meta = profile && profileStore.VENDORS[profile.vendor];
+        if (!profile || !meta || !meta.transports) return res.status(400).json({ error: 'This device has no SSH connection', code: 'BAD_REQUEST' });
+        const removed = sshCli.forgetHostKey(profile);
+        registry.clearCache(device.id);
+        auditLog(req.user.username, 'Network Device', `Reset the SSH host key of ${label(device)} (${sshCli.hostKeyId(profile)})${removed ? '' : ' (none was stored)'}`);
+        res.json({ success: true, removed: !!removed });
+    } catch (err) { fail(res, err); }
+});
+
 // Try the values on the page without saving them (blank secrets fall back to the stored ones for the same target)
 router.post('/:id/mgmt/test', networkDeviceOnly, WRITE, async (req, res) => {
     try {
@@ -87,6 +104,9 @@ router.post('/:id/mgmt/test', networkDeviceOnly, WRITE, async (req, res) => {
         if (!device) return;
         const target = profileStore.testTarget(device.id, device.type, req.body);
         const facts = await registry.testConnection(target);
+        // a test decides the way afresh: forget the one learned on 'auto'
+        const stored = profileStore.getProfile(device.id);
+        if (stored && stored.lastTransport) profileStore.recordTransport(device.id, null);
         auditLog(req.user.username, 'Network Device', `Tested management connection of ${label(device)} (${target.vendor} ${target.mgmtHost}:${target.port}): OK`);
         res.json({ success: true, facts });
     } catch (err) { fail(res, err); }

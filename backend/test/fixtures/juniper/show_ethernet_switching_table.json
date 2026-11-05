@@ -1,0 +1,147 @@
+{
+  "l2ng-l2ald-rtb-macdb": [
+    {
+      "l2ng-l2ald-mac-entry-vlan": [
+        {
+          "l2ng-l2-mac-routing-instance": [
+            {
+              "data": "default-switch"
+            }
+          ],
+          "l2ng-mac-entry": [
+            {
+              "l2ng-l2-mac-vlan-name": [
+                {
+                  "data": "LAB-USERS"
+                }
+              ],
+              "l2ng-l2-mac-address": [
+                {
+                  "data": "00:00:5e:00:53:10"
+                }
+              ],
+              "l2ng-l2-mac-flags": [
+                {
+                  "data": "D"
+                }
+              ],
+              "l2ng-l2-mac-logical-interface": [
+                {
+                  "data": "ge-0/0/1.0"
+                }
+              ],
+              "l2ng-l2-vlan-id": [
+                {
+                  "data": "10"
+                }
+              ]
+            },
+            {
+              "l2ng-l2-mac-vlan-name": [
+                {
+                  "data": "LAB-USERS"
+                }
+              ],
+              "l2ng-l2-mac-address": [
+                {
+                  "data": "00:00:5e:00:53:21"
+                }
+              ],
+              "l2ng-l2-mac-flags": [
+                {
+                  "data": "D"
+                }
+              ],
+              "l2ng-l2-mac-logical-interface": [
+                {
+                  "data": "xe-0/2/0.0"
+                }
+              ],
+              "l2ng-l2-vlan-id": [
+                {
+                  "data": "10"
+                }
+              ]
+            },
+            {
+              "l2ng-l2-mac-vlan-name": [
+                {
+                  "data": "LAB-USERS"
+                }
+              ],
+              "l2ng-l2-mac-address": [
+                {
+                  "data": "00:00:5e:00:53:22"
+                }
+              ],
+              "l2ng-l2-mac-flags": [
+                {
+                  "data": "D"
+                }
+              ],
+              "l2ng-l2-mac-logical-interface": [
+                {
+                  "data": "xe-0/2/0.0"
+                }
+              ]
+            },
+            {
+              "l2ng-l2-mac-vlan-name": [
+                {
+                  "data": "LAB-VOICE"
+                }
+              ],
+              "l2ng-l2-mac-address": [
+                {
+                  "data": "00:00:5e:00:53:23"
+                }
+              ],
+              "l2ng-l2-mac-flags": [
+                {
+                  "data": "D"
+                }
+              ],
+              "l2ng-l2-mac-logical-interface": [
+                {
+                  "data": "xe-0/2/0.0"
+                }
+              ],
+              "l2ng-l2-vlan-id": [
+                {
+                  "data": "20"
+                }
+              ]
+            },
+            {
+              "l2ng-l2-mac-vlan-name": [
+                {
+                  "data": "LAB-VOICE"
+                }
+              ],
+              "l2ng-l2-mac-address": [
+                {
+                  "data": "00:00:5e:00:53:30"
+                }
+              ],
+              "l2ng-l2-mac-flags": [
+                {
+                  "data": "S"
+                }
+              ],
+              "l2ng-l2-mac-logical-interface": [
+                {
+                  "data": "ae0.0"
+                }
+              ],
+              "l2ng-l2-vlan-id": [
+                {
+                  "data": "20"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

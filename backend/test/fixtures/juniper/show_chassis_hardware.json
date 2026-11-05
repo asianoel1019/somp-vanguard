@@ -1,0 +1,110 @@
+{
+  "chassis-inventory": [
+    {
+      "chassis": [
+        {
+          "name": [
+            {
+              "data": "Chassis"
+            }
+          ],
+          "serial-number": [
+            {
+              "data": "PE0000LAB00"
+            }
+          ],
+          "description": [
+            {
+              "data": "Virtual Chassis"
+            }
+          ],
+          "chassis-module": [
+            {
+              "name": [
+                {
+                  "data": "Routing Engine 0"
+                }
+              ],
+              "model-number": [
+                {
+                  "data": "EX4300-48T"
+                }
+              ],
+              "serial-number": [
+                {
+                  "data": "PE0000LAB01"
+                }
+              ],
+              "description": [
+                {
+                  "data": "EX4300-48T"
+                }
+              ]
+            },
+            {
+              "name": [
+                {
+                  "data": "FPC 0"
+                }
+              ],
+              "model-number": [
+                {
+                  "data": "EX4300-48T"
+                }
+              ],
+              "serial-number": [
+                {
+                  "data": "PE0000LAB01"
+                }
+              ],
+              "description": [
+                {
+                  "data": "EX4300-48T"
+                }
+              ]
+            },
+            {
+              "name": [
+                {
+                  "data": "FPC 1"
+                }
+              ],
+              "model-number": [
+                {
+                  "data": "EX4300-48T"
+                }
+              ],
+              "serial-number": [
+                {
+                  "data": "PE0000LAB02"
+                }
+              ],
+              "description": [
+                {
+                  "data": "EX4300-48T"
+                }
+              ]
+            },
+            {
+              "name": [
+                {
+                  "data": "Power Supply 0"
+                }
+              ],
+              "serial-number": [
+                {
+                  "data": "PS0000LAB01"
+                }
+              ],
+              "description": [
+                {
+                  "data": "JPSU-350-AC-AFO"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

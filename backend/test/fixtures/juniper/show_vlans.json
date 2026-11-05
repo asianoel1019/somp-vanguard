@@ -1,0 +1,195 @@
+{
+  "l2ng-l2ald-vlan-instance-information": [
+    {
+      "l2ng-l2ald-vlan-instance-group": [
+        {
+          "l2ng-l2rtb-vlan-name": [
+            {
+              "data": "default"
+            }
+          ],
+          "l2ng-l2rtb-vlan-tag": [
+            {
+              "data": "1"
+            }
+          ],
+          "l2ng-l2rtb-vlan-member": [
+            {
+              "l2ng-l2rtb-vlan-member-interface": [
+                {
+                  "data": "xe-0/2/0.0*"
+                }
+              ],
+              "l2ng-l2rtb-vlan-member-tagness": [
+                {
+                  "data": "untagged"
+                }
+              ],
+              "l2ng-l2rtb-vlan-member-interface-mode": [
+                {
+                  "data": "trunk"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "l2ng-l2rtb-vlan-name": [
+            {
+              "data": "LAB-USERS"
+            }
+          ],
+          "l2ng-l2rtb-vlan-tag": [
+            {
+              "data": "10"
+            }
+          ],
+          "l2ng-l2rtb-vlan-member": [
+            {
+              "l2ng-l2rtb-vlan-member-interface": [
+                {
+                  "data": "ge-0/0/1.0*"
+                }
+              ],
+              "l2ng-l2rtb-vlan-member-tagness": [
+                {
+                  "data": "untagged"
+                }
+              ],
+              "l2ng-l2rtb-vlan-member-interface-mode": [
+                {
+                  "data": "access"
+                }
+              ]
+            },
+            {
+              "l2ng-l2rtb-vlan-member-interface": [
+                {
+                  "data": "xe-0/2/0.0*"
+                }
+              ],
+              "l2ng-l2rtb-vlan-member-tagness": [
+                {
+                  "data": "tagged"
+                }
+              ],
+              "l2ng-l2rtb-vlan-member-interface-mode": [
+                {
+                  "data": "trunk"
+                }
+              ]
+            },
+            {
+              "l2ng-l2rtb-vlan-member-interface": [
+                {
+                  "data": "ae0.0*"
+                }
+              ],
+              "l2ng-l2rtb-vlan-member-tagness": [
+                {
+                  "data": "tagged"
+                }
+              ],
+              "l2ng-l2rtb-vlan-member-interface-mode": [
+                {
+                  "data": "trunk"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "l2ng-l2rtb-vlan-name": [
+            {
+              "data": "LAB-VOICE"
+            }
+          ],
+          "l2ng-l2rtb-vlan-tag": [
+            {
+              "data": "20"
+            }
+          ],
+          "l2ng-l2rtb-vlan-member": [
+            {
+              "l2ng-l2rtb-vlan-member-interface": [
+                {
+                  "data": "ge-0/0/2.0"
+                }
+              ],
+              "l2ng-l2rtb-vlan-member-tagness": [
+                {
+                  "data": "untagged"
+                }
+              ],
+              "l2ng-l2rtb-vlan-member-interface-mode": [
+                {
+                  "data": "access"
+                }
+              ]
+            },
+            {
+              "l2ng-l2rtb-vlan-member-interface": [
+                {
+                  "data": "xe-0/2/0.0*"
+                }
+              ],
+              "l2ng-l2rtb-vlan-member-tagness": [
+                {
+                  "data": "tagged"
+                }
+              ],
+              "l2ng-l2rtb-vlan-member-interface-mode": [
+                {
+                  "data": "trunk"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "l2ng-l2rtb-vlan-name": [
+            {
+              "data": "LAB-MGMT"
+            }
+          ],
+          "l2ng-l2rtb-vlan-tag": [
+            {
+              "data": "30"
+            }
+          ],
+          "l2ng-l2rtb-vlan-member": [
+            {
+              "l2ng-l2rtb-vlan-member-interface": [
+                {
+                  "data": "xe-0/2/0.0*"
+                }
+              ],
+              "l2ng-l2rtb-vlan-member-tagness": [
+                {
+                  "data": "tagged"
+                }
+              ],
+              "l2ng-l2rtb-vlan-member-interface-mode": [
+                {
+                  "data": "trunk"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "l2ng-l2rtb-vlan-name": [
+            {
+              "data": "NATIVE"
+            }
+          ],
+          "l2ng-l2rtb-vlan-tag": [
+            {
+              "data": "99"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,221 @@
+{
+  "switching-interface-information": [
+    {
+      "interface": [
+        {
+          "interface-name": [
+            {
+              "data": "ge-0/0/1.0"
+            }
+          ],
+          "interface-port-mode": [
+            {
+              "data": "Access"
+            }
+          ],
+          "interface-vlan-member-list": [
+            {
+              "interface-vlan-member": [
+                {
+                  "interface-vlan-name": [
+                    {
+                      "data": "LAB-USERS"
+                    }
+                  ],
+                  "interface-vlan-member-tagid": [
+                    {
+                      "data": "10"
+                    }
+                  ],
+                  "interface-vlan-member-tagness": [
+                    {
+                      "data": "untagged"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "interface-name": [
+            {
+              "data": "ge-0/0/2.0"
+            }
+          ],
+          "interface-port-mode": [
+            {
+              "data": "Access"
+            }
+          ],
+          "interface-vlan-member-list": [
+            {
+              "interface-vlan-member": [
+                {
+                  "interface-vlan-name": [
+                    {
+                      "data": "LAB-VOICE"
+                    }
+                  ],
+                  "interface-vlan-member-tagid": [
+                    {
+                      "data": "20"
+                    }
+                  ],
+                  "interface-vlan-member-tagness": [
+                    {
+                      "data": "untagged"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "interface-name": [
+            {
+              "data": "xe-0/2/0.0"
+            }
+          ],
+          "interface-port-mode": [
+            {
+              "data": "Trunk"
+            }
+          ],
+          "interface-vlan-member-list": [
+            {
+              "interface-vlan-member": [
+                {
+                  "interface-vlan-name": [
+                    {
+                      "data": "default"
+                    }
+                  ],
+                  "interface-vlan-member-tagid": [
+                    {
+                      "data": "1"
+                    }
+                  ],
+                  "interface-vlan-member-tagness": [
+                    {
+                      "data": "untagged"
+                    }
+                  ]
+                },
+                {
+                  "interface-vlan-name": [
+                    {
+                      "data": "LAB-USERS"
+                    }
+                  ],
+                  "interface-vlan-member-tagid": [
+                    {
+                      "data": "10"
+                    }
+                  ],
+                  "interface-vlan-member-tagness": [
+                    {
+                      "data": "tagged"
+                    }
+                  ]
+                },
+                {
+                  "interface-vlan-name": [
+                    {
+                      "data": "LAB-VOICE"
+                    }
+                  ],
+                  "interface-vlan-member-tagid": [
+                    {
+                      "data": "20"
+                    }
+                  ],
+                  "interface-vlan-member-tagness": [
+                    {
+                      "data": "tagged"
+                    }
+                  ]
+                },
+                {
+                  "interface-vlan-name": [
+                    {
+                      "data": "LAB-MGMT"
+                    }
+                  ],
+                  "interface-vlan-member-tagid": [
+                    {
+                      "data": "30"
+                    }
+                  ],
+                  "interface-vlan-member-tagness": [
+                    {
+                      "data": "tagged"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "interface-name": [
+            {
+              "data": "ae0.0"
+            }
+          ],
+          "interface-port-mode": [
+            {
+              "data": "Trunk"
+            }
+          ],
+          "interface-native-vlan": [
+            {
+              "data": "99"
+            }
+          ],
+          "interface-vlan-member-list": [
+            {
+              "interface-vlan-member": [
+                {
+                  "interface-vlan-name": [
+                    {
+                      "data": "LAB-USERS"
+                    }
+                  ],
+                  "interface-vlan-member-tagid": [
+                    {
+                      "data": "10"
+                    }
+                  ],
+                  "interface-vlan-member-tagness": [
+                    {
+                      "data": "tagged"
+                    }
+                  ]
+                },
+                {
+                  "interface-vlan-name": [
+                    {
+                      "data": "NATIVE"
+                    }
+                  ],
+                  "interface-vlan-member-tagid": [
+                    {
+                      "data": "99"
+                    }
+                  ],
+                  "interface-vlan-member-tagness": [
+                    {
+                      "data": "untagged"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

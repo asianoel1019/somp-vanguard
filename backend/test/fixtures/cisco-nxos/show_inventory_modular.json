@@ -1,0 +1,24 @@
+{
+  "TABLE_inv": {
+    "ROW_inv": [
+      {
+        "name": "Chassis",
+        "desc": "Nexus9500 8-slot chassis",
+        "productid": "N9K-C9508",
+        "serialnum": "FOX0000CH01"
+      },
+      {
+        "name": "Slot 2",
+        "desc": "36p 100G Ethernet Module",
+        "productid": "N9K-X9736C-FX",
+        "serialnum": "FOC0000LC02"
+      },
+      {
+        "name": "Slot 1",
+        "desc": "36p 100G Ethernet Module",
+        "productid": "N9K-X9736C-FX",
+        "serialnum": "FOC0000LC01"
+      }
+    ]
+  }
+}

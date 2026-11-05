@@ -1,0 +1,17 @@
+{
+  "Cisco-IOS-XE-device-hardware-oper:device-hardware-data": {
+    "device-hardware": {
+      "device-inventory": [
+        { "hw-type": "hw-type-chassis", "hw-dev-index": 1, "version": "V02", "part-number": "C9300-48P", "serial-number": "FOC0000LAB1", "hw-description": "Cisco Catalyst 9300 Series 48-Port PoE+", "dev-name": "Switch 1" },
+        { "hw-type": "hw-type-chassis", "hw-dev-index": 2, "version": "V02", "part-number": "C9300-48P", "serial-number": "FOC0000LAB2", "hw-description": "Cisco Catalyst 9300 Series 48-Port PoE+", "dev-name": "Switch 2" },
+        { "hw-type": "hw-type-pim", "hw-dev-index": 1, "part-number": "C9300-NM-8X", "serial-number": "FOC0000NM01", "hw-description": "8x10G Uplink Module" }
+      ],
+      "device-system-data": {
+        "current-time": "2026-11-05T08:30:00+00:00",
+        "boot-time": "2026-10-03T06:00:00+00:00",
+        "software-version": "Cisco IOS XE Software, Version 17.09.04a\nCisco IOS Software [Cupertino], Catalyst L3 Switch Software (CAT9K_IOSXE), Version 17.9.4a, RELEASE SOFTWARE (fc3)",
+        "last-reboot-reason": "Reload Command"
+      }
+    }
+  }
+}

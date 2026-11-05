@@ -192,6 +192,7 @@ function executeShell(host, username, password, commands, options = {}) {
 }
 
 module.exports = {
+    createPinning, // also used by lib/netDevices/sshCli.js
     executeSSH,
     sftpWrite,
     executeShell

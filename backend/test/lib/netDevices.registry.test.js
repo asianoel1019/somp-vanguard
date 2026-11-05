@@ -27,6 +27,15 @@ test.beforeEach(() => {
     store.saveProfile('d1', 'Firewall', { vendor: 'fortigate', mgmtHost: '192.0.2.1', token: 'tok-123456' }, 'a');
 });
 
+test('drivers get a context that remembers the working transport', async () => {
+    const orig = fake.getInterfaces;
+    fake.getInterfaces = async (profile, opts, ctx) => { ctx.setTransport('ssh'); return []; };
+    try {
+        await registry.runCapability('d1', 'interfaces');
+        assert.equal(store.getProfile('d1').lastTransport, 'ssh');
+    } finally { fake.getInterfaces = orig; }
+});
+
 test('vendor list by device type', () => {
     const fw = registry.vendorList('Firewall');
     assert.deepEqual(fw.map(v => v.id), ['fortigate', 'paloalto', 'checkpoint']);
@@ -34,7 +43,13 @@ test('vendor list by device type', () => {
     assert.equal(fw[1].available, true);
     assert.equal(fw[2].available, true);
     assert.deepEqual(registry.capabilitiesOf('checkpoint'), ['summary', 'interfaces', 'policies', 'ha']);
-    assert.equal(registry.vendorList('Switch')[0].available, false);
+    assert.deepEqual(registry.vendorList('Switch').map(v => [v.id, v.available]), [['cisco-ios', true], ['cisco-nxos', true], ['juniper', true]]);
+    assert.deepEqual(registry.vendorList('Router').map(v => v.id), ['cisco-ios', 'juniper']);
+    assert.equal(registry.vendorList('Router').find(v => v.id === 'juniper').defaultPort, 3443);
+    assert.deepEqual(registry.capabilitiesOf('cisco-nxos'), ['summary', 'interfaces', 'vlans', 'mac']);
+    assert.equal(registry.canBackup('cisco-nxos'), true);
+    assert.deepEqual(registry.capabilitiesOf('cisco-ios'), ['summary', 'interfaces', 'vlans', 'mac']);
+    assert.equal(registry.canBackup('cisco-ios'), true);
     assert.deepEqual(registry.vendorList('LoadBalancer').map(v => v.id), ['f5']);
 });
 

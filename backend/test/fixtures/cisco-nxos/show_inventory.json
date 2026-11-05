@@ -1,0 +1,26 @@
+{
+  "TABLE_inv": {
+    "ROW_inv": [
+      {
+        "name": "Chassis",
+        "desc": "Nexus9000 C93180YC-EX chassis",
+        "productid": "N9K-C93180YC-EX",
+        "vendorid": "V03",
+        "serialnum": "FDO0000LAB0"
+      },
+      {
+        "name": "Slot 1",
+        "desc": "48x10/25G + 6x40/100G Ethernet Module",
+        "productid": "N9K-C93180YC-EX",
+        "vendorid": "V03",
+        "serialnum": "FDO0000LAB1"
+      },
+      {
+        "name": "Power Supply 1",
+        "desc": "Nexus9000 C93180YC-EX chassis Power Supply",
+        "productid": "NXA-PAC-650W-PE",
+        "serialnum": "LIT0000PS01"
+      }
+    ]
+  }
+}

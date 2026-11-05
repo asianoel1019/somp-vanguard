@@ -1,0 +1,4 @@
+{ "Cisco-IOS-XE-memory-oper:memory-statistics": { "memory-statistic": [
+  { "name": "Processor", "total-memory": "1600000000", "used-memory": "560000000", "free-memory": "1040000000" },
+  { "name": "lsmpi_io", "total-memory": "3149400", "used-memory": "3148576", "free-memory": "824" }
+] } }

@@ -1,0 +1,11 @@
+{ "Cisco-IOS-XE-matm-oper:matm-oper-data": { "matm-table": [
+  { "table-type": "mat-vlan", "vlan-id-number": 1, "matm-mac-entry": [
+    { "mac": "00:00:5e:00:53:01", "vlan-id-number": 1, "mat-addr-type": "static", "port": "CPU" } ] },
+  { "table-type": "mat-vlan", "vlan-id-number": 10, "matm-mac-entry": [
+    { "mac": "00:00:5e:00:53:10", "vlan-id-number": 10, "mat-addr-type": "dynamic", "port": "GigabitEthernet1/0/1" },
+    { "mac": "00:00:5e:00:53:21", "vlan-id-number": 10, "mat-addr-type": "dynamic", "port": "GigabitEthernet1/0/3" },
+    { "mac": "00:00:5e:00:53:22", "vlan-id-number": 10, "mat-addr-type": "dynamic", "port": "GigabitEthernet1/0/3" } ] },
+  { "table-type": "mat-vlan", "vlan-id-number": 20, "matm-mac-entry": [
+    { "mac": "00:00:5e:00:53:23", "vlan-id-number": 20, "mat-addr-type": "dynamic", "port": "GigabitEthernet1/0/3" },
+    { "mac": "00:00:5e:00:53:30", "vlan-id-number": 20, "mat-addr-type": "static", "port": "GigabitEthernet1/0/5" } ] }
+] } }

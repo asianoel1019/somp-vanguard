@@ -2,16 +2,20 @@
 // one identical request per device run at a time (a page refreshing every few seconds must not flood a firewall).
 const profileStore = require('./profileStore');
 const backups = require('./backups');
+const macHosts = require('./macHosts');
 const { netError } = require('./errors');
 
 const CACHE_MS = 30 * 1000;
-const CAPABILITIES = ['summary', 'interfaces', 'policies', 'routes', 'sessions', 'vpn', 'ha'];
-const METHOD = { summary: 'getSummary', interfaces: 'getInterfaces', policies: 'getPolicies', routes: 'getRoutes', sessions: 'getSessions', vpn: 'getVpn', ha: 'getHa' };
+const CAPABILITIES = ['summary', 'interfaces', 'policies', 'routes', 'sessions', 'vpn', 'ha', 'vlans', 'mac'];
+const METHOD = { summary: 'getSummary', interfaces: 'getInterfaces', policies: 'getPolicies', routes: 'getRoutes', sessions: 'getSessions', vpn: 'getVpn', ha: 'getHa', vlans: 'getVlans', mac: 'getMac' };
 
 const drivers = {
     fortigate: require('./drivers/fortigate'),
     paloalto: require('./drivers/paloalto'),
     checkpoint: require('./drivers/checkpoint'),
+    'cisco-ios': require('./drivers/ciscoIos'),
+    'cisco-nxos': require('./drivers/ciscoNxos'),
+    juniper: require('./drivers/juniper'),
 };
 backups.setDrivers(drivers);
 
@@ -57,7 +61,11 @@ async function runCapability(deviceId, capability, opts = {}, { refresh = false 
 
     const p = (async () => {
         try {
-            const value = await driver[METHOD[capability]](profile, opts);
+            // drivers with several ways in (API / SSH) report the one that works, for 'auto' next time
+            const ctx = { setTransport: (t) => profileStore.recordTransport(deviceId, t) };
+            let value = await driver[METHOD[capability]](profile, opts, ctx);
+            // MAC tables carry the CMDB host of each address
+            if (capability === 'mac' && value && Array.isArray(value.items)) value = { ...value, items: macHosts.annotate(value.items) };
             const at = Date.now();
             cache.set(key, { at, value });
             profileStore.recordStatus(deviceId, { ok: true, facts: capability === 'summary' ? factsOf(value) : undefined });

@@ -1,0 +1,14 @@
+{
+  "header_str": "Cisco Nexus Operating System (NX-OS) Software",
+  "bios_ver_str": "07.69",
+  "nxos_ver_str": "9.3(10)",
+  "host_name": "nx-lab-leaf1",
+  "chassis_id": "Nexus9000 C93180YC-EX chassis",
+  "proc_board_id": "FDO0000LAB1",
+  "memory": 24632252,
+  "mem_type": "kB",
+  "kern_uptm_days": 41,
+  "kern_uptm_hrs": 3,
+  "kern_uptm_mins": 15,
+  "kern_uptm_secs": 9
+}

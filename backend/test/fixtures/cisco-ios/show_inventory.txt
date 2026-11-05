@@ -1,0 +1,11 @@
+NAME: "c93xx Stack", DESCR: "c93xx Stack"
+PID: C9300-48P         , VID: V02  , SN: FOC0000LAB1
+
+NAME: "Switch 1", DESCR: "C9300-48P"
+PID: C9300-48P         , VID: V02  , SN: FOC0000LAB1
+
+NAME: "Switch 2", DESCR: "C9300-48P"
+PID: C9300-48P         , VID: V02  , SN: FOC0000LAB2
+
+NAME: "Switch 1 - Power Supply A", DESCR: "Switch 1 - Power Supply A"
+PID: PWR-C1-715WAC-P   , VID: V01  , SN: DCB0000LAB9

@@ -1,0 +1,25 @@
+
+!Command: show running-config
+!Running configuration last done at: Wed Nov  4 10:12:33 2026
+!Time: Thu Nov  5 08:30:00 2026
+
+version 9.3(10) Bios:version 07.69
+hostname nx-lab-leaf1
+feature lacp
+feature lldp
+
+vlan 1,10,20,30,99
+vlan 10
+  name LAB-USERS
+
+interface Ethernet1/1
+  description lab host 1
+  switchport access vlan 10
+
+interface Vlan10
+  no shutdown
+  ip address 192.0.2.1/24
+
+interface mgmt0
+  vrf member management
+  ip address 192.0.2.50/24

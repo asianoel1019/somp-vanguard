@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import api from '../../../api';
-import { dataQuery, formatBytes, formatDuration, statusTone, describeError } from './mgmtTabs.js';
+import { dataQuery, formatBytes, formatBps, formatDuration, statusTone, describeError, filterInterfaces } from './mgmtTabs.js';
 
 const TONES = {
     success: { background: 'rgba(34,197,94,0.1)', color: 'var(--success)' },
@@ -17,18 +17,28 @@ const dash = (v) => (v === null || v === undefined || v === '' ? '-' : v);
 // Capabilities that need input before the first read (sessions: a filter)
 const NEEDS_FILTER = { sessions: true };
 
-/** One read-only data tab (summary, interfaces, policies, routes, sessions, vpn, ha) of a managed device. */
+// Query parameters of the tabs that send them
+const INITIAL_PARAMS = {
+    policies: { page: 1, limit: 50, search: '' },
+    sessions: { src: '', dst: '', dport: '' },
+    mac: { mac: '', port: '', vlan: '' },
+};
+// A port that learned this many MACs is most likely an uplink / trunk, not a host port
+const UPLINK_MACS = 10;
+
+/** One read-only data tab (summary, interfaces, policies, routes, sessions, vpn, ha, vlans, mac) of a managed device. */
 export default function CapabilityTab({ device, capability, s }) {
     const [data, setData] = useState(null);
     const [meta, setMeta] = useState(null);
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
-    const [params, setParams] = useState(capability === 'policies' ? { page: 1, limit: 50, search: '' } : { src: '', dst: '', dport: '' });
+    const [params, setParams] = useState(INITIAL_PARAMS[capability] || {});
+    const [ifFilter, setIfFilter] = useState({ errorsOnly: false, downOnly: false });
 
     const load = useCallback((refresh = false, p = params) => {
         setLoading(true);
         setError('');
-        const q = capability === 'policies' || capability === 'sessions' ? p : {};
+        const q = INITIAL_PARAMS[capability] ? p : {};
         api.get(`/network-device/${device.id}/mgmt/data/${capability}${dataQuery(q, refresh)}`)
             .then(res => { setData(res.data.data); setMeta({ cachedAt: res.data.cachedAt, fromCache: res.data.fromCache }); })
             .catch(err => { setData(null); setError(describeError(err)); })
@@ -78,6 +88,18 @@ export default function CapabilityTab({ device, capability, s }) {
         </form>
     );
 
+    const macSearch = capability === 'mac' && (
+        <form style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'flex-end' }} onSubmit={e => { e.preventDefault(); load(false); }}>
+            {[['mac', 'MAC（任何格式，可部分）', 200], ['port', 'Port', 140], ['vlan', 'VLAN', 90]].map(([k, l, w]) => (
+                <div key={k} style={{ ...s.inputGroup, marginBottom: 0 }}>
+                    <label style={s.label}>{l}</label>
+                    <input style={{ ...s.input, width: w }} value={params[k]} onChange={e => setParams(p => ({ ...p, [k]: e.target.value }))} />
+                </div>
+            ))}
+            <button type="submit" style={{ ...s.btnPrimary, padding: '9px 16px', opacity: loading ? 0.6 : 1 }} disabled={loading}>{loading ? 'Searching...' : 'Search'}</button>
+        </form>
+    );
+
     const policySearch = capability === 'policies' && (
         <form style={{ display: 'flex', gap: 8, marginBottom: 12 }} onSubmit={e => { e.preventDefault(); const p = { ...params, page: 1 }; setParams(p); load(false, p); }}>
             <input style={{ ...s.input, maxWidth: 280 }} placeholder="Search id, name, address, service..." value={params.search} onChange={e => setParams(p => ({ ...p, search: e.target.value }))} />
@@ -104,12 +126,86 @@ export default function CapabilityTab({ device, capability, s }) {
                         <div style={{ fontSize: 16, fontWeight: 700, marginTop: 4, wordBreak: 'break-all' }}>{dash(v)}</div>
                     </div>
                 ))}
+                {Array.isArray(data.members) && data.members.length > 1 && (
+                    <div style={{ gridColumn: '1 / -1', fontSize: 13 }}>
+                        <b>Stack / 機箱成員</b>
+                        {data.members.map(m => (
+                            <div key={m.slot} style={{ color: 'var(--text-secondary)' }}>
+                                #{m.slot} {dash(m.model)} · {dash(m.serial)} · {m.role === 'active' ? 'active' : 'member'}{m.version ? ` · ${m.version}` : ''}
+                            </div>
+                        ))}
+                    </div>
+                )}
                 {Array.isArray(data.gateways) && data.gateways.length > 1 && (
                     <div style={{ gridColumn: '1 / -1', fontSize: 12, color: 'var(--text-muted)' }}>
                         管理伺服器上的 Gateway：{data.gateways.map(g => `${g.name}${g.ip ? ` (${g.ip})` : ''}`).join('、')}
                     </div>
                 )}
             </div>
+        );
+    } else if (capability === 'interfaces' && Array.isArray(data) && data.some(i => i.mode !== undefined)) {
+        // switch / router interfaces: mode, VLAN, error counters, rates
+        const shown = filterInterfaces(data, ifFilter);
+        const errCell = (i) => {
+            const vals = [i.inErrors, i.crcErrors, i.outErrors];
+            const bad = vals.some(v => Number(v) > 0);
+            return <td style={{ ...td, color: bad ? 'var(--danger)' : undefined, fontWeight: bad ? 700 : undefined }} title="input / CRC / output errors since the counters were last cleared">{vals.map(v => dash(v)).join(' / ')}</td>;
+        };
+        const interval = (data.find(i => i.rateInterval) || {}).rateInterval;
+        const intervalText = interval ? ` · 速率為設備回報的 ${interval >= 60 ? `${interval / 60} 分鐘` : `${interval} 秒`}平均` : '';
+        body = (
+            <>
+                <div style={{ display: 'flex', gap: 16, marginBottom: 8, fontSize: 13, flexWrap: 'wrap' }}>
+                    <label><input type="checkbox" checked={ifFilter.errorsOnly} onChange={e => setIfFilter(x => ({ ...x, errorsOnly: e.target.checked }))} /> 只看有錯誤的 Port</label>
+                    <label><input type="checkbox" checked={ifFilter.downOnly} onChange={e => setIfFilter(x => ({ ...x, downOnly: e.target.checked }))} /> 只看非 up 的 Port</label>
+                    <span style={{ color: 'var(--text-muted)' }}>{shown.length} / {data.length} 個介面{intervalText}</span>
+                </div>
+                {table(['PORT', 'STATUS', 'MODE', 'VLAN', 'SPEED', 'ERRORS (IN/CRC/OUT)', 'DISCARDS (IN/OUT)', 'RATE IN / OUT', 'IP'], shown.map(i => (
+                    <tr key={i.name} title={i.name}>
+                        <td style={{ ...td, fontWeight: 700 }}>{i.shortName || i.name}{i.alias && <div style={{ fontSize: 11, fontWeight: 400, color: 'var(--text-muted)' }}>{i.alias}</div>}</td>
+                        <td style={td}><Badge value={i.status} /></td>
+                        <td style={td}>{dash(i.mode)}</td>
+                        <td style={td}>{i.mode === 'trunk' ? `native ${dash(i.vlan)}${i.trunkVlans ? ` · ${i.trunkVlans} VLANs` : ''}` : dash(i.vlan)}</td>
+                        <td style={td}>{i.speed ? `${i.speed >= 1000 ? `${i.speed / 1000}G` : `${i.speed}M`}${i.duplex && i.duplex !== 'full' ? ` ${i.duplex}` : ''}` : '-'}</td>
+                        {errCell(i)}
+                        <td style={td}>{dash(i.inDiscards)} / {dash(i.outDiscards)}</td>
+                        <td style={td}>{formatBps(i.rxBps)} / {formatBps(i.txBps)}</td>
+                        <td style={mono}>{dash(i.ip)}</td>
+                    </tr>
+                )))}
+            </>
+        );
+    } else if (capability === 'vlans') {
+        body = table(['VLAN', 'NAME', 'STATUS', 'ACCESS PORTS', 'TRUNKS'], data.map(v => (
+            <tr key={v.id}>
+                <td style={{ ...mono, fontWeight: 700 }}>{v.id}</td><td style={td}>{dash(v.name)}</td><td style={td}><Badge value={v.status} /></td>
+                <td style={td}>{v.accessPorts && v.accessPorts.length ? v.accessPorts.join(', ') : '-'}</td>
+                <td style={td}>{v.trunkPorts && v.trunkPorts.length
+                    ? <details><summary style={{ cursor: 'pointer' }}>{v.trunkPorts.length} 個 Trunk</summary>{v.trunkPorts.join(', ')}</details>
+                    : '-'}</td>
+            </tr>
+        )));
+    } else if (capability === 'mac') {
+        const counts = data.perPortCount || {};
+        body = (
+            <>
+                {table(['MAC', 'HOST (CMDB)', 'VLAN', 'PORT', 'TYPE'], data.items.map((m, i) => (
+                    <tr key={`${m.mac}-${m.vlan}-${i}`}>
+                        <td style={mono}>{m.mac}</td>
+                        <td style={td}>{m.hosts && m.hosts.length
+                            ? m.hosts.map(h => <div key={h.ip}>{h.hostname || '-'} <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{h.ip}</span></div>)
+                            : '-'}</td>
+                        <td style={td}>{m.vlan}</td>
+                        <td style={td}>
+                            {m.port} <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>（{counts[m.port] || 1} 個 MAC{(counts[m.port] || 0) >= UPLINK_MACS ? '，可能是 uplink / trunk' : ''}）</span>
+                        </td>
+                        <td style={td}>{m.type}</td>
+                    </tr>
+                )))}
+                <p style={{ fontSize: 12, color: data.truncated ? 'var(--warning)' : 'var(--text-muted)' }}>
+                    符合 {data.total} 筆{data.truncated ? `，只顯示前 ${data.items.length} 筆，請用 MAC / Port / VLAN 縮小範圍` : ''}。
+                </p>
+            </>
         );
     } else if (capability === 'interfaces') {
         body = table(['NAME', 'ALIAS', 'IP', 'STATUS', 'SPEED', 'VLAN', 'ZONE', 'RX', 'TX'], data.map(i => (
@@ -203,6 +299,7 @@ export default function CapabilityTab({ device, capability, s }) {
         <div>
             {toolbar}
             {policySearch}
+            {macSearch}
             {sessionFilter}
             {body}
         </div>

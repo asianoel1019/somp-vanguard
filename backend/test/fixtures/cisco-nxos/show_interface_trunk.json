@@ -1,0 +1,30 @@
+{
+  "TABLE_interface": {
+    "ROW_interface": [
+      {
+        "interface": "Ethernet1/49",
+        "native": "1",
+        "status": "trunking",
+        "portchannel": "--"
+      },
+      {
+        "interface": "port-channel10",
+        "native": "99",
+        "status": "trunking",
+        "portchannel": "--"
+      }
+    ]
+  },
+  "TABLE_allowed_vlans": {
+    "ROW_allowed_vlans": [
+      {
+        "interface": "Ethernet1/49",
+        "allowedvlans": "1,10,20-21,30"
+      },
+      {
+        "interface": "port-channel10",
+        "allowedvlans": "1-4094"
+      }
+    ]
+  }
+}

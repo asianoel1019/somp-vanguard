@@ -1,0 +1,9 @@
+{
+  "load_avg_1min": "0.71",
+  "cpu_state_user": "4.06",
+  "cpu_state_kernel": "2.04",
+  "cpu_state_idle": "93.90",
+  "memory_usage_total": "24632252",
+  "memory_usage_used": "7389675",
+  "memory_usage_free": "17242577"
+}

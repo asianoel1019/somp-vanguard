@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import api from '../../../api';
-import { SECRET_MASK, SCOPE_LABELS, formFromProfile, targetChanged, payloadFromForm, describeError } from './mgmtTabs.js';
+import { SECRET_MASK, SCOPE_LABELS, TRANSPORT_LABELS, apiName, transportHint, formFromProfile, targetChanged, payloadFromForm, describeError } from './mgmtTabs.js';
 
 // Management (vendor API) connection of one device: vendor, address, token, TLS, test and save.
 // The parent remounts it (key) when the saved profile changes, which resets the form.
@@ -16,7 +16,7 @@ export default function ConnectionTab({ device, info, role, s, onSaved, onAlert,
     const changed = targetChanged(profile, form);
     const set = (patch) => setForm(f => ({ ...f, ...patch }));
     const secretValue = (k) => (changed && form[k] === SECRET_MASK ? '' : form[k]);
-    const body = () => payloadFromForm({ ...form, token: secretValue('token'), password: secretValue('password'), apiKey: secretValue('apiKey') }, vendor);
+    const body = () => payloadFromForm({ ...form, token: secretValue('token'), password: secretValue('password'), apiKey: secretValue('apiKey'), enableSecret: secretValue('enableSecret') }, vendor);
 
     const test = () => {
         setBusy('test');
@@ -39,6 +39,12 @@ export default function ConnectionTab({ device, info, role, s, onSaved, onAlert,
         api.delete(`/network-device/${device.id}/mgmt`)
             .then(() => { onAlert('管理連線已移除'); onSaved({ ...info, profile: null, capabilities: [], backup: false }); })
             .catch(err => onAlert('移除失敗：' + describeError(err)));
+    });
+
+    const resetHostKey = () => onConfirm('重設這台設備的 SSH 主機金鑰？下次 SSH 連線會記住設備目前的金鑰；只在確定設備更換過（或重新產生過金鑰）時才這樣做。', () => {
+        api.post(`/network-device/${device.id}/mgmt/hostkey/reset`)
+            .then(res => onAlert(res.data.removed ? '已重設主機金鑰，下次連線會重新記住。' : '這台設備尚未記錄主機金鑰。'))
+            .catch(err => onAlert('重設失敗：' + describeError(err)));
     });
 
     const box = { padding: 16, border: '1px solid var(--border-color)', borderRadius: 12, background: 'var(--bg-primary)', marginBottom: 16 };
@@ -76,7 +82,7 @@ export default function ConnectionTab({ device, info, role, s, onSaved, onAlert,
                         )}
                     </div>
                     <div style={s.inputGroup}>
-                        <label style={s.label}>Port</label>
+                        <label style={s.label}>{vendor && vendor.transports ? 'API Port' : 'Port'}</label>
                         <input type="number" style={s.input} disabled={!canEdit} value={form.port} onChange={e => set({ port: e.target.value })} />
                     </div>
                 </div>
@@ -123,9 +129,35 @@ export default function ConnectionTab({ device, info, role, s, onSaved, onAlert,
                         </div>
                     </div>
                 )}
-                {changed && profile && (
-                    <p style={{ ...hint, color: 'var(--warning)', margin: '0 0 12px' }}>位址、埠號或廠牌已變更：已儲存的密鑰不會帶到新位址，請重新輸入。</p>
+                {vendor && vendor.transports && (
+                    <div style={{ display: 'grid', gridTemplateColumns: vendor.enable ? '2fr 1fr 2fr' : '2fr 1fr', gap: 16 }}>
+                        <div style={s.inputGroup}>
+                            <label style={s.label}>連線方式</label>
+                            <select style={s.input} disabled={!canEdit} value={form.transport} onChange={e => set({ transport: e.target.value })}>
+                                {['auto', ...vendor.transports].map(k => <option key={k} value={k}>{TRANSPORT_LABELS[k]}</option>)}
+                            </select>
+                        </div>
+                        <div style={s.inputGroup}>
+                            <label style={s.label}>SSH Port</label>
+                            <input type="number" style={s.input} disabled={!canEdit} value={form.sshPort} onChange={e => set({ sshPort: e.target.value })} />
+                        </div>
+                        {vendor.enable && (
+                            <div style={s.inputGroup}>
+                                <label style={s.label}>Enable 密碼（選填）</label>
+                                <input type="password" autoComplete="new-password" style={s.input} disabled={!canEdit} value={secretValue('enableSecret')} onChange={e => set({ enableSecret: e.target.value })} />
+                            </div>
+                        )}
+                    </div>
                 )}
+                {vendor && vendor.transports && (
+                    <p style={{ ...hint, margin: '0 0 12px' }}>
+                        {transportHint(vendor.id)}
+                    </p>
+                )}
+                {changed && profile && (
+                    <p style={{ ...hint, color: 'var(--warning)', margin: '0 0 12px' }}>位址、埠號、SSH Port 或廠牌已變更：已儲存的密碼不會帶到新位址，請重新輸入。</p>
+                )}
+                {!(vendor && vendor.transports && form.transport === 'ssh') && (<>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '8px 0', fontSize: 14 }}>
                     <input type="checkbox" checked={form.tlsVerify} disabled={!canEdit} onChange={e => set({ tlsVerify: e.target.checked })} />
                     驗證設備憑證（TLS）
@@ -137,17 +169,19 @@ export default function ConnectionTab({ device, info, role, s, onSaved, onAlert,
                         <textarea style={{ ...s.input, minHeight: 90, fontFamily: 'monospace', fontSize: 12 }} disabled={!canEdit} placeholder="-----BEGIN CERTIFICATE-----" value={form.caCert} onChange={e => set({ caCert: e.target.value })} />
                     </div>
                 )}
+                </>)}
                 {canEdit && (
                     <div style={{ display: 'flex', gap: 12, marginTop: 16, flexWrap: 'wrap' }}>
                         <button style={{ ...secondary, opacity: busy ? 0.6 : 1 }} disabled={!!busy} onClick={test}>{busy === 'test' ? 'Testing...' : 'Test Connection'}</button>
                         <button style={{ ...s.btnPrimary, opacity: busy ? 0.6 : 1 }} disabled={!!busy} onClick={save}>{busy === 'save' ? 'Saving...' : 'Save Connection'}</button>
                         {profile && <button style={{ ...s.btnPrimary, background: 'rgba(239,68,68,0.1)', border: '1px solid var(--danger)', color: 'var(--danger)' }} onClick={remove}>Remove</button>}
+                        {profile && vendor && vendor.transports && <button style={secondary} onClick={resetHostKey}>重設主機金鑰</button>}
                     </div>
                 )}
                 {testResult && (
                     <div style={{ marginTop: 16, padding: 12, borderRadius: 8, fontSize: 13, background: testResult.ok ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)', color: testResult.ok ? 'var(--success)' : 'var(--danger)' }}>
                         {testResult.ok
-                            ? `連線成功：${[testResult.facts.model, testResult.facts.hostname, testResult.facts.version].filter(Boolean).join(' / ') || 'OK'}`
+                            ? `連線成功：${[testResult.facts.model, testResult.facts.hostname, testResult.facts.version].filter(Boolean).join(' / ') || 'OK'}${testResult.facts.transport ? `（${String(testResult.facts.transport).toUpperCase()}）` : ''}`
                             : `連線失敗：${testResult.message}`}
                         {testResult.ok && testResult.facts.note && <div style={{ marginTop: 4, color: 'var(--warning)' }}>{testResult.facts.note}</div>}
                     </div>
@@ -156,6 +190,7 @@ export default function ConnectionTab({ device, info, role, s, onSaved, onAlert,
             {profile && (
                 <div style={{ ...box, fontSize: 13, color: 'var(--text-secondary)' }}>
                     <div>最後狀態：<b style={{ color: profile.lastStatus === 'ok' ? 'var(--success)' : profile.lastStatus === 'error' ? 'var(--danger)' : 'var(--text-muted)' }}>{profile.lastStatus || 'unknown'}</b>{profile.lastCheckedAt ? `（${new Date(profile.lastCheckedAt).toLocaleString()}）` : ''}</div>
+                    {profile.transport === 'auto' && vendor && vendor.transports && <div style={{ marginTop: 4 }}>自動判斷目前使用：<b>{profile.lastTransport === 'api' ? `API（${apiName(vendor.id)}）` : profile.lastTransport === 'ssh' ? 'SSH' : '尚未判斷（下次讀取時決定）'}</b></div>}
                     {profile.lastError && <div style={{ marginTop: 4, color: 'var(--danger)' }}>{profile.lastError}</div>}
                     {profile.updatedBy && <div style={{ marginTop: 4 }}>設定者：{profile.updatedBy}{profile.updatedAt ? `，${new Date(profile.updatedAt).toLocaleString()}` : ''}</div>}
                 </div>

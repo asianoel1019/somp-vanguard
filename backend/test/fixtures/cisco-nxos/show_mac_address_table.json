@@ -1,0 +1,54 @@
+{
+  "TABLE_mac_address": {
+    "ROW_mac_address": [
+      {
+        "disp_mac_addr": "0000.5e00.53c0",
+        "disp_type": "G",
+        "disp_vlan": "-",
+        "disp_is_static": "enabled",
+        "disp_age": "-",
+        "disp_port": "sup-eth1(R)"
+      },
+      {
+        "disp_mac_addr": "0000.5e00.5310",
+        "disp_type": "*",
+        "disp_vlan": "10",
+        "disp_is_static": "disabled",
+        "disp_age": "0",
+        "disp_port": "Ethernet1/1"
+      },
+      {
+        "disp_mac_addr": "0000.5e00.5321",
+        "disp_type": "*",
+        "disp_vlan": "10",
+        "disp_is_static": "disabled",
+        "disp_age": "0",
+        "disp_port": "Ethernet1/49"
+      },
+      {
+        "disp_mac_addr": "0000.5e00.5322",
+        "disp_type": "*",
+        "disp_vlan": "10",
+        "disp_is_static": "disabled",
+        "disp_age": "0",
+        "disp_port": "Ethernet1/49"
+      },
+      {
+        "disp_mac_addr": "0000.5e00.5323",
+        "disp_type": "*",
+        "disp_vlan": "20",
+        "disp_is_static": "disabled",
+        "disp_age": "0",
+        "disp_port": "Ethernet1/49"
+      },
+      {
+        "disp_mac_addr": "0000.5e00.5330",
+        "disp_type": "*",
+        "disp_vlan": "20",
+        "disp_is_static": "enabled",
+        "disp_age": "-",
+        "disp_port": "port-channel10"
+      }
+    ]
+  }
+}

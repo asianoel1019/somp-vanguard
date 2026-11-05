@@ -198,3 +198,37 @@ test('config backups: Operator runs and lists; only SuperAdmin views, diffs and 
         assert.ok(audits.some(a => a[2].startsWith(what)), what);
     }
 });
+
+test('switch: MAC query options reach the driver; host key reset is Operator+ and audited', async () => {
+    const sshCli = require('../../lib/netDevices/sshCli');
+    const known = { '192.0.2.30': { fingerprint: 'sha256:abcd' } };
+    sshCli._setHostKeyStore({ read: () => known, mutate: (fn) => fn(known) });
+    const realIos = registry._drivers['cisco-ios'];
+    registry._drivers['cisco-ios'] = { capabilities: ['summary', 'interfaces', 'vlans', 'mac'], getMac: async (p, opts) => ({ opts }), testConnection: async () => ({ model: 'C9300-48P', transport: 'api' }) };
+    try {
+        const sw = { vendor: 'cisco-ios', mgmtHost: '192.0.2.30', username: 'netro', password: 'pw-123456' };
+        assert.equal((await call('put', '/sw1/mgmt', OP, sw)).status, 200);
+        const g = await call('get', '/sw1/mgmt', VIEWER);
+        assert.equal(g.body.profile.transport, 'auto');
+        assert.equal(g.body.device.type, 'Switch');
+        let r = await call('get', '/sw1/mgmt/data/mac?mac=0000.5e00&port=Gi1/0/1&vlan=10&x=1', VIEWER);
+        assert.deepEqual(r.body.data.opts, { mac: '0000.5e00', port: 'Gi1/0/1', vlan: '10' });
+
+        assert.equal((await call('post', '/sw1/mgmt/hostkey/reset', VIEWER)).status, 403);
+        r = await call('post', '/sw1/mgmt/hostkey/reset', OP);
+        assert.deepEqual(r.body, { success: true, removed: true });
+        assert.equal(known['192.0.2.30'], undefined);
+        assert.ok(audits.some(a => /Reset the SSH host key of sw1 \(192\.0\.2\.30\)/.test(a[2])));
+        assert.equal((await call('post', '/fw2/mgmt/hostkey/reset', OP)).status, 400, 'firewall profile or none: no SSH');
+
+        // a connection test reports the way used and forgets the one learned on 'auto'
+        store.recordTransport('sw1', 'ssh');
+        r = await call('post', '/sw1/mgmt/test', OP, { ...sw, password: store.MASK });
+        assert.equal(r.status, 200);
+        assert.equal(r.body.facts.transport, 'api');
+        assert.equal(store.getProfile('sw1').lastTransport, undefined);
+    } finally {
+        registry._drivers['cisco-ios'] = realIos;
+        sshCli._setHostKeyStore(null);
+    }
+});

@@ -1,0 +1,30 @@
+{
+  "software-information": [
+    {
+      "host-name": [
+        {
+          "data": "ex-lab-old"
+        }
+      ],
+      "product-model": [
+        {
+          "data": "ex2200-24t-4g"
+        }
+      ],
+      "package-information": [
+        {
+          "name": [
+            {
+              "data": "junos"
+            }
+          ],
+          "comment": [
+            {
+              "data": "JUNOS EX  Software Suite [12.3R12-S15]"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

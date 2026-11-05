@@ -1,0 +1,16 @@
+{ "Cisco-IOS-XE-native:interface": {
+  "GigabitEthernet": [
+    { "name": "1/0/1", "description": "lab host 1", "switchport": { "Cisco-IOS-XE-switch:access": { "vlan": { "vlan": 10 } }, "Cisco-IOS-XE-switch:mode": { "access": {} } } },
+    { "name": "1/0/2", "switchport": { "Cisco-IOS-XE-switch:access": { "vlan": { "vlan": 10 } }, "Cisco-IOS-XE-switch:mode": { "access": {} } } },
+    { "name": "1/0/3", "switchport": { "Cisco-IOS-XE-switch:mode": { "trunk": {} }, "Cisco-IOS-XE-switch:trunk": { "allowed": { "vlan": { "vlans": "1,10,20-21,30" } } } } },
+    { "name": "1/0/4", "shutdown": [null] },
+    { "name": "1/0/5", "switchport": { "Cisco-IOS-XE-switch:access": { "vlan": { "vlan": 20 } }, "Cisco-IOS-XE-switch:mode": { "access": {} } } },
+    { "name": "1/0/48", "Cisco-IOS-XE-switch:switchport-conf": { "switchport": false }, "ip": { "address": { "primary": { "address": "198.51.100.1", "mask": "255.255.255.252" } } } }
+  ],
+  "Port-channel": [
+    { "name": 1, "switchport": { "Cisco-IOS-XE-switch:mode": { "trunk": {} }, "Cisco-IOS-XE-switch:trunk": { "native": { "vlan": { "vlan-id": 99 } } } } }
+  ],
+  "Vlan": [
+    { "name": 10, "ip": { "address": { "primary": { "address": "192.0.2.1", "mask": "255.255.255.0" } } } }
+  ]
+} }

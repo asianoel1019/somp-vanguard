@@ -1,0 +1,17 @@
+
+Port        Mode             Encapsulation  Status        Native vlan
+Gi1/0/3     on               802.1q         trunking      1
+Po1         on               802.1q         trunking      99
+
+Port        Vlans allowed on trunk
+Gi1/0/3     1-4094
+Po1         10,20,30,100-102,200,201,202,203,204,205,206,207,208,209,210,211,212,213,214,215,216,217,218,219,
+            220
+
+Port        Vlans allowed and active in management domain
+Gi1/0/3     1,10,20,30
+Po1         10,20,30
+
+Port        Vlans in spanning tree forwarding state and not pruned
+Gi1/0/3     1,10,20,30
+Po1         10,20

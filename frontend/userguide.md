@@ -241,6 +241,29 @@ Server List 是 SOMP Vanguard 的核心伺服器資產資料庫 (CMDB)，自動�
 *   **從機櫃圖 / 拓撲圖開啟**：Server Rack 的設備視窗與 Topology Map 的設備側欄，對 Switch、Router、Firewall、Load Balancer 顯示「🖧 Open in Network Device」，按下後切到 Network Device 並直接開啟該設備（已設定管理連線時開在 Overview，否則開在 Info & SNMP）。只有具備 Network Device 功能的使用者看得到這個按鈕；Server Rack 視窗中尚未儲存的修改不會保留。
 *   **錯誤訊息**：token 錯誤或過期、權限不足、連不到設備、憑證驗證失敗、韌體不提供該資料，畫面會分別提示處理方式。設備清單的「MANAGEMENT」欄顯示廠牌、型號、韌體版本與最後一次連線狀態（滑過可看錯誤原因）。
 
+### 🔀 Network Device：Switch 整合（Cisco IOS / IOS-XE，唯讀）
+*   **連線方式**：IOS-XE（16.x 以後，如 Catalyst 9000）可走 **RESTCONF**（HTTPS，填在「API Port」，預設 443，Switch 上需 `restconf` 與 `ip http secure-server`）；舊版 IOS 或沒開 RESTCONF 的設備走 **SSH**（只執行固定的 `show` 指令，絕不進入設定模式）。Connection 頁籤選「Cisco IOS / IOS-XE」，填管理位址、API Port、SSH Port（預設 22）、帳號密碼；SSH 登入後權限不到 15 級時，另填「Enable 密碼」供設定備份使用。
+*   **「連線方式」選項**：「只用 API」、「只用 SSH」只走該方式；「自動」先用上次成功的方式（第一次先試 RESTCONF），設備沒回應或沒開 RESTCONF 才改用 SSH，並記住能用的方式（Connection 頁籤下方顯示「自動判斷目前使用」）。帳密錯誤、權限不足、憑證錯誤**不會**改試 SSH，避免同一組帳密連試兩次被鎖。儲存或「測試連線」後會重新判斷；測試結果會標示實際用的方式（API / SSH）。
+*   **設定備份**：一律走 SSH（RESTCONF 沒有純文字設定）；只開 RESTCONF、SSH 連不到時，Config Backup 會提示到設備上開啟 SSH。
+*   **建議帳號**：RESTCONF 需要 privilege 15 帳號；若現場政策不允許，改用「只用 SSH」，並以 `parser view` 或 AAA 授權限制只能執行 show 指令。設定備份需要能執行 `show running-config`（privilege 15 或 Enable 密碼）。
+*   **SSH 主機金鑰**：第一次連線時記住設備的金鑰指紋，之後指紋不同就拒絕連線（不會送出密碼）並顯示「主機金鑰與第一次連線時不同」。確認設備確實更換或重新產生金鑰後，在 Connection 頁籤按「重設主機金鑰」（Operator 以上，記入稽核紀錄）。
+*   **分頁**：Overview（型號、韌體、序號、運作時間、堆疊成員）、Interfaces（狀態含 err-disabled、模式 access / trunk / routed、VLAN、錯誤計數 input / CRC / output、Discards、收送速率；可只看有錯誤或非 up 的 Port）、VLAN（Access 成員與允許通過的 Trunk）、MAC Table（可用任何格式的 MAC、Port、VLAN 搜尋，最多顯示 1000 筆，並標示每個 Port 學到幾個 MAC，學到 10 個以上的多半是 uplink / trunk）、Config Backup（running-config，已去除「Last configuration change」等每次都會變的行）。Router 類型只顯示 Overview、Interfaces 與 Config Backup。
+*   **注意**：錯誤計數為自上次 `clear counters` 以來的累計；速率為設備回報的平均值（IOS 預設 5 分鐘）。走 RESTCONF 時看不到 err-disabled 狀態（顯示為 down），需要時改用「只用 SSH」。同一台 Switch 同時只會開一條 SSH 連線，避免佔滿 vty 線路。
+
+*   **MAC 對應主機**：MAC Table 的「HOST (CMDB)」欄顯示 Server List / Inventory 掃描記錄的 MAC 所屬主機（主機名稱與 IP，同一個 MAC 最多列 3 台，已刪除的主機不列）。IPAM 不記錄 MAC，因此只用 CMDB；未掃描或沒有 MAC 紀錄的設備顯示「-」。主機清單每分鐘更新一次。此欄適用所有 Switch 廠牌。
+
+### 🔀 Network Device：Switch 整合（Cisco NX-OS / Nexus，唯讀）
+*   **連線方式**：Connection 頁籤選「Cisco NX-OS」。API 為 **NX-API**（設備上需 `feature nxapi`，HTTPS，填在「API Port」，預設 443）；SSH 只執行固定的 `show … | json` 指令（需 NX-OS 7.x 以上）。「連線方式」的「自動」規則與 IOS 相同：先試 NX-API，設備沒回應或沒開 NX-API 才改用 SSH；帳密錯誤、權限不足、憑證錯誤不會改試。
+*   **建議帳號**：角色 `network-operator`（唯讀）即可讀取所有分頁與設定備份，不需 Enable 密碼。
+*   **分頁**：Overview（型號、版本、序號、運作時間、CPU、記憶體；模組化機箱列出各 Slot 板卡）、Interfaces（Port 名稱以 NX-OS 短名 Eth1/1、Po10 顯示，狀態含 err-disabled）、VLAN、MAC Table、Config Backup（running-config，已去除 `!Time:` 等時間行；走 NX-API 或 SSH 皆可）。
+*   **注意**：速率為 NX-OS load-interval 1 的平均值（預設 30 秒）。
+
+### 🔀 Network Device：Switch / Router 整合（Juniper Junos，唯讀）
+*   **連線方式**：Connection 頁籤選「Juniper Junos」。API 為 **Junos REST API**（設備上需 `set system services rest https`，HTTPS，填在「API Port」，預設 **3443**）；SSH 只執行固定的 `show … | display json` 指令（需 Junos 14.2 以上）。「自動」規則與 Cisco 相同：先試 REST API，設備沒回應或沒開 REST 才改用 SSH；帳密錯誤、權限不足、憑證錯誤不會改試。
+*   **建議帳號**：login class `read-only` 即可讀取所有分頁與設定備份。
+*   **分頁**：Overview（型號、版本、序號、運作時間、CPU、記憶體；Virtual Chassis 列出各成員與 master / backup 角色）、Interfaces（只列實體 Port、ae、管理介面與 irb 的各 unit，如 `irb.10`）、VLAN、MAC Table（EX2300 / 3400 / 4300 以後、QFX 等 ELS 平台；舊版 EX 的 VLAN、MAC 格式不支援）、Config Backup（`show configuration | display set`，已去除「## Last commit」行；一律走 SSH）。Router 類型只顯示 Overview、Interfaces 與 Config Backup。
+*   **注意**：Junos 回報的是當下速率，不是區間平均；錯誤計數的 CRC 取自 MAC 統計（沒有時用 framing errors）。
+
 ### 🕸️ Topology Map 網路拓撲視覺化
 *   **自動拓撲繪製**：依據 Port Links 自動生成拓撲連線圖。
 *   **雙向連線同步**：配置線路時自動建立回程連線；拔線時自動雙向清除。

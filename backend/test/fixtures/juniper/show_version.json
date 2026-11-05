@@ -1,0 +1,65 @@
+{
+  "multi-routing-engine-results": [
+    {
+      "multi-routing-engine-item": [
+        {
+          "re-name": [
+            {
+              "data": "fpc0"
+            }
+          ],
+          "software-information": [
+            {
+              "host-name": [
+                {
+                  "data": "ex-lab-access1"
+                }
+              ],
+              "product-model": [
+                {
+                  "data": "ex4300-48t"
+                }
+              ],
+              "product-name": [
+                {
+                  "data": "ex4300-48t"
+                }
+              ],
+              "junos-version": [
+                {
+                  "data": "21.4R3-S5.4"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "re-name": [
+            {
+              "data": "fpc1"
+            }
+          ],
+          "software-information": [
+            {
+              "host-name": [
+                {
+                  "data": "ex-lab-access1"
+                }
+              ],
+              "product-model": [
+                {
+                  "data": "ex4300-48t"
+                }
+              ],
+              "junos-version": [
+                {
+                  "data": "21.4R3-S5.4"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

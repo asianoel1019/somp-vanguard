@@ -1,0 +1,13 @@
+{ "Cisco-IOS-XE-interfaces-oper:interfaces": { "interface": [
+  { "name": "GigabitEthernet1/0/1", "interface-type": "iana-iftype-ethernet-csmacd", "admin-status": "if-state-up", "oper-status": "if-oper-state-ready", "description": "lab host 1", "mtu": 1500, "speed": "1000000000", "phys-address": "00:00:5e:00:53:a1", "ipv4": "0.0.0.0", "ipv4-subnet-mask": "0.0.0.0",
+    "ether-state": { "negotiated-duplex-mode": "full-duplex", "negotiated-port-speed": "speed-1gb" },
+    "statistics": { "in-octets": "123456789", "out-octets": "987654321", "in-errors": 5, "in-crc-errors": 3, "out-errors": "0", "in-discards": 0, "out-discards": "2", "rx-kbps": "1250", "tx-kbps": "800" } },
+  { "name": "GigabitEthernet1/0/3", "interface-type": "iana-iftype-ethernet-csmacd", "admin-status": "if-state-up", "oper-status": "if-oper-state-ready", "description": "uplink to dist", "mtu": 1500, "speed": "1000000000",
+    "ether-state": { "negotiated-duplex-mode": "full-duplex" },
+    "statistics": { "in-octets": "1", "out-octets": "2", "in-errors": 0, "in-crc-errors": 0, "out-errors": 0, "in-discards": 0, "out-discards": 0, "rx-kbps": "0", "tx-kbps": "0" } },
+  { "name": "GigabitEthernet1/0/4", "admin-status": "if-state-down", "oper-status": "if-oper-state-lower-layer-down", "mtu": 1500, "speed": "1000000000", "statistics": {} },
+  { "name": "GigabitEthernet1/0/5", "admin-status": "if-state-up", "oper-status": "if-oper-state-lower-layer-down", "mtu": 1500, "speed": "10000000", "ether-state": { "negotiated-duplex-mode": "half-duplex" }, "statistics": { "in-errors": 0 } },
+  { "name": "GigabitEthernet1/0/48", "admin-status": "if-state-up", "oper-status": "if-oper-state-ready", "description": "to router", "mtu": 1500, "speed": "1000000000", "ipv4": "198.51.100.1", "ipv4-subnet-mask": "255.255.255.252", "statistics": {} },
+  { "name": "Port-channel1", "admin-status": "if-state-up", "oper-status": "if-oper-state-ready", "mtu": 1500, "speed": "2000000000", "statistics": {} },
+  { "name": "Vlan10", "admin-status": "if-state-up", "oper-status": "if-oper-state-ready", "mtu": 1500, "ipv4": "192.0.2.1", "ipv4-subnet-mask": "255.255.255.0", "statistics": {} }
+] } }

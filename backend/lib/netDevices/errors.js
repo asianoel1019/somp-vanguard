@@ -8,6 +8,7 @@ const STATUS = {
     UNSUPPORTED: 400,   // this vendor / firmware does not offer the call
     BAD_REQUEST: 400,   // the request to Vanguard was incomplete or invalid
     NOT_CONFIGURED: 409, // the device has no management connection
+    HOSTKEY: 502,       // the SSH host key differs from the pinned one (replaced device, or someone in between)
     OTHER: 502,
 };
 

@@ -1,0 +1,121 @@
+{
+  "TABLE_interface": {
+    "ROW_interface": [
+      {
+        "interface": "mgmt0",
+        "state": "up",
+        "admin_state": "up",
+        "eth_hw_addr": "0000.5e00.53b0",
+        "eth_ip_addr": "192.0.2.50",
+        "eth_ip_mask": 24,
+        "eth_mtu": "1500",
+        "eth_bw": 1000000,
+        "eth_duplex": "full",
+        "eth_speed": "1000 Mb/s"
+      },
+      {
+        "interface": "Ethernet1/1",
+        "state": "up",
+        "admin_state": "up",
+        "share_state": "Dedicated",
+        "eth_hw_addr": "0000.5e00.53b1",
+        "desc": "lab host 1",
+        "eth_mtu": "1500",
+        "eth_bw": 10000000,
+        "eth_duplex": "full",
+        "eth_speed": "10 Gb/s",
+        "eth_mode": "access",
+        "eth_load_interval1_rx": 30,
+        "eth_inrate1_bits": "2500000",
+        "eth_outrate1_bits": "1200000",
+        "eth_inbytes": "987654321",
+        "eth_outbytes": "123456789",
+        "eth_inerr": "4",
+        "eth_crc": "2",
+        "eth_outerr": "0",
+        "eth_indiscard": "0",
+        "eth_outdiscard": "7"
+      },
+      {
+        "interface": "Ethernet1/2",
+        "state": "down",
+        "state_rsn_desc": "Link not connected",
+        "admin_state": "up",
+        "eth_mtu": "1500",
+        "eth_bw": 10000000,
+        "eth_duplex": "auto",
+        "eth_speed": "auto-speed",
+        "eth_mode": "access",
+        "eth_inrate1_bits": "0",
+        "eth_outrate1_bits": "0",
+        "eth_inerr": "0",
+        "eth_crc": "0",
+        "eth_outerr": "0"
+      },
+      {
+        "interface": "Ethernet1/3",
+        "state": "down",
+        "state_rsn_desc": "errDisabled",
+        "admin_state": "up",
+        "eth_mtu": "1500",
+        "eth_bw": 10000000,
+        "eth_mode": "access"
+      },
+      {
+        "interface": "Ethernet1/4",
+        "state": "down",
+        "state_rsn_desc": "Administratively down",
+        "admin_state": "down",
+        "eth_mtu": "1500",
+        "eth_bw": 10000000
+      },
+      {
+        "interface": "Ethernet1/49",
+        "state": "up",
+        "admin_state": "up",
+        "desc": "uplink to spine",
+        "eth_mtu": "9216",
+        "eth_bw": 100000000,
+        "eth_duplex": "full",
+        "eth_speed": "100 Gb/s",
+        "eth_mode": "trunk",
+        "eth_load_interval1_rx": 30,
+        "eth_inrate1_bits": "45000000",
+        "eth_outrate1_bits": "38000000",
+        "eth_inerr": "0",
+        "eth_crc": "0",
+        "eth_outerr": "0"
+      },
+      {
+        "interface": "Ethernet1/50",
+        "state": "up",
+        "admin_state": "up",
+        "eth_mtu": "9216",
+        "eth_bw": 100000000,
+        "eth_speed": "100 Gb/s",
+        "eth_mode": "routed",
+        "eth_ip_addr": "198.51.100.5",
+        "eth_ip_mask": 30
+      },
+      {
+        "interface": "port-channel10",
+        "state": "up",
+        "admin_state": "up",
+        "eth_mtu": "1500",
+        "eth_bw": 20000000,
+        "eth_speed": "10 Gb/s",
+        "eth_mode": "trunk"
+      },
+      {
+        "interface": "Vlan10",
+        "svi_admin_state": "up",
+        "svi_line_proto": "up",
+        "svi_mac": "0000.5e00.53c0",
+        "svi_ip_addr": "192.0.2.1",
+        "svi_ip_mask": 24,
+        "svi_mtu": 1500,
+        "svi_desc": "lab users"
+      }
+    ]
+  }
+}

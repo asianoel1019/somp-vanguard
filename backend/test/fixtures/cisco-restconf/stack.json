@@ -1,0 +1,4 @@
+{ "Cisco-IOS-XE-stack-oper:stack-oper-data": { "stack-node": [
+  { "chassis-number": 2, "role": "stack-role-standby", "serial-number": "FOC0000LAB2", "pid": "C9300-48P" },
+  { "chassis-number": 1, "role": "stack-role-active", "serial-number": "FOC0000LAB1", "pid": "C9300-48P" }
+] } }

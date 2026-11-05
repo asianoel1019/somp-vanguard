@@ -1,0 +1,62 @@
+{
+  "route-engine-information": [
+    {
+      "route-engine": [
+        {
+          "slot": [
+            {
+              "data": "0"
+            }
+          ],
+          "mastership-state": [
+            {
+              "data": "master"
+            }
+          ],
+          "memory-buffer-utilization": [
+            {
+              "data": "42"
+            }
+          ],
+          "cpu-idle": [
+            {
+              "data": "91"
+            }
+          ],
+          "up-time": [
+            {
+              "data": "41 days, 3 hours, 15 minutes, 9 seconds"
+            }
+          ]
+        },
+        {
+          "slot": [
+            {
+              "data": "1"
+            }
+          ],
+          "mastership-state": [
+            {
+              "data": "backup"
+            }
+          ],
+          "memory-buffer-utilization": [
+            {
+              "data": "38"
+            }
+          ],
+          "cpu-idle": [
+            {
+              "data": "96"
+            }
+          ],
+          "up-time": [
+            {
+              "data": "41 days, 3 hours, 14 minutes, 2 seconds"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

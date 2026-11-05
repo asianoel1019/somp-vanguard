@@ -84,3 +84,40 @@ test('two selected backups are compared older -> newer', async () => {
     assert.deepEqual(orderPair(list, ['b', 'a']), ['a', 'b']);
     assert.deepEqual(orderPair(list, ['a', 'b']), ['a', 'b']);
 });
+
+test('switch tabs, transport fields, interface filters', async () => {
+    const m = await import('./mgmtTabs.js');
+    const ios = { id: 'cisco-ios', available: true, auth: 'password', transports: ['api', 'ssh'], enable: true, defaultPort: 443 };
+    const profile = { vendor: 'cisco-ios', mgmtHost: '192.0.2.30', port: 443, sshPort: 22, transport: 'ssh', username: 'netro', enabled: true, secrets: { password: m.SECRET_MASK, enableSecret: m.SECRET_MASK } };
+    const caps = ['summary', 'interfaces', 'vlans', 'mac'];
+    assert.deepEqual(m.capabilityTabs({ profile, capabilities: caps, device: { type: 'Switch' } }).map(t => t.key), caps);
+    assert.deepEqual(m.capabilityTabs({ profile, capabilities: caps, device: { type: 'Router' } }).map(t => t.key), ['summary', 'interfaces']);
+    const f = m.formFromProfile(profile, [ios]);
+    assert.deepEqual([f.transport, f.sshPort, f.enableSecret], ['ssh', 22, m.SECRET_MASK]);
+    const body = m.payloadFromForm({ ...f, sshPort: '2222' }, ios);
+    assert.deepEqual([body.transport, body.sshPort, body.enableSecret, body.username], ['ssh', 2222, m.SECRET_MASK, 'netro']);
+    assert.equal(m.targetChanged(profile, { ...f, sshPort: 2222 }), true);
+    assert.equal(m.targetChanged(profile, f), false);
+    const fw = m.payloadFromForm(m.formFromProfile(null, [{ id: 'fortigate', available: true, auth: 'token' }]), { id: 'fortigate', auth: 'token' });
+    assert.equal(fw.transport, undefined);
+    assert.equal(fw.enableSecret, undefined);
+
+    const list = [{ name: 'a', status: 'up', crcErrors: 0 }, { name: 'b', status: 'up', crcErrors: 3 }, { name: 'c', status: 'err-disabled', inErrors: 0 }];
+    assert.deepEqual(m.filterInterfaces(list, { errorsOnly: true }).map(i => i.name), ['b']);
+    assert.deepEqual(m.filterInterfaces(list, { downOnly: true }).map(i => i.name), ['c']);
+    assert.equal(m.formatBps(34000), '34.0 kb/s');
+    assert.equal(m.formatBps(999), '999 b/s');
+    assert.equal(m.statusTone('err-disabled'), 'danger');
+    assert.match(m.describeError({ response: { data: { error: 'x', code: 'HOSTKEY' } } }), /重設主機金鑰/);
+});
+
+test('API names and connection hints per switch vendor', async () => {
+    const m = await import('./mgmtTabs.js');
+    assert.equal(m.apiName('cisco-ios'), 'RESTCONF');
+    assert.equal(m.apiName('cisco-nxos'), 'NX-API');
+    assert.equal(m.apiName('juniper'), 'REST API');
+    assert.equal(m.apiName('other'), 'API');
+    assert.match(m.transportHint('juniper'), /3443.*display json/);
+    assert.match(m.transportHint('cisco-nxos'), /feature nxapi/);
+    assert.match(m.transportHint('other'), /不會改試/);
+});

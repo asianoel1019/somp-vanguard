@@ -1,0 +1,8 @@
+{ "Cisco-IOS-XE-vlan-oper:vlans": { "vlan": [
+  { "id": 1, "name": "default", "status": "active", "vlan-interfaces": [ { "interface": "GigabitEthernet1/0/4", "subinterface": 0 } ] },
+  { "id": 10, "name": "LAB-USERS", "status": "active", "vlan-interfaces": [ { "interface": "GigabitEthernet1/0/1", "subinterface": 0 }, { "interface": "GigabitEthernet1/0/2", "subinterface": 0 } ] },
+  { "id": 20, "name": "LAB-VOICE", "status": "active", "vlan-interfaces": [ { "interface": "GigabitEthernet1/0/5", "subinterface": 0 } ] },
+  { "id": 30, "name": "LAB-MGMT", "status": "suspend" },
+  { "id": 99, "name": "NATIVE", "status": "active" },
+  { "id": 1002, "name": "fddi-default", "status": "active" }
+] } }

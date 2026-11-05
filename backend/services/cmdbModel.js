@@ -488,6 +488,23 @@ function isServerDeleted(ip) {
     return isDeletedEntry(readDeletedMeta(), String(ip).trim());
 }
 
+/**
+ * Every CMDB server with a recorded MAC (servers deleted in the Server List left out), for the host names next to
+ * switch MAC tables. `mac` is the stored text and may hold several addresses.
+ * @returns {{ ip: string, hostname: string, vmName: string, mac: string }[]}
+ */
+function listMacRecords() {
+    if (!db) return [];
+    try {
+        const meta = readDeletedMeta();
+        return db.prepare("SELECT ip, hostname, vmName, mac FROM cmdb_servers WHERE mac IS NOT NULL AND TRIM(mac) != ''").all()
+            .filter(r => !isDeletedEntry(meta, r.ip));
+    } catch (e) {
+        console.error('[CMDB] listMacRecords error:', e);
+        return [];
+    }
+}
+
 /** Short host name (before the first dot, lower case); '' for empty / "unknown". */
 function shortHostname(h) {
     const n = String(h == null ? '' : h).trim().toLowerCase().split('.')[0];
@@ -1120,6 +1137,7 @@ module.exports = {
     bulkUpsertCmdbServers,
     reconcileDiscoveredServers,
     queryCmdbServers,
+    listMacRecords,
     deleteCmdbServer,
     isServerDeleted,
     readDeletedMeta,

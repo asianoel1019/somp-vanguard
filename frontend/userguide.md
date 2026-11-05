@@ -238,6 +238,7 @@ Server List 是 SOMP Vanguard 的核心伺服器資產資料庫 (CMDB)，自動�
 *   **設定備份（Config Backup 頁籤）**：Operator 以上可按「Back Up Now」立即備份並查看備份清單（時間、大小、行數、執行者）；**查看內容、比對差異、下載限 SuperAdmin，且都記入稽核紀錄**，因為備份含加密後的密碼與 VPN 預先共享金鑰。FortiGate 備份完整設定檔（VDOM 範圍的 token 只備份該 VDOM），Palo Alto 備份執行中的 XML 設定，Check Point 備份 Gateway 物件與已安裝政策套件的所有 Access Layer（JSON，不含 Gaia 系統設定，已去除修改時間與命中次數等每次都會變的欄位）。內容與上一份相同時不另存新檔，只更新「Last checked」時間，因此保留的份數都是真正不同的版本。勾選兩份後按「Compare Selected」可看差異（舊 → 新）。
 *   **備份檔案與保留**：檔案存於 `<DB_DATA_DIR>\netdevice_backups\<設備ID>\`，每台保留最近 `NETDEVICE_BACKUP_KEEP` 份（預設 30，1–365），刪除設備時其備份一併刪除。
 *   **排程備份**：在 System Settings 的備份區設定 `NETDEVICE_BACKUP_SCHEDULE`（HH:MM，伺服器本地時間；留空 = 關閉），由背景 Worker 每天對所有已啟用管理連線的設備依序備份。當天是否已執行會記錄下來，重啟不會重跑；Worker 在設定時間一小時後才啟動則跳過當天。
+*   **從機櫃圖 / 拓撲圖開啟**：Server Rack 的設備視窗與 Topology Map 的設備側欄，對 Switch、Router、Firewall、Load Balancer 顯示「🖧 Open in Network Device」，按下後切到 Network Device 並直接開啟該設備（已設定管理連線時開在 Overview，否則開在 Info & SNMP）。只有具備 Network Device 功能的使用者看得到這個按鈕；Server Rack 視窗中尚未儲存的修改不會保留。
 *   **錯誤訊息**：token 錯誤或過期、權限不足、連不到設備、憑證驗證失敗、韌體不提供該資料，畫面會分別提示處理方式。設備清單的「MANAGEMENT」欄顯示廠牌、型號、韌體版本與最後一次連線狀態（滑過可看錯誤原因）。
 
 ### 🕸️ Topology Map 網路拓撲視覺化

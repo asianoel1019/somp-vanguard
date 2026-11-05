@@ -29,6 +29,7 @@ import {
     EXTERNAL_COLOR,
     STATUS_COLORS
 } from './topologyGraph';
+import { canOpenInNetworkDevice, openInNetworkDevice } from '../../utils/networkDeviceLink.js';
 import './TopologyMap.css';
 
 const TYPE_ICONS = {
@@ -684,6 +685,16 @@ export default function TopologyMap({ selectedDCId, onEditDevice }) {
                             </div>
                         </div>
 
+                        {editTarget && canOpenInNetworkDevice(editTarget.device) && (
+                            <button
+                                className="btn btn-secondary"
+                                style={{ width: '100%', padding: '10px 0', marginTop: 8, display: 'flex', justifyContent: 'center', gap: 8 }}
+                                title="Status, interfaces, policies and backups of this device"
+                                onClick={() => openInNetworkDevice(editTarget.device.id)}
+                            >
+                                🖧 Open in Network Device
+                            </button>
+                        )}
                         {editTarget && onEditDevice && (
                             <div style={{ marginTop: 8 }}>
                                 <button

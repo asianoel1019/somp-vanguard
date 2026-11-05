@@ -23,6 +23,7 @@ import ServerList from './components/ServerOperation/ServerList';
 import IPAM from './components/NetworkService/IPAM.jsx';
 import SSLManager from './components/NetworkService/SSLManager';
 import NetworkDevice from './components/NetworkService/NetworkDevice';
+import { setFeatureFlags as setLinkFeatureFlags } from './utils/networkDeviceLink.js';
 import SchedulerManager from './components/ServerOperation/SchedulerManager';
 import HmChecker from './components/ServerOperation/HmChecker';
 import Settings from './components/SettingsGroup/Settings';
@@ -274,6 +275,7 @@ function App() {
         }
         if (res.data.features) {
           setFeatureFlags(res.data.features);
+          setLinkFeatureFlags(res.data.features); // Server Rack / Topology Map show 'open in Network Device' only when allowed
           console.log('Feature flags loaded:', res.data.features);
           setFeaturesLoaded(!!user);
         }

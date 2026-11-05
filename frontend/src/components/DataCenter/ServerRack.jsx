@@ -3,6 +3,7 @@ import './ServerRack.css';
 import api from '../../api';
 import * as htmlToImage from 'html-to-image';
 import { useToast } from '../../contexts/ToastContext';
+import { canOpenInNetworkDevice, openInNetworkDevice } from '../../utils/networkDeviceLink.js';
 
 
 
@@ -1802,6 +1803,17 @@ export default function ServerRack({ selectedDCId, initialTargetRackId, editRequ
               <h2 style={{ color: 'var(--accent-primary)', margin: 0 }}>
                 {currentDevice.id.startsWith('dev-') && !currentDevice.hostname ? `Add Device at ${getSplitLocation(racks.find(r => r.id === targetRackId), targetU)}` : 'Edit Device'}
               </h2>
+              {!(currentDevice.id.startsWith('dev-') && !currentDevice.hostname) && canOpenInNetworkDevice(currentDevice) && (
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  style={{ marginTop: '0.75rem', padding: '6px 12px', fontSize: '0.85rem' }}
+                  title="Status, interfaces, policies and backups of this device (changes not saved here are discarded)"
+                  onClick={() => openInNetworkDevice(currentDevice.id)}
+                >
+                  🖧 Open in Network Device
+                </button>
+              )}
             </div>
 
             {/* Tabs */}

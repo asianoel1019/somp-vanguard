@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import api from '../../api';
 import ConnectionTab from './mgmt/ConnectionTab';
 import CapabilityTab from './mgmt/CapabilityTab';
 import BackupTab from './mgmt/BackupTab';
 import { capabilityTabs, statusTone } from './mgmt/mgmtTabs.js';
+import { OPEN_EVENT, takePendingTarget } from '../../utils/networkDeviceLink.js';
 
 const DEFAULT_SNMP = { enabled: false, version: 'v2c', community: '', port: 161 };
 const errText = (err) => err?.response?.data?.error || err?.message || 'Unknown error';
@@ -24,6 +25,9 @@ export default function NetworkDevice() {
     const [pollLoading, setPollLoading] = useState(false);
     // Vendor API connection of the open device: { device, profile, vendors, capabilities }
     const [mgmtInfo, setMgmtInfo] = useState(null);
+    // A device to open, sent from Server Rack / Topology Map (see utils/networkDeviceLink.js)
+    const devicesRef = useRef([]);
+    const pendingRef = useRef(null);
 
     const [selectedFilterDC, setSelectedFilterDC] = useState('All');
     const [selectedFilterType, setSelectedFilterType] = useState('All');
@@ -46,11 +50,6 @@ export default function NetworkDevice() {
     });
 
     useEffect(() => {
-        fetchDevices();
-        api.get('/rack/datacenters').then(res => setDatacenters(res.data)).catch(console.error);
-    }, []);
-
-    useEffect(() => {
         if (addForm.datacenterId) {
             api.get(`/rack?dcId=${addForm.datacenterId}`).then(res => {
                 setRacks(res.data || []);
@@ -64,17 +63,32 @@ export default function NetworkDevice() {
     const fetchDevices = () => {
         setLoading(true);
         api.get('/network-device/devices')
-           .then(res => setDevices(res.data))
+           .then(res => {
+               setDevices(res.data);
+               devicesRef.current = Array.isArray(res.data) ? res.data : [];
+               const target = pendingRef.current;
+               if (target) { pendingRef.current = null; openTarget(target, devicesRef.current); }
+           })
            .catch(console.error)
            .finally(() => setLoading(false));
     };
 
-    const openDeviceModal = (device) => {
+    // Opened from another screen: a managed device starts on Overview, others on Info & SNMP
+    const openTarget = (target, list) => {
+        const device = list.find(d => d.id === target.id);
+        if (!device) {
+            setSysAlert({ message: '在 Network Device 找不到這台設備（可能已被移除，或不是 Switch / Router / Firewall / Load Balancer）。' });
+            return;
+        }
+        openDeviceModal(device, target.tab || (device.mgmt && device.mgmt.enabled ? 'cap:summary' : 'info'));
+    };
+
+    const openDeviceModal = (device, tab = 'info') => {
         setSelectedDevice(device);
         setDeviceForm({ hostname: device.hostname || '', ip: device.ip || '' });
         setSnmpForm({ ...DEFAULT_SNMP, ...(device.snmp || {}), enabled: device.enabled ?? device.snmp?.enabled ?? false });
         setPollData(null);
-        setActiveTab('info');
+        setActiveTab(tab);
         setMgmtInfo(null);
         api.get(`/network-device/${device.id}/mgmt`).then(res => setMgmtInfo(res.data)).catch(console.error);
     };
@@ -85,6 +99,19 @@ export default function NetworkDevice() {
         if (activeTab === 'backup' && !(info && info.profile && info.backup)) setActiveTab('mgmt');
         fetchDevices();
     };
+
+    useEffect(() => {
+        pendingRef.current = takePendingTarget();
+        const onOpen = (e) => {
+            takePendingTarget(); // the same target was also stored for a fresh mount
+            if (devicesRef.current.length) openTarget(e.detail, devicesRef.current);
+            else pendingRef.current = e.detail;
+        };
+        window.addEventListener(OPEN_EVENT, onOpen);
+        fetchDevices();
+        api.get('/rack/datacenters').then(res => setDatacenters(res.data)).catch(console.error);
+        return () => window.removeEventListener(OPEN_EVENT, onOpen);
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     const saveDeviceInfo = () => {
         if (!selectedDevice || role === 'Viewer') return;

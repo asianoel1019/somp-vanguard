@@ -3,11 +3,31 @@ import api from '../../api';
 import ConnectionTab from './mgmt/ConnectionTab';
 import CapabilityTab from './mgmt/CapabilityTab';
 import BackupTab from './mgmt/BackupTab';
-import { capabilityTabs, statusTone } from './mgmt/mgmtTabs.js';
+import { capabilityTabs } from './mgmt/mgmtTabs.js';
 import { OPEN_EVENT, takePendingTarget } from '../../utils/networkDeviceLink.js';
+import { TbShieldLock, TbSwitchHorizontal, TbRouter, TbScale, TbServer2, TbSearch, TbPlus, TbAlertTriangle, TbCircleCheck, TbPlugConnectedX, TbDevices, TbAntenna, TbRefresh } from 'react-icons/tb';
+import { deviceHealth, snmpState, summarize, typeCounts, filterDevices, sortDevices, connectionNote } from './deviceList.js';
 
 const DEFAULT_SNMP = { enabled: false, version: 'v2c', community: '', port: 161 };
 const errText = (err) => err?.response?.data?.error || err?.message || 'Unknown error';
+
+const TYPE_ICONS = { Firewall: TbShieldLock, Switch: TbSwitchHorizontal, Router: TbRouter, LoadBalancer: TbScale };
+const TypeIcon = ({ type, size = 16 }) => { const I = TYPE_ICONS[type] || TbServer2; return <I size={size} aria-hidden="true" style={{ flexShrink: 0 }} />; };
+const HEALTH = {
+    ok: { color: 'var(--success)', label: '連線正常' },
+    error: { color: 'var(--danger)', label: '連線異常' },
+    pending: { color: 'var(--warning)', label: '尚未讀取' },
+    disabled: { color: 'var(--text-muted)', label: '管理連線停用' },
+    none: { color: 'var(--text-muted)', label: '未設定管理連線' },
+};
+const HealthDot = ({ health }) => (
+    <span title={HEALTH[health].label} style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', flexShrink: 0, background: health === 'none' || health === 'disabled' ? 'transparent' : HEALTH[health].color, border: `2px solid ${HEALTH[health].color}`, boxShadow: health === 'error' ? '0 0 0 3px rgba(239,68,68,0.18)' : 'none' }} />
+);
+const SNMP_BADGE = {
+    ok: (d) => ({ text: d.snmp && d.snmp.version ? d.snmp.version : 'SNMP', bg: 'rgba(34,197,94,0.1)', color: 'var(--success)' }),
+    missing: () => ({ text: '未設定', bg: 'rgba(245,158,11,0.12)', color: 'var(--warning)' }),
+    off: () => ({ text: '停用', bg: 'rgba(148,163,184,0.15)', color: 'var(--text-muted)' }),
+};
 
 export default function NetworkDevice() {
     const user = JSON.parse(localStorage.getItem('user') || '{}');
@@ -31,6 +51,8 @@ export default function NetworkDevice() {
 
     const [selectedFilterDC, setSelectedFilterDC] = useState('All');
     const [selectedFilterType, setSelectedFilterType] = useState('All');
+    // Summary card filter: all | ok | error | none | snmpMissing
+    const [quickFilter, setQuickFilter] = useState('all');
     const [searchText, setSearchText] = useState('');
     const [sysAlert, setSysAlert] = useState(null);
     const [sysConfirm, setSysConfirm] = useState(null);
@@ -231,91 +253,133 @@ export default function NetworkDevice() {
         portBox: up => ({ aspectRatio: '1', display: 'flex', alignItems: 'center', justifyContent: 'center', background: up ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)', border: `1px solid ${up ? 'var(--success)' : 'var(--danger)'}`, borderRadius: 4, color: up ? 'var(--success)' : 'var(--danger)', fontSize: 11, fontWeight: 800 })
     };
 
-    const filteredDevices = devices.filter(d => {
-        if (selectedFilterDC !== 'All' && d.datacenter !== selectedFilterDC) return false;
-        if (selectedFilterType !== 'All' && d.type !== selectedFilterType) return false;
-        if (searchText) {
-            const query = searchText.toLowerCase();
-            const hn = (d.hostname || '').toLowerCase();
-            const ip = (d.ip || '').toLowerCase();
-            if (!hn.includes(query) && !ip.includes(query)) return false;
-        }
-        return true;
-    });
-
+    const summary = summarize(devices);
+    const types = typeCounts(devices);
+    const filteredDevices = sortDevices(filterDevices(devices, { dc: selectedFilterDC, type: selectedFilterType, quick: quickFilter, search: searchText }));
     const uniqueDCs = Array.from(new Set(devices.map(d => d.datacenter))).filter(Boolean).sort();
-    const uniqueTypes = Array.from(new Set(devices.map(d => d.type))).filter(Boolean).sort();
+    const filtersOn = selectedFilterDC !== 'All' || selectedFilterType !== 'All' || quickFilter !== 'all' || searchText.trim() !== '';
+    const clearFilters = () => { setSelectedFilterDC('All'); setSelectedFilterType('All'); setQuickFilter('all'); setSearchText(''); };
+
+    const CARDS = [
+        { key: 'all', label: '全部設備', value: summary.total, icon: TbDevices, color: 'var(--accent-primary)' },
+        { key: 'ok', label: '連線正常', value: summary.ok, icon: TbCircleCheck, color: 'var(--success)' },
+        { key: 'error', label: '連線異常', value: summary.error, icon: TbAlertTriangle, color: 'var(--danger)', alert: summary.error > 0 },
+        { key: 'none', label: '未設管理連線', value: summary.none, icon: TbPlugConnectedX, color: 'var(--warning)' },
+        { key: 'snmpMissing', label: 'SNMP 未設定', value: summary.snmpMissing, icon: TbAntenna, color: 'var(--text-muted)' },
+    ];
+    const chip = (active, danger) => ({
+        display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 999, fontSize: 13, fontWeight: 700, cursor: 'pointer',
+        border: `1px solid ${active ? 'var(--accent-primary)' : 'var(--border-color)'}`,
+        background: active ? 'var(--accent-primary)' : 'var(--bg-secondary)',
+        color: active ? '#fff' : danger ? 'var(--danger)' : 'var(--text-secondary)', transition: 'all 0.15s',
+    });
+    const cellTd = { ...s.td, padding: '12px 14px', verticalAlign: 'middle' };
+    const sub = { fontSize: 12, color: 'var(--text-muted)', marginTop: 3 };
 
     return (
         <div style={s.container}>
-            <div style={s.header}>
-                <div style={s.title}>🖧 Network Devices</div>
-                <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
-                    <input 
-                        type="text" 
-                        placeholder="Search Hostname/IP..." 
-                        style={{ ...s.input, width: '220px' }} 
-                        value={searchText} 
-                        onChange={e => setSearchText(e.target.value)} 
-                    />
-                    <select style={{ ...s.input, width: 'auto' }} value={selectedFilterDC} onChange={e => setSelectedFilterDC(e.target.value)}>
-                        <option value="All">All Datacenters</option>
-                        {uniqueDCs.map(dc => <option key={dc} value={dc}>{dc}</option>)}
-                    </select>
-                    <select style={{ ...s.input, width: 'auto' }} value={selectedFilterType} onChange={e => setSelectedFilterType(e.target.value)}>
-                        <option value="All">All Types</option>
-                        {uniqueTypes.map(t => <option key={t} value={t}>{t}</option>)}
-                    </select>
+            <div style={{ ...s.header, marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
+                <div>
+                    <div style={s.title}><TbDevices size={30} aria-hidden="true" style={{ color: 'var(--accent-primary)' }} /> Network Devices</div>
+                    <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4 }}>
+                        {loading ? '載入中…' : `共 ${summary.total} 台${filtersOn ? `，符合條件 ${filteredDevices.length} 台` : ''}`}
+                    </div>
+                </div>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                    <button style={{ ...s.btnPrimary, background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)', opacity: loading ? 0.6 : 1 }} disabled={loading} onClick={fetchDevices} title="重新整理">
+                        <TbRefresh size={16} aria-hidden="true" /> 重新整理
+                    </button>
                     {role !== 'Viewer' && (
-                        <button style={s.btnPrimary} onClick={handleOpenAddModal}>+ Add Device</button>
+                        <button style={s.btnPrimary} onClick={handleOpenAddModal}><TbPlus size={16} aria-hidden="true" /> 新增設備</button>
                     )}
                 </div>
             </div>
 
-            <div style={s.card}>
-                {loading ? <p>Loading devices...</p> : (
-                    <table style={s.table}>
-                        <thead>
-                            <tr>
-                                <th style={s.th}>HOSTNAME</th>
-                                <th style={s.th}>IP ADDRESS</th>
-                                <th style={s.th}>TYPE</th>
-                                <th style={s.th}>LOCATION</th>
-                                <th style={s.th}>SNMP SETUP</th>
-                                <th style={s.th}>MANAGEMENT</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {filteredDevices.length === 0 ? (
-                                <tr><td colSpan="6" style={{...s.td, textAlign: 'center', color: 'var(--text-muted)'}}>No network devices found</td></tr>
-                            ) : filteredDevices.map(d => (
-                                <tr key={d.id} style={{ cursor: 'pointer', transition: 'background 0.2s' }} onClick={() => openDeviceModal(d)} onMouseEnter={e => e.currentTarget.style.background='var(--bg-tertiary)'} onMouseLeave={e => e.currentTarget.style.background='transparent'}>
-                                    <td style={{...s.td, fontWeight: 800, color: 'var(--accent-primary)'}}>{d.hostname || 'Unknown'}</td>
-                                    <td style={{...s.td, fontFamily: 'monospace'}}>{d.ip}</td>
-                                    <td style={s.td}>{d.type}</td>
-                                    <td style={s.td}>{d.datacenter} / {d.rackName} / U{d.startU}</td>
-                                    <td style={s.td}>
-                                        {d.enabled === false ? (
-                                            <span style={{ padding: '4px 10px', borderRadius: 12, fontSize: 11, fontWeight: 700, background: 'rgba(148,163,184,0.15)', color: 'var(--text-muted)' }}>
-                                                SNMP 停用
-                                            </span>
-                                        ) : (
-                                            <span style={{ padding: '4px 10px', borderRadius: 12, fontSize: 11, fontWeight: 700, background: (d.snmp?.community || d.snmp?.v3User) ? 'rgba(34,197,94,0.1)' : 'rgba(245,158,11,0.1)', color: (d.snmp?.community || d.snmp?.v3User) ? 'var(--success)' : 'var(--warning)'}}>
-                                                {d.snmp?.version || 'Not Configured'}
-                                            </span>
-                                        )}
-                                    </td>
-                                    <td style={s.td}>
-                                        {d.mgmt ? (
-                                            <span title={d.mgmt.lastError || ''} style={{ padding: '4px 10px', borderRadius: 12, fontSize: 11, fontWeight: 700, background: 'var(--bg-tertiary)', color: !d.mgmt.enabled ? 'var(--text-muted)' : { success: 'var(--success)', danger: 'var(--danger)' }[statusTone(d.mgmt.lastStatus)] || 'var(--warning)' }}>
-                                                {d.mgmt.vendorLabel}{d.mgmt.model ? ` · ${d.mgmt.model}` : ''}{d.mgmt.version ? ` ${d.mgmt.version}` : ''}{!d.mgmt.enabled ? ' (停用)' : ''}
-                                            </span>
-                                        ) : <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>-</span>}
-                                    </td>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12, marginBottom: 20 }}>
+                {CARDS.map(c => {
+                    const active = quickFilter === c.key;
+                    const Icon = c.icon;
+                    return (
+                        <button key={c.key} onClick={() => setQuickFilter(active && c.key !== 'all' ? 'all' : c.key)}
+                            style={{
+                                textAlign: 'left', cursor: 'pointer', padding: '14px 16px', borderRadius: 14, transition: 'all 0.15s',
+                                background: c.alert ? 'rgba(239,68,68,0.06)' : 'var(--bg-secondary)',
+                                border: `1px solid ${active ? c.color : c.alert ? 'rgba(239,68,68,0.45)' : 'var(--border-color)'}`,
+                                boxShadow: active ? `0 0 0 2px ${c.color}33` : 'var(--shadow-sm, none)', color: 'var(--text-primary)',
+                            }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: 'var(--text-muted)', fontSize: 12, fontWeight: 700 }}>
+                                {c.label}
+                                <span style={{ display: 'inline-flex', padding: 6, borderRadius: 10, background: 'var(--bg-tertiary)', color: c.color }}><Icon size={16} aria-hidden="true" /></span>
+                            </div>
+                            <div style={{ fontSize: 28, fontWeight: 900, marginTop: 6, color: c.key === 'all' || !c.value ? 'var(--text-primary)' : c.color }}>{loading ? '–' : c.value}</div>
+                        </button>
+                    );
+                })}
+            </div>
+
+            <div style={{ ...s.card, padding: 0, overflow: 'hidden' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, padding: '14px 16px', borderBottom: '1px solid var(--border-color)', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        <button style={chip(selectedFilterType === 'All')} onClick={() => setSelectedFilterType('All')}>全部 <span style={{ opacity: 0.75 }}>{devices.length}</span></button>
+                        {types.map(tc => (
+                            <button key={tc.type} style={chip(selectedFilterType === tc.type)} onClick={() => setSelectedFilterType(selectedFilterType === tc.type ? 'All' : tc.type)}>
+                                <TypeIcon type={tc.type} size={14} /> {tc.type} <span style={{ opacity: 0.75 }}>{tc.count}</span>
+                            </button>
+                        ))}
+                    </div>
+                    <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                        <div style={{ position: 'relative' }}>
+                            <TbSearch size={16} aria-hidden="true" style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                            <input type="text" placeholder="主機名稱、IP、廠牌、型號" style={{ ...s.input, width: 240, paddingLeft: 32 }} value={searchText} onChange={e => setSearchText(e.target.value)} />
+                        </div>
+                        <select style={{ ...s.input, width: 'auto' }} value={selectedFilterDC} onChange={e => setSelectedFilterDC(e.target.value)}>
+                            <option value="All">全部機房</option>
+                            {uniqueDCs.map(dc => <option key={dc} value={dc}>{dc}</option>)}
+                        </select>
+                    </div>
+                </div>
+                {loading && !devices.length ? <p style={{ padding: 24, color: 'var(--text-muted)' }}>載入設備中…</p> : (
+                    <div style={{ overflowX: 'auto' }}>
+                        <table style={{ ...s.table, marginTop: 0 }}>
+                            <thead>
+                                <tr>
+                                    {['', '設備', 'IP', '類型', '廠牌 / 型號', 'SNMP', '位置'].map(h => <th key={h} style={{ ...s.th, padding: '10px 14px', background: 'var(--bg-tertiary)' }}>{h}</th>)}
                                 </tr>
-                            ))}
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody>
+                                {filteredDevices.length === 0 ? (
+                                    <tr><td colSpan="7" style={{ ...cellTd, textAlign: 'center', color: 'var(--text-muted)', padding: 40 }}>
+                                        {filtersOn ? (<>沒有符合條件的設備。<button onClick={clearFilters} style={{ marginLeft: 8, background: 'none', border: 'none', color: 'var(--accent-primary)', cursor: 'pointer', fontWeight: 700 }}>清除篩選</button></>) : '還沒有網路設備，從 Server Rack 加入或按「新增設備」。'}
+                                    </td></tr>
+                                ) : filteredDevices.map(d => {
+                                    const health = deviceHealth(d);
+                                    const m = d.mgmt;
+                                    const snmp = SNMP_BADGE[snmpState(d)](d);
+                                    const note = connectionNote(d);
+                                    const rowBg = health === 'error' ? 'rgba(239,68,68,0.05)' : 'transparent';
+                                    return (
+                                        <tr key={d.id} style={{ cursor: 'pointer', background: rowBg, transition: 'background 0.15s' }} onClick={() => openDeviceModal(d)}
+                                            onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-tertiary)'; }} onMouseLeave={e => { e.currentTarget.style.background = rowBg; }}>
+                                            <td style={{ ...cellTd, width: 28, paddingRight: 0 }}><HealthDot health={health} /></td>
+                                            <td style={cellTd}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 800, color: health === 'error' ? 'var(--danger)' : 'var(--accent-primary)' }}>
+                                                    <TypeIcon type={d.type} /> {d.hostname || 'Unknown'}
+                                                </div>
+                                            </td>
+                                            <td style={{ ...cellTd, fontFamily: 'monospace', fontSize: 13 }}>{d.ip || '-'}</td>
+                                            <td style={{ ...cellTd, color: 'var(--text-secondary)' }}>{d.type}</td>
+                                            <td style={cellTd} title={m && m.lastError ? m.lastError : ''}>
+                                                {m ? <div style={{ fontWeight: 700 }}>{m.vendorLabel}{m.model ? ` · ${m.model}` : ''}{m.version ? <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}> {m.version}</span> : null}</div> : null}
+                                                <div style={{ ...sub, color: health === 'error' ? 'var(--danger)' : health === 'none' ? 'var(--warning)' : sub.color, marginTop: m ? 3 : 0 }}>{note}</div>
+                                            </td>
+                                            <td style={cellTd}><span style={{ padding: '3px 10px', borderRadius: 12, fontSize: 11, fontWeight: 700, background: snmp.bg, color: snmp.color }}>{snmp.text}</span></td>
+                                            <td style={{ ...cellTd, fontSize: 13, color: 'var(--text-secondary)' }}>{[d.datacenter, d.rackName, d.startU ? `U${d.startU}` : null].filter(Boolean).join(' / ') || '-'}</td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
                 )}
             </div>
 
@@ -324,7 +388,28 @@ export default function NetworkDevice() {
                 <div style={s.modalOverlay} onClick={() => setSelectedDevice(null)}>
                     <div style={{ ...s.modal, maxWidth: 1100 }} onClick={e => e.stopPropagation()}>
                         <div style={s.modalHeader}>
-                            <h3 style={{ fontSize: 20, fontWeight: 900, margin: 0 }}>{selectedDevice.hostname} ({selectedDevice.ip})</h3>
+                            {(() => {
+                                const health = deviceHealth(selectedDevice);
+                                const m = selectedDevice.mgmt;
+                                return (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 0 }}>
+                                        <span style={{ display: 'inline-flex', padding: 10, borderRadius: 12, background: 'var(--bg-tertiary)', color: 'var(--accent-primary)' }}><TypeIcon type={selectedDevice.type} size={24} /></span>
+                                        <div style={{ minWidth: 0 }}>
+                                            <h3 style={{ fontSize: 20, fontWeight: 900, margin: 0, display: 'flex', alignItems: 'center', gap: 10 }}>
+                                                {selectedDevice.hostname}
+                                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '2px 10px', borderRadius: 999, fontSize: 11, fontWeight: 700, background: 'var(--bg-tertiary)', color: HEALTH[health].color }}>
+                                                    <HealthDot health={health} /> {HEALTH[health].label}
+                                                </span>
+                                            </h3>
+                                            <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4 }}>
+                                                <span style={{ fontFamily: 'monospace' }}>{selectedDevice.ip}</span>
+                                                {` · ${selectedDevice.type}`}
+                                                {m ? ` · ${m.vendorLabel}${m.model ? ` ${m.model}` : ''}${m.version ? ` ${m.version}` : ''}` : ''}
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })()}
                             <button onClick={() => setSelectedDevice(null)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 24 }}>&times;</button>
                         </div>
                         <div style={s.tabContainer}>

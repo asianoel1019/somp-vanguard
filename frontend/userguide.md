@@ -226,6 +226,7 @@ Server List 是 SOMP Vanguard 的核心伺服器資產資料庫 (CMDB)，自動�
 *   **注意**：Server Rack 中尚未儲存到機櫃的新設備無法先存 SNMP 設定，請先儲存設備。
 
 ### 🔌 Network Device 廠牌整合（唯讀）
+*   **設備列表**：上方統計卡顯示全部設備、連線正常、連線異常（有異常時整張卡標紅）、未設管理連線、SNMP 未設定的數量，點卡片即篩選該類（再點一次取消）。類型標籤（Firewall / Switch / Router / LoadBalancer，附台數）可快速切換；搜尋可找主機名稱、IP、廠牌、型號；機房下拉保留。列表每列前方有狀態燈號（綠＝正常、紅＝異常、黃＝尚未讀取、空心＝未設定或停用），連線異常的設備排在最前面並整列標紅，「廠牌 / 型號」下方顯示錯誤原因與發生時間（滑鼠移上可看完整訊息），或最後讀取時間。設備視窗標題也顯示同樣的狀態與廠牌型號。
 *   **用途**：在設備視窗的「Connection」頁籤設定廠牌 API 連線後，可直接在 Vanguard 讀取設備資料：Overview（型號、韌體、序號、CPU / 記憶體 / Session 數）、Interfaces、Policies（含命中次數與最後命中時間，可搜尋、分頁）、Routes、Sessions、VPN（IPsec 通道與 SSL VPN 使用者）、HA。全部為唯讀，不會修改設備設定。
 *   **目前支援**：Firewall 的 **Fortinet FortiGate**（FortiOS REST API）、**Palo Alto Networks**（PAN-OS XML API）與 **Check Point**（Management API）。Cisco、Juniper、F5 已列在廠牌清單中，標示「尚未支援」，後續版本陸續提供。
 *   **FortiGate 設定方式**：在 FortiGate 的 System → Administrators 建立 REST API Admin，指派**唯讀**的 admin profile，並把 Trusted Hosts 設為 Vanguard 伺服器的 IP；把產生的 API token 貼到 Connection 頁籤。多 VDOM 的設備可填 VDOM 名稱（留空用設備預設）。先按「Test Connection」確認可連線（不會儲存），再按「Save Connection」。

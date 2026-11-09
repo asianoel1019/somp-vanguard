@@ -12,7 +12,7 @@ export const CAPABILITY_TABS = [
     { key: 'vpn', label: 'VPN' },
     { key: 'ha', label: 'HA' },
     { key: 'vlans', label: 'VLAN' },
-    { key: 'mac', label: 'MAC Table' },
+    { key: 'mac', label: 'MAC 表' },
     { key: 'virtuals', label: 'Virtual Servers' },
     { key: 'pools', label: 'Pools' },
     { key: 'certs', label: 'Certificates' },
@@ -44,6 +44,31 @@ export function capabilityTabs(info) {
     const caps = info && info.profile && info.profile.enabled !== false ? info.capabilities || [] : [];
     const isSwitch = info && info.device ? info.device.type === 'Switch' : true;
     return CAPABILITY_TABS.filter(t => caps.includes(t.key) && (isSwitch || !SWITCH_ONLY.includes(t.key)));
+}
+
+/**
+ * Tab bar of the device window in three groups: live state read over the management connection,
+ * SNMP polling and settings. Each tab: { key, label, poll?, dim?, dot? } where poll means opening it
+ * starts an SNMP poll, dim that SNMP is off, dot a 'danger' / 'warning' marker.
+ * opts: role, snmp ('ok' | 'missing' | 'off' from snmpState), health (from deviceHealth).
+ */
+export function detailTabGroups(info, { role = 'Viewer', snmp = 'off', health = 'none' } = {}) {
+    const groups = [];
+    const live = capabilityTabs(info).map(t => ({ key: `cap:${t.key}`, label: t.label }));
+    if (live.length) groups.push({ key: 'live', label: '即時狀態', tabs: live });
+    const dim = snmp === 'off';
+    groups.push({ key: 'snmp', label: 'SNMP', tabs: [
+        { key: 'ports', label: '連接埠', poll: true, dim },
+        { key: 'arp', label: 'ARP', poll: true, dim },
+        { key: 'mac', label: 'MAC（SNMP）', poll: true, dim },
+    ] });
+    const settings = [
+        { key: 'info', label: '基本資料 & SNMP', dot: snmp === 'missing' ? 'warning' : null },
+        { key: 'mgmt', label: '管理連線', dot: health === 'error' ? 'danger' : null },
+    ];
+    if (role !== 'Viewer' && info && info.profile && info.backup) settings.push({ key: 'backup', label: '設定備份' });
+    groups.push({ key: 'settings', label: '設定', tabs: settings });
+    return groups;
 }
 
 /** Form values for a saved profile (or a new one with the first available vendor of the type). */
@@ -174,9 +199,9 @@ export function describeError(err) {
         FORBIDDEN: '帳號權限不足：Firewall 需要唯讀的 admin profile；Cisco 走 RESTCONF 需要 privilege 15 帳號（不允許時改用「只用 SSH」），設定備份需要 privilege 15 或設定 Enable 密碼；NX-OS 帳號需要 network-operator 以上角色；Junos 帳號需要 read-only 以上 login class；F5 帳號需要 Auditor 以上角色（並可看到該 partition）。',
         UNREACHABLE: '連不到設備：請確認管理位址、埠號與防火牆是否允許 Vanguard 連線。',
         TLS: '憑證驗證失敗：請提供設備的 CA 憑證，或關閉憑證驗證。',
-        NOT_CONFIGURED: '尚未設定管理連線，請到 Connection 頁籤設定。',
+        NOT_CONFIGURED: '尚未設定管理連線，請到「管理連線」頁籤設定。',
         UNSUPPORTED: '此設備或韌體版本不提供這項資料。',
-        HOSTKEY: '設備的 SSH 主機金鑰與第一次連線時不同。確認設備確實更換過後，到 Connection 頁籤按「重設主機金鑰」。',
+        HOSTKEY: '設備的 SSH 主機金鑰與第一次連線時不同。確認設備確實更換過後，到「管理連線」頁籤按「重設主機金鑰」。',
     }[data && data.code];
     return hint ? `${msg} — ${hint}` : msg;
 }

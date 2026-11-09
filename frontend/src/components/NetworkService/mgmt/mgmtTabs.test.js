@@ -138,3 +138,25 @@ test('F5: login provider in the form, partition label, tabs, status colours', as
     assert.deepEqual(['green', 'yellow', 'red', 'blue', 'gray', 'In Sync', 'Changes Pending', 'standby'].map(m.statusTone),
         ['success', 'warning', 'danger', 'info', 'muted', 'success', 'warning', 'muted']);
 });
+
+test('device window tabs: live / SNMP / settings groups with markers', async () => {
+    const m = await import('./mgmtTabs.js');
+    const keys = (groups) => groups.map(g => `${g.key}:${g.tabs.map(t => t.key).join(',')}`);
+    const live = { profile, backup: true, capabilities: ['summary', 'mac'], device: { type: 'Switch' } };
+
+    assert.deepEqual(keys(m.detailTabGroups(null)), ['snmp:ports,arp,mac', 'settings:info,mgmt']);
+    assert.deepEqual(keys(m.detailTabGroups(live, { role: 'Operator', snmp: 'ok', health: 'ok' })),
+        ['live:cap:summary,cap:mac', 'snmp:ports,arp,mac', 'settings:info,mgmt,backup']);
+    // Viewers never see the backup tab
+    assert.deepEqual(keys(m.detailTabGroups(live, { role: 'Viewer' })).at(-1), 'settings:info,mgmt');
+
+    const g = m.detailTabGroups(live, { role: 'Operator', snmp: 'missing', health: 'error' });
+    assert.equal(g[0].tabs[1].label, 'MAC 表');
+    assert.equal(g[1].tabs[2].label, 'MAC（SNMP）');
+    assert.ok(g[1].tabs.every(t => t.poll && !t.dim));
+    assert.deepEqual(g[2].tabs.map(t => t.dot || null), ['warning', 'danger', null]);
+
+    const off = m.detailTabGroups(null, { snmp: 'off', health: 'ok' });
+    assert.ok(off[0].tabs.every(t => t.dim));
+    assert.deepEqual(off[1].tabs.map(t => t.dot), [null, null]);
+});

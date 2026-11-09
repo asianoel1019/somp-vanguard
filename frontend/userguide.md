@@ -219,7 +219,7 @@ Server List 是 SOMP Vanguard 的核心伺服器資產資料庫 (CMDB)，自動�
 *   **報修使用備品**：在硬體問題選用備品時會扣除庫存並記入該備品的異動紀錄；庫存不足時整筆報修不會儲存。同一次選用即使重送也只扣一次。
 
 ### 🖧 Network Device 與 SNMP 查詢（v1.7.7）
-*   **SNMP 查詢開關**：每台設備的 SNMP 設定有「啟用 SNMP 查詢」（Network Device 的 Info & SNMP 頁籤、Server Rack 設備的 SNMP 頁籤）。停用時系統完全不會對該設備發出 SNMP 查詢，查詢按鈕隱藏，Ports & Cables 改為手動維護。從未設定過 SNMP 的設備視為停用（不再預設以 `public` 查詢）；升級前已儲存過 SNMP 設定的設備維持啟用。
+*   **SNMP 查詢開關**：每台設備的 SNMP 設定有「啟用 SNMP 查詢」（Network Device 的「基本資料 & SNMP」頁籤、Server Rack 設備的 SNMP 頁籤）。停用時系統完全不會對該設備發出 SNMP 查詢，查詢按鈕隱藏，Ports & Cables 改為手動維護。從未設定過 SNMP 的設備視為停用（不再預設以 `public` 查詢）；升級前已儲存過 SNMP 設定的設備維持啟用。
 *   **查詢一律使用已儲存的 IP**：SNMP 查詢只會對機櫃資料中儲存的設備 IP 發出；表單上修改 IP 後須先儲存才能查詢。
 *   **SNMP 版本**：支援 v1、v2c、v3（v3 為 SHA + AES、authPriv）。舊版選 v2c 實際卻以 v1 查詢，已修正。啟用時 v1 / v2c 必須填 community；v3 必須填使用者名稱，且 auth / priv 密碼至少 8 字元。停用時可先不填。
 *   **設備管理**：新增設備由伺服器產生 ID，並檢查類型、IP 格式、U 位重疊、機櫃高度與 Split 分界（不符合回 400）。修改 IP 時會在 IPAM 釋放舊 IP、登記新 IP；未填的欄位維持原值。刪除設備時會釋放 IP 並刪除該設備的 SNMP 設定。
@@ -227,53 +227,54 @@ Server List 是 SOMP Vanguard 的核心伺服器資產資料庫 (CMDB)，自動�
 
 ### 🔌 Network Device 廠牌整合（唯讀）
 *   **設備列表**：上方統計卡顯示全部設備、連線正常、連線異常（有異常時整張卡標紅）、未設管理連線、SNMP 未設定的數量，點卡片即篩選該類（再點一次取消）。類型標籤（Firewall / Switch / Router / LoadBalancer，附台數）可快速切換；搜尋可找主機名稱、IP、廠牌、型號；機房下拉保留。列表每列前方有狀態燈號（綠＝正常、紅＝異常、黃＝尚未讀取、空心＝未設定或停用），連線異常的設備排在最前面並整列標紅，「廠牌 / 型號」下方顯示錯誤原因與發生時間（滑鼠移上可看完整訊息），或最後讀取時間。設備視窗標題也顯示同樣的狀態與廠牌型號。
-*   **用途**：在設備視窗的「Connection」頁籤設定廠牌 API 連線後，可直接在 Vanguard 讀取設備資料：Overview（型號、韌體、序號、CPU / 記憶體 / Session 數）、Interfaces、Policies（含命中次數與最後命中時間，可搜尋、分頁）、Routes、Sessions、VPN（IPsec 通道與 SSL VPN 使用者）、HA。全部為唯讀，不會修改設備設定。
+*   **設備視窗分頁**：分成三組。「即時狀態」是經管理連線讀取的資料（Overview、Interfaces 等，依廠牌與設備類型顯示，未設定或停用管理連線時不出現）；「SNMP」是連接埠、ARP、MAC（SNMP）輪詢結果，未啟用 SNMP 時分頁變淡；「設定」是基本資料 & SNMP、管理連線與設定備份（Operator 以上）。「管理連線」上次讀取失敗時標紅點，SNMP 啟用但未填 Community / v3 帳號時「基本資料 & SNMP」標黃點。Switch 有兩個 MAC 分頁：「MAC 表」由管理連線讀取（可對應 CMDB 主機），「MAC（SNMP）」由 SNMP 輪詢。
+*   **用途**：在設備視窗的「管理連線」頁籤設定廠牌 API 連線後，可直接在 Vanguard 讀取設備資料：Overview（型號、韌體、序號、CPU / 記憶體 / Session 數）、Interfaces、Policies（含命中次數與最後命中時間，可搜尋、分頁）、Routes、Sessions、VPN（IPsec 通道與 SSL VPN 使用者）、HA。全部為唯讀，不會修改設備設定。
 *   **目前支援**：Firewall 的 **Fortinet FortiGate**（FortiOS REST API）、**Palo Alto Networks**（PAN-OS XML API）與 **Check Point**（Management API）。Cisco、Juniper、F5 已列在廠牌清單中，標示「尚未支援」，後續版本陸續提供。
-*   **FortiGate 設定方式**：在 FortiGate 的 System → Administrators 建立 REST API Admin，指派**唯讀**的 admin profile，並把 Trusted Hosts 設為 Vanguard 伺服器的 IP；把產生的 API token 貼到 Connection 頁籤。多 VDOM 的設備可填 VDOM 名稱（留空用設備預設）。先按「Test Connection」確認可連線（不會儲存），再按「Save Connection」。
+*   **FortiGate 設定方式**：在 FortiGate 的 System → Administrators 建立 REST API Admin，指派**唯讀**的 admin profile，並把 Trusted Hosts 設為 Vanguard 伺服器的 IP；把產生的 API token 貼到 「管理連線」頁籤。多 VDOM 的設備可填 VDOM 名稱（留空用設備預設）。先按「Test Connection」確認可連線（不會儲存），再按「Save Connection」。
 *   **Palo Alto 設定方式**：在 Device → Admin Roles 建立只開 XML API 讀取（Operational Requests、Configuration 唯讀）的角色並指派給 API 帳號，再用該帳號產生 API key 貼到「API Key」。也可以不填 key、改填帳號密碼：Vanguard 會用 POST 向防火牆換取 key（不會出現在網址），key 只存在記憶體，失效時自動重新換取。多 vsys 的設備可填 vsys 名稱（留空用 vsys1）。Policies 讀取的是**執行中**的 security rulebase，ID 欄為規則順序；Panorama 推送的 pre / post 規則目前不列出。Sessions 的 POLICY 欄顯示規則名稱。
 *   **Check Point 設定方式**：Check Point 透過**管理伺服器**（Security Management 或 Multi-Domain Server）讀取，管理位址請填管理伺服器，不是 Gateway。在 SmartConsole 建立唯讀權限的管理員（Permission Profile 設為 Read Only），填帳號密碼或 API key；Vanguard 一律以唯讀模式登入，Session 存在記憶體重複使用。Multi-Domain 環境請填 Domain 名稱。「Gateway 名稱 / IP」填這台設備在 SmartConsole 的 Gateway 或 Cluster 物件名稱（管理伺服器只有一台時可留空；有多台卻沒填時，畫面會列出可選的名稱）。提供 Overview、Interfaces（設定值，無連線狀態）、Policies（已安裝政策套件的第一個 Access Layer，含 Section 與命中次數，最多讀 5000 條）與 HA（Cluster 成員設定，不含目前 Active 是哪台）。管理 API 沒有 Gateway 的即時路由、Session 與 VPN 狀態，因此不提供這些頁籤。
 *   **Token 保護**：token、API key 與密碼加密儲存，畫面與 API 一律只顯示遮罩；修改其他欄位時保持遮罩即沿用原 token。**變更管理位址、埠號或廠牌時，原 token 不會帶到新位址，必須重新輸入。**
 *   **憑證驗證**：設備多半使用自簽憑證，預設不驗證；勾選「驗證設備憑證」並貼上簽發設備憑證的 CA（PEM）即可改為驗證。
 *   **權限**：Viewer 可檢視資料；Operator / SuperAdmin 可設定、測試與移除連線（皆記入稽核紀錄）。刪除設備時其管理連線一併刪除。
 *   **讀取頻率**：同一份資料 30 秒內重複開啟會使用快取（畫面顯示資料時間），按「Refresh」強制重新讀取；同一台設備同時只會送出一份相同的請求。Sessions 必須填來源 IP、目的 IP 或目的埠至少一項，最多顯示 500 筆。
-*   **設定備份（Config Backup 頁籤）**：Operator 以上可按「Back Up Now」立即備份並查看備份清單（時間、大小、行數、執行者）；**查看內容、比對差異、下載限 SuperAdmin，且都記入稽核紀錄**，因為備份含加密後的密碼與 VPN 預先共享金鑰。FortiGate 備份完整設定檔（VDOM 範圍的 token 只備份該 VDOM），Palo Alto 備份執行中的 XML 設定，Check Point 備份 Gateway 物件與已安裝政策套件的所有 Access Layer（JSON，不含 Gaia 系統設定，已去除修改時間與命中次數等每次都會變的欄位）。內容與上一份相同時不另存新檔，只更新「Last checked」時間，因此保留的份數都是真正不同的版本。勾選兩份後按「Compare Selected」可看差異（舊 → 新）。
+*   **設定備份頁籤**：Operator 以上可按「Back Up Now」立即備份並查看備份清單（時間、大小、行數、執行者）；**查看內容、比對差異、下載限 SuperAdmin，且都記入稽核紀錄**，因為備份含加密後的密碼與 VPN 預先共享金鑰。FortiGate 備份完整設定檔（VDOM 範圍的 token 只備份該 VDOM），Palo Alto 備份執行中的 XML 設定，Check Point 備份 Gateway 物件與已安裝政策套件的所有 Access Layer（JSON，不含 Gaia 系統設定，已去除修改時間與命中次數等每次都會變的欄位）。內容與上一份相同時不另存新檔，只更新「Last checked」時間，因此保留的份數都是真正不同的版本。勾選兩份後按「Compare Selected」可看差異（舊 → 新）。
 *   **備份檔案與保留**：檔案存於 `<DB_DATA_DIR>\netdevice_backups\<設備ID>\`，每台保留最近 `NETDEVICE_BACKUP_KEEP` 份（預設 30，1–365），刪除設備時其備份一併刪除。
 *   **排程備份**：在 System Settings 的備份區設定 `NETDEVICE_BACKUP_SCHEDULE`（HH:MM，伺服器本地時間；留空 = 關閉），由背景 Worker 每天對所有已啟用管理連線的設備依序備份。當天是否已執行會記錄下來，重啟不會重跑；Worker 在設定時間一小時後才啟動則跳過當天。
-*   **從機櫃圖 / 拓撲圖開啟**：Server Rack 的設備視窗與 Topology Map 的設備側欄，對 Switch、Router、Firewall、Load Balancer 顯示「🖧 Open in Network Device」，按下後切到 Network Device 並直接開啟該設備（已設定管理連線時開在 Overview，否則開在 Info & SNMP）。只有具備 Network Device 功能的使用者看得到這個按鈕；Server Rack 視窗中尚未儲存的修改不會保留。
+*   **從機櫃圖 / 拓撲圖開啟**：Server Rack 的設備視窗與 Topology Map 的設備側欄，對 Switch、Router、Firewall、Load Balancer 顯示「🖧 Open in Network Device」，按下後切到 Network Device 並直接開啟該設備（已設定管理連線時開在 Overview，否則開在 基本資料 & SNMP）。只有具備 Network Device 功能的使用者看得到這個按鈕；Server Rack 視窗中尚未儲存的修改不會保留。
 *   **錯誤訊息**：token 錯誤或過期、權限不足、連不到設備、憑證驗證失敗、韌體不提供該資料，畫面會分別提示處理方式。設備清單的「MANAGEMENT」欄顯示廠牌、型號、韌體版本與最後一次連線狀態（滑過可看錯誤原因）。
 
 ### 🔀 Network Device：Switch 整合（Cisco IOS / IOS-XE，唯讀）
-*   **連線方式**：IOS-XE（16.x 以後，如 Catalyst 9000）可走 **RESTCONF**（HTTPS，填在「API Port」，預設 443，Switch 上需 `restconf` 與 `ip http secure-server`）；舊版 IOS 或沒開 RESTCONF 的設備走 **SSH**（只執行固定的 `show` 指令，絕不進入設定模式）。Connection 頁籤選「Cisco IOS / IOS-XE」，填管理位址、API Port、SSH Port（預設 22）、帳號密碼；SSH 登入後權限不到 15 級時，另填「Enable 密碼」供設定備份使用。
-*   **「連線方式」選項**：「只用 API」、「只用 SSH」只走該方式；「自動」先用上次成功的方式（第一次先試 RESTCONF），設備沒回應或沒開 RESTCONF 才改用 SSH，並記住能用的方式（Connection 頁籤下方顯示「自動判斷目前使用」）。帳密錯誤、權限不足、憑證錯誤**不會**改試 SSH，避免同一組帳密連試兩次被鎖。儲存或「測試連線」後會重新判斷；測試結果會標示實際用的方式（API / SSH）。
-*   **設定備份**：一律走 SSH（RESTCONF 沒有純文字設定）；只開 RESTCONF、SSH 連不到時，Config Backup 會提示到設備上開啟 SSH。
+*   **連線方式**：IOS-XE（16.x 以後，如 Catalyst 9000）可走 **RESTCONF**（HTTPS，填在「API Port」，預設 443，Switch 上需 `restconf` 與 `ip http secure-server`）；舊版 IOS 或沒開 RESTCONF 的設備走 **SSH**（只執行固定的 `show` 指令，絕不進入設定模式）。「管理連線」頁籤選「Cisco IOS / IOS-XE」，填管理位址、API Port、SSH Port（預設 22）、帳號密碼；SSH 登入後權限不到 15 級時，另填「Enable 密碼」供設定備份使用。
+*   **「連線方式」選項**：「只用 API」、「只用 SSH」只走該方式；「自動」先用上次成功的方式（第一次先試 RESTCONF），設備沒回應或沒開 RESTCONF 才改用 SSH，並記住能用的方式（「管理連線」頁籤下方顯示「自動判斷目前使用」）。帳密錯誤、權限不足、憑證錯誤**不會**改試 SSH，避免同一組帳密連試兩次被鎖。儲存或「測試連線」後會重新判斷；測試結果會標示實際用的方式（API / SSH）。
+*   **設定備份**：一律走 SSH（RESTCONF 沒有純文字設定）；只開 RESTCONF、SSH 連不到時，設定備份 會提示到設備上開啟 SSH。
 *   **建議帳號**：RESTCONF 需要 privilege 15 帳號；若現場政策不允許，改用「只用 SSH」，並以 `parser view` 或 AAA 授權限制只能執行 show 指令。設定備份需要能執行 `show running-config`（privilege 15 或 Enable 密碼）。
-*   **SSH 主機金鑰**：第一次連線時記住設備的金鑰指紋，之後指紋不同就拒絕連線（不會送出密碼）並顯示「主機金鑰與第一次連線時不同」。確認設備確實更換或重新產生金鑰後，在 Connection 頁籤按「重設主機金鑰」（Operator 以上，記入稽核紀錄）。
-*   **分頁**：Overview（型號、韌體、序號、運作時間、堆疊成員）、Interfaces（狀態含 err-disabled、模式 access / trunk / routed、VLAN、錯誤計數 input / CRC / output、Discards、收送速率；可只看有錯誤或非 up 的 Port）、VLAN（Access 成員與允許通過的 Trunk）、MAC Table（可用任何格式的 MAC、Port、VLAN 搜尋，最多顯示 1000 筆，並標示每個 Port 學到幾個 MAC，學到 10 個以上的多半是 uplink / trunk）、Config Backup（running-config，已去除「Last configuration change」等每次都會變的行）。Router 類型只顯示 Overview、Interfaces 與 Config Backup。
+*   **SSH 主機金鑰**：第一次連線時記住設備的金鑰指紋，之後指紋不同就拒絕連線（不會送出密碼）並顯示「主機金鑰與第一次連線時不同」。確認設備確實更換或重新產生金鑰後，在 「管理連線」頁籤按「重設主機金鑰」（Operator 以上，記入稽核紀錄）。
+*   **分頁**：Overview（型號、韌體、序號、運作時間、堆疊成員）、Interfaces（狀態含 err-disabled、模式 access / trunk / routed、VLAN、錯誤計數 input / CRC / output、Discards、收送速率；可只看有錯誤或非 up 的 Port）、VLAN（Access 成員與允許通過的 Trunk）、MAC 表（可用任何格式的 MAC、Port、VLAN 搜尋，最多顯示 1000 筆，並標示每個 Port 學到幾個 MAC，學到 10 個以上的多半是 uplink / trunk）、設定備份（running-config，已去除「Last configuration change」等每次都會變的行）。Router 類型只顯示 Overview、Interfaces 與 設定備份。
 *   **注意**：錯誤計數為自上次 `clear counters` 以來的累計；速率為設備回報的平均值（IOS 預設 5 分鐘）。走 RESTCONF 時看不到 err-disabled 狀態（顯示為 down），需要時改用「只用 SSH」。同一台 Switch 同時只會開一條 SSH 連線，避免佔滿 vty 線路。
 
-*   **MAC 對應主機**：MAC Table 的「HOST (CMDB)」欄顯示 Server List / Inventory 掃描記錄的 MAC 所屬主機（主機名稱與 IP，同一個 MAC 最多列 3 台，已刪除的主機不列）。IPAM 不記錄 MAC，因此只用 CMDB；未掃描或沒有 MAC 紀錄的設備顯示「-」。主機清單每分鐘更新一次。此欄適用所有 Switch 廠牌。
+*   **MAC 對應主機**：MAC 表的「HOST (CMDB)」欄顯示 Server List / Inventory 掃描記錄的 MAC 所屬主機（主機名稱與 IP，同一個 MAC 最多列 3 台，已刪除的主機不列）。IPAM 不記錄 MAC，因此只用 CMDB；未掃描或沒有 MAC 紀錄的設備顯示「-」。主機清單每分鐘更新一次。此欄適用所有 Switch 廠牌。
 
 ### 🔀 Network Device：Switch 整合（Cisco NX-OS / Nexus，唯讀）
-*   **連線方式**：Connection 頁籤選「Cisco NX-OS」。API 為 **NX-API**（設備上需 `feature nxapi`，HTTPS，填在「API Port」，預設 443）；SSH 只執行固定的 `show … | json` 指令（需 NX-OS 7.x 以上）。「連線方式」的「自動」規則與 IOS 相同：先試 NX-API，設備沒回應或沒開 NX-API 才改用 SSH；帳密錯誤、權限不足、憑證錯誤不會改試。
+*   **連線方式**：「管理連線」頁籤選「Cisco NX-OS」。API 為 **NX-API**（設備上需 `feature nxapi`，HTTPS，填在「API Port」，預設 443）；SSH 只執行固定的 `show … | json` 指令（需 NX-OS 7.x 以上）。「連線方式」的「自動」規則與 IOS 相同：先試 NX-API，設備沒回應或沒開 NX-API 才改用 SSH；帳密錯誤、權限不足、憑證錯誤不會改試。
 *   **建議帳號**：角色 `network-operator`（唯讀）即可讀取所有分頁與設定備份，不需 Enable 密碼。
-*   **分頁**：Overview（型號、版本、序號、運作時間、CPU、記憶體；模組化機箱列出各 Slot 板卡）、Interfaces（Port 名稱以 NX-OS 短名 Eth1/1、Po10 顯示，狀態含 err-disabled）、VLAN、MAC Table、Config Backup（running-config，已去除 `!Time:` 等時間行；走 NX-API 或 SSH 皆可）。
+*   **分頁**：Overview（型號、版本、序號、運作時間、CPU、記憶體；模組化機箱列出各 Slot 板卡）、Interfaces（Port 名稱以 NX-OS 短名 Eth1/1、Po10 顯示，狀態含 err-disabled）、VLAN、MAC 表、設定備份（running-config，已去除 `!Time:` 等時間行；走 NX-API 或 SSH 皆可）。
 *   **注意**：速率為 NX-OS load-interval 1 的平均值（預設 30 秒）。
 
 ### 🔀 Network Device：Switch / Router 整合（Juniper Junos，唯讀）
-*   **連線方式**：Connection 頁籤選「Juniper Junos」。API 為 **Junos REST API**（設備上需 `set system services rest https`，HTTPS，填在「API Port」，預設 **3443**）；SSH 只執行固定的 `show … | display json` 指令（需 Junos 14.2 以上）。「自動」規則與 Cisco 相同：先試 REST API，設備沒回應或沒開 REST 才改用 SSH；帳密錯誤、權限不足、憑證錯誤不會改試。
+*   **連線方式**：「管理連線」頁籤選「Juniper Junos」。API 為 **Junos REST API**（設備上需 `set system services rest https`，HTTPS，填在「API Port」，預設 **3443**）；SSH 只執行固定的 `show … | display json` 指令（需 Junos 14.2 以上）。「自動」規則與 Cisco 相同：先試 REST API，設備沒回應或沒開 REST 才改用 SSH；帳密錯誤、權限不足、憑證錯誤不會改試。
 *   **建議帳號**：login class `read-only` 即可讀取所有分頁與設定備份。
-*   **分頁**：Overview（型號、版本、序號、運作時間、CPU、記憶體；Virtual Chassis 列出各成員與 master / backup 角色）、Interfaces（只列實體 Port、ae、管理介面與 irb 的各 unit，如 `irb.10`）、VLAN、MAC Table（EX2300 / 3400 / 4300 以後、QFX 等 ELS 平台；舊版 EX 的 VLAN、MAC 格式不支援）、Config Backup（`show configuration | display set`，已去除「## Last commit」行；一律走 SSH）。Router 類型只顯示 Overview、Interfaces 與 Config Backup。
+*   **分頁**：Overview（型號、版本、序號、運作時間、CPU、記憶體；Virtual Chassis 列出各成員與 master / backup 角色）、Interfaces（只列實體 Port、ae、管理介面與 irb 的各 unit，如 `irb.10`）、VLAN、MAC 表（EX2300 / 3400 / 4300 以後、QFX 等 ELS 平台；舊版 EX 的 VLAN、MAC 格式不支援）、設定備份（`show configuration | display set`，已去除「## Last commit」行；一律走 SSH）。Router 類型只顯示 Overview、Interfaces 與 設定備份。
 *   **注意**：Junos 回報的是當下速率，不是區間平均；錯誤計數的 CRC 取自 MAC 統計（沒有時用 framing errors）。
 
 ### ⚖️ Network Device：Load Balancer 整合（F5 BIG-IP，唯讀）
-*   **連線方式**：設備類型為 LoadBalancer 時，Connection 頁籤選「F5 BIG-IP」，填管理位址、Port（預設 443）、帳號密碼。Vanguard 以 **iControl REST** 登入取得 token（只存在記憶體，快到期時自動重新登入），之後只做讀取，不執行任何指令、不改任何設定。
+*   **連線方式**：設備類型為 LoadBalancer 時，「管理連線」頁籤選「F5 BIG-IP」，填管理位址、Port（預設 443）、帳號密碼。Vanguard 以 **iControl REST** 登入取得 token（只存在記憶體，快到期時自動重新登入），之後只做讀取，不執行任何指令、不改任何設定。
 *   **登入來源**：本機帳號用 `tmos`（預設）；遠端驗證（LDAP / RADIUS / TACACS）帳號填 F5 上的 provider 名稱。
 *   **Partition（選填）**：填了只看該 partition 的 Virtual Server；留空看全部 partition。
 *   **建議帳號**：F5 角色 `Auditor`（唯讀）。帳號登入被拒且訊息提到 token 時，可能是同帳號的有效 token 太多，稍候（約 20 分鐘）再試。
 *   **分頁**：Overview（平台、版本與 Build、序號、CPU、記憶體）、HA（本機角色 Active / Standby、Device Group、同步狀態 In Sync / Changes Pending、各設備角色與管理位址）、Virtual Servers（燈號：綠＝可用、黃＝暫不可用如連線數上限、紅＝離線、藍＝未知、灰＝停用；目的 IP:Port、協定、Pool、目前連線數、累計流量；可用名稱 / IP / Pool 搜尋、只看非綠燈；滑鼠移到列上顯示狀態原因）。
 *   **Pools**：列出每個 Pool 的燈號、成員上線數 / 總數（有成員沒上線時標黃）、負載平衡方式、monitor、目前連線數；可搜尋 Pool 名稱、只看非綠燈。點選 Pool 展開成員明細：每個成員的燈號、monitor 狀態、啟用狀態（enabled / disabled / forced-offline）、連線數、流量與狀態原因（例如被 monitor 標記為 down）。成員明細在展開時才讀取。
 *   **Certificates**：依到期日排序列出 SSL 憑證（名稱、Common Name、簽發者、到期日），已過期標紅、30 天內到期標黃；可只看已過期或快到期的。CA bundle（如 `ca-bundle.crt`）只列出、不計入快到期數量。
-*   **Config Backup（設定快照）**：iControl REST 無法以唯讀權限取得 tmsh 文字設定，因此備份存的是 **JSON 設定快照**：Virtual Server、Pool（含成員）、Node、Monitor（http / https / tcp / icmp / gateway-icmp）、client-ssl / server-ssl / http Profile、iRule、Data Group、SNAT、SNAT Pool、Self IP、VLAN、Route，依名稱排序，並去除版本連結、generation 等會自行變動的欄位；Pool 成員與 Node 的 monitor 結果（up / down）屬於狀態不是設定，不存，只保留 forced offline。帳號讀不到的項目列在 `_skipped`。沿用手動 / 排程備份、內容相同不重存、差異比對（SuperAdmin 查看並稽核）。**快照用於追蹤變更，不能直接還原設備；完整還原請使用 F5 的 UCS 備份。**
+*   **設定備份（設定快照）**：iControl REST 無法以唯讀權限取得 tmsh 文字設定，因此備份存的是 **JSON 設定快照**：Virtual Server、Pool（含成員）、Node、Monitor（http / https / tcp / icmp / gateway-icmp）、client-ssl / server-ssl / http Profile、iRule、Data Group、SNAT、SNAT Pool、Self IP、VLAN、Route，依名稱排序，並去除版本連結、generation 等會自行變動的欄位；Pool 成員與 Node 的 monitor 結果（up / down）屬於狀態不是設定，不存，只保留 forced offline。帳號讀不到的項目列在 `_skipped`。沿用手動 / 排程備份、內容相同不重存、差異比對（SuperAdmin 查看並稽核）。**快照用於追蹤變更，不能直接還原設備；完整還原請使用 F5 的 UCS 備份。**
 *   **注意**：Route domain 的位址顯示為 `IP%編號`，IPv6 以 `.` 分隔 Port（F5 的寫法）。
 
 ### 🕸️ Topology Map 網路拓撲視覺化

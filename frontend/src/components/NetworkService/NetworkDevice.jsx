@@ -3,7 +3,7 @@ import api from '../../api';
 import ConnectionTab from './mgmt/ConnectionTab';
 import CapabilityTab from './mgmt/CapabilityTab';
 import BackupTab from './mgmt/BackupTab';
-import { capabilityTabs } from './mgmt/mgmtTabs.js';
+import { capabilityTabs, detailTabGroups } from './mgmt/mgmtTabs.js';
 import { OPEN_EVENT, takePendingTarget } from '../../utils/networkDeviceLink.js';
 import { TbShieldLock, TbSwitchHorizontal, TbRouter, TbScale, TbServer2, TbSearch, TbPlus, TbAlertTriangle, TbCircleCheck, TbPlugConnectedX, TbDevices, TbAntenna, TbRefresh } from 'react-icons/tb';
 import { deviceHealth, snmpState, summarize, typeCounts, filterDevices, sortDevices, connectionNote } from './deviceList.js';
@@ -95,7 +95,7 @@ export default function NetworkDevice() {
            .finally(() => setLoading(false));
     };
 
-    // Opened from another screen: a managed device starts on Overview, others on Info & SNMP
+    // Opened from another screen: a managed device starts on Overview, others on 基本資料 & SNMP
     const openTarget = (target, list) => {
         const device = list.find(d => d.id === target.id);
         if (!device) {
@@ -244,8 +244,10 @@ export default function NetworkDevice() {
         modalOverlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, backdropFilter: 'blur(4px)' },
         modal: { background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 16, width: '90%', maxWidth: 800, maxHeight: '90vh', overflow: 'hidden', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-xl)' },
         modalHeader: { padding: '20px 24px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
-        tabContainer: { display: 'flex', flexWrap: 'wrap', gap: 10, padding: '16px 24px', borderBottom: '1px solid var(--border-color)', background: 'var(--bg-secondary)' },
-        tab: active => ({ padding: '8px 16px', borderRadius: 20, fontSize: 13, fontWeight: 800, cursor: 'pointer', border: 'none', background: active ? 'var(--accent-primary)' : 'transparent', color: active ? '#fff' : 'var(--text-muted)', transition: 'all 0.2s' }),
+        tabContainer: { display: 'flex', alignItems: 'stretch', overflowX: 'auto', padding: '0 24px', borderBottom: '1px solid var(--border-color)', background: 'var(--bg-secondary)', flexShrink: 0 },
+        tabGroup: divided => ({ display: 'flex', alignItems: 'stretch', flexShrink: 0, ...(divided ? { marginLeft: 12, paddingLeft: 12, borderLeft: '1px solid var(--border-color)' } : {}) }),
+        tabGroupLabel: { alignSelf: 'center', marginRight: 4, fontSize: 10, fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-muted)', opacity: 0.7, whiteSpace: 'nowrap' },
+        tab: (active, dim) => ({ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '14px 10px 12px', fontSize: 13, fontWeight: active ? 800 : 600, whiteSpace: 'nowrap', cursor: 'pointer', border: 'none', borderBottom: `2px solid ${active ? 'var(--accent-primary)' : 'transparent'}`, background: 'transparent', color: active ? 'var(--accent-primary)' : 'var(--text-muted)', opacity: dim && !active ? 0.5 : 1, transition: 'color 0.2s, border-color 0.2s' }),
         inputGroup: { display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 16 },
         label: { fontSize: 12, fontWeight: 700, color: 'var(--text-muted)' },
         input: { background: 'var(--bg-primary)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', padding: '10px 12px', borderRadius: 8, fontSize: 14, outline: 'none', width: '100%' },
@@ -413,17 +415,19 @@ export default function NetworkDevice() {
                             <button onClick={() => setSelectedDevice(null)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 24 }}>&times;</button>
                         </div>
                         <div style={s.tabContainer}>
-                            <button style={s.tab(activeTab === 'info')} onClick={() => setActiveTab('info')}>Info & SNMP</button>
-                            <button style={s.tab(activeTab === 'ports')} onClick={() => { setActiveTab('ports'); if(!pollData && snmpEnabled && !ipUnsaved) handlePoll(); }}>Port Status</button>
-                            <button style={s.tab(activeTab === 'arp')} onClick={() => { setActiveTab('arp'); if(!pollData && snmpEnabled && !ipUnsaved) handlePoll(); }}>ARP Table</button>
-                            <button style={s.tab(activeTab === 'mac')} onClick={() => { setActiveTab('mac'); if(!pollData && snmpEnabled && !ipUnsaved) handlePoll(); }}>MAC Table</button>
-                            <button style={s.tab(activeTab === 'mgmt')} onClick={() => setActiveTab('mgmt')}>Connection</button>
-                            {capabilityTabs(mgmtInfo).map(t => (
-                                <button key={t.key} style={s.tab(activeTab === `cap:${t.key}`)} onClick={() => setActiveTab(`cap:${t.key}`)}>{t.label}</button>
+                            {detailTabGroups(mgmtInfo, { role, snmp: snmpState(selectedDevice), health: deviceHealth(selectedDevice) }).map((g, gi) => (
+                                <div key={g.key} role="tablist" aria-label={g.label} style={s.tabGroup(gi > 0)}>
+                                    <span style={s.tabGroupLabel}>{g.label}</span>
+                                    {g.tabs.map(t => (
+                                        <button key={t.key} role="tab" aria-selected={activeTab === t.key} style={s.tab(activeTab === t.key, t.dim)}
+                                            title={t.dim ? '此設備未啟用 SNMP 查詢' : undefined}
+                                            onClick={() => { setActiveTab(t.key); if (t.poll && !pollData && snmpEnabled && !ipUnsaved) handlePoll(); }}>
+                                            {t.label}
+                                            {t.dot && <span aria-label={t.dot === 'danger' ? '有錯誤' : '需要設定'} style={{ width: 7, height: 7, borderRadius: '50%', background: `var(--${t.dot})`, flexShrink: 0 }} />}
+                                        </button>
+                                    ))}
+                                </div>
                             ))}
-                            {role !== 'Viewer' && mgmtInfo && mgmtInfo.profile && mgmtInfo.backup && (
-                                <button style={s.tab(activeTab === 'backup')} onClick={() => setActiveTab('backup')}>Config Backup</button>
-                            )}
                         </div>
                         <div style={{ padding: 24, overflowY: 'auto', flex: 1 }}>
                             {activeTab === 'info' && (
@@ -522,7 +526,7 @@ export default function NetworkDevice() {
                                         )}
                                     </div>
 
-                                    {!snmpEnabled && <p style={{ color: 'var(--text-muted)' }}>此設備未啟用 SNMP 查詢。請在「Info &amp; SNMP」頁籤勾選「啟用 SNMP 查詢」並儲存後再查詢。</p>}
+                                    {!snmpEnabled && <p style={{ color: 'var(--text-muted)' }}>此設備未啟用 SNMP 查詢。請在「基本資料 &amp; SNMP」頁籤勾選「啟用 SNMP 查詢」並儲存後再查詢。</p>}
                                     {snmpEnabled && ipUnsaved && <p style={{ color: 'var(--warning)' }}>IP 位址已修改但尚未儲存，請先儲存 Device Info 再查詢。</p>}
                                     {snmpEnabled && !pollData && !pollLoading && <p style={{ color: 'var(--text-muted)' }}>No data. Click refresh to poll device.</p>}
                                     {pollLoading && <p style={{ color: 'var(--accent-primary)' }}>Polling device via SNMP, please wait...</p>}

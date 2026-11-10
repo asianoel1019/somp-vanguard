@@ -14,7 +14,7 @@ const TABS = [
 
 const errorText = (e, fallback) => e?.response?.data?.error || fallback;
 
-export default function GpoPane({ guid, tree, canEdit, canReport, refreshKey, onSetStatus, onOpenContainer }) {
+export default function GpoPane({ guid, tree, canEdit, canReport, refreshKey, onSetStatus, onOpenContainer, onLinkContextMenu }) {
     const [tab, setTab] = useState('scope');
     const [detail, setDetail] = useState({ guid: null, data: null, error: null });
     const [report, setReport] = useState({ guid: null, html: null, error: null });
@@ -62,6 +62,7 @@ export default function GpoPane({ guid, tree, canEdit, canReport, refreshKey, on
                             rows={locations.map(l => ({ ...l, key: `${l.path}:${l.order}` }))}
                             empty="This GPO is not linked anywhere."
                             onRowDoubleClick={(r) => onOpenContainer(r.node.dn)}
+                            onRowContextMenu={(e, r) => onLinkContextMenu(e, r.node.dn)}
                         />
                         <SectionLabel>Security Filtering — the settings in this GPO only apply to</SectionLabel>
                         {loadingOr(

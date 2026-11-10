@@ -55,3 +55,18 @@ test('security filtering keeps allowed Apply entries; delegation labels permissi
     assert.deepEqual(securityFiltering(perms).map(p => p.name), ['NT AUTHORITY\\Authenticated Users']);
     assert.deepEqual(delegationRows(perms).map(r => r.allowed), ['Deny: Read (from Security Filtering)', 'Edit settings', 'Read (from Security Filtering)']);
 });
+
+test('link helpers: find, linkable GPOs, and moving within the link order', async () => {
+    const { findLink, linkableGpos, movedOrder } = await import('./gpmcModel.js');
+    const t = buildGpmcTree(data);
+    const ws = `OU=Workstations,${DOM}`;
+    assert.equal(findLink(t, ws, 'ws-base').link.enforced, true);
+    assert.equal(findLink(t, ws, 'kiosk'), null);
+    assert.equal(findLink(t, 'OU=Nope,DC=x', 'ws-base'), null);
+    const node = t.byDn.get(ws.toLowerCase());
+    assert.deepEqual(linkableGpos(node, t.gpoById).map(g => g.id), ['ddp', 'dom-enf', 'kiosk', 'kiosk-2']);
+    assert.deepEqual(linkableGpos(node, t.gpoById, 'KIOSK').map(g => g.id), ['kiosk', 'kiosk-2']);
+    assert.equal(movedOrder(node, 'ws-base', -1), null);
+    assert.equal(movedOrder(node, 'ws-base', 1), 2);
+    assert.equal(movedOrder(node, 'ws-off', 1), null);
+});

@@ -330,7 +330,7 @@ Server List 是 SOMP Vanguard 的核心伺服器資產資料庫 (CMDB)，自動�
 *   **在線存活探測**：卡片即時顯示在線健康狀態，支援快速啟用/停用切換。
 
 ### 🛡️ AD Control：Group Policy 管理
-AD Control 的「Group Policy」分頁仿照微軟的群組原則管理主控台（GPMC）排版，目前為唯讀檢視，加上原有的狀態切換、備份與登錄值編輯。
+AD Control 的「Group Policy」分頁仿照微軟的群組原則管理主控台（GPMC）排版：可以檢視網域、OU 與 GPO，管理 GPO 連結與繼承封鎖，以及切換狀態、備份與編輯登錄值。新增 / 刪除 / 複製 GPO、編輯安全性篩選與委派尚未提供。
 *   **左側樹狀**：網域 → OU 階層，每個網域 / OU 底下列出連結的 GPO（依連結順序）；另有「Group Policy Objects」（網域內所有 GPO）與「WMI Filters」兩個容器。強制（Enforced）的連結有鎖頭圖示，停用的連結與全部設定停用的 GPO 會變淡，封鎖繼承的 OU 有藍色驚嘆號。OU 最多讀取 2000 個，超過時頁面會提示。
 *   **點網域或 OU**：
     *   「Linked Group Policy Objects」：連結順序、強制、連結啟用、GPO 狀態、WMI 篩選、修改時間。
@@ -342,6 +342,12 @@ AD Control 的「Group Policy」分頁仿照微軟的群組原則管理主控台
     *   「Delegation」：每個群組 / 使用者對這個 GPO 的權限與是否繼承（唯讀）。
 *   **WMI Filters**：列出網域內的 WMI 篩選，點進去可看描述、查詢語句，以及哪些 GPO 使用它。
 *   **操作**：在樹狀或表格上按右鍵，或使用上方工具列。Operator 以上可以切換 GPO 狀態、備份（單一 GPO 或在「Group Policy Objects」上備份全部，路徑留空則存到 DC 的 `C:\GPO_Backups`），以及編輯 `Software\Policies` 底下的登錄值設定。
+*   **連結管理（Operator 以上）**：
+    *   **連結既有的 GPO**：在網域或 OU 上按右鍵選「Link an Existing GPO…」（或工具列的「Link an existing GPO」），從尚未連結到這裡的 GPO 中挑一個。新連結為啟用狀態，排在連結順序的最後。
+    *   **強制 / 停用連結 / 刪除連結**：在連結（樹狀中 OU 底下的 GPO、「Linked Group Policy Objects」或 GPO「Scope」分頁的列）上按右鍵，切換「Enforced」、「Link Enabled」，或「Delete link」。刪除連結不會刪除 GPO 本身。
+    *   **連結順序**：在「Linked Group Policy Objects」分頁用 ▲ ▼ 調整，順序 1 優先。
+    *   **封鎖繼承**：在網域或 OU 上按右鍵勾選 / 取消「Block Inheritance」。封鎖後上層的連結不再套用到這裡，強制的連結除外。
+    *   除了調整順序與連結新 GPO，每項變更都會先請你確認；完成後會重新讀取樹狀。所有變更都記在稽核紀錄（操作者、GPO 名稱、OU 的 DN 與變更內容）。只能連結到網域根或 OU，其他容器（例如 `CN=Users`）會被拒絕。
 *   **需求**：DC 上要有 GroupPolicy（RSAT-GPMC）與 ActiveDirectory PowerShell 模組，並使用 Settings 中設定的 AD 服務帳號。
 
 ### 🏢 Nutanix Prism 虛擬化管理

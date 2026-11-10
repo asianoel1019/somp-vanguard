@@ -2,15 +2,16 @@
 // Group Policy Objects / WMI Filters containers on the left, the selected item's tabs on the right, a toolbar and a
 // right-click menu for the actions.
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { FiRefreshCw, FiSave, FiEdit2, FiCheck } from 'react-icons/fi';
+import { FiRefreshCw, FiSave, FiEdit2, FiCheck, FiLink, FiAlertCircle, FiLock, FiSlash, FiTrash2 } from 'react-icons/fi';
 import api from '../../api';
 import { useConfirm } from '../../contexts/ConfirmContext';
-import { buildGpmcTree, GPO_STATUS_LABELS, GPO_STATUSES } from './gpmcModel';
+import { buildGpmcTree, findLink, GPO_STATUS_LABELS, GPO_STATUSES } from './gpmcModel';
 import { C } from './gpmcStyle';
 import GpmcTree from './GpmcTree';
 import GpoPane from './GpoPane';
 import ContainerPane from './ContainerPane';
 import RegistryEditModal from './RegistryEditModal';
+import LinkGpoModal from './LinkGpoModal';
 
 const RSAT_HINT = 'RSAT-GPMC is missing on the domain controller. Install the Group Policy Management Console (Install-WindowsFeature RSAT-GPMC).';
 const errorText = (e, fallback) => {
@@ -49,6 +50,7 @@ export default function GPOManager() {
     const [busy, setBusy] = useState(false);
     const [backup, setBackup] = useState(null); // { guid, name, path }
     const [registryGpo, setRegistryGpo] = useState(null);
+    const [linkTarget, setLinkTarget] = useState(null); // dn of the container to link a GPO to
     const [refreshKey, setRefreshKey] = useState(0);
 
     const tree = useMemo(() => (data ? buildGpmcTree(data) : null), [data]);
@@ -117,6 +119,66 @@ export default function GPOManager() {
         }
     };
 
+    // One AD change: optional confirmation, then the request, a message and a reload of the tree.
+    const runChange = async ({ confirm, title, request, success, failure }) => {
+        if (confirm && !(await showConfirm(confirm, title))) return;
+        setBusy(true);
+        try {
+            await request();
+            setMessage({ type: 'success', text: success });
+            await load();
+        } catch (e) {
+            setMessage({ type: 'error', text: errorText(e, failure) });
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    const linkGpo = (node, gpo) => {
+        setLinkTarget(null);
+        if (!gpo) return;
+        runChange({
+            request: () => api.post('/gpo/link', { guid: gpo.id, target: node.dn, name: gpo.name }),
+            success: `'${gpo.name}' is now linked to ${node.name}.`, failure: 'Could not link the GPO.',
+        });
+    };
+    const deleteLink = (dn, guid) => {
+        const found = findLink(tree, dn, guid);
+        if (!found) return;
+        runChange({
+            confirm: `Delete the link of '${gpoName(guid)}' from ${found.node.name}? The GPO itself is not deleted.`, title: 'Delete link',
+            request: () => api.post('/gpo/link/delete', { guid, target: dn, name: gpoName(guid) }),
+            success: `The link of '${gpoName(guid)}' was deleted from ${found.node.name}.`, failure: 'Could not delete the link.',
+        });
+    };
+    const setLinkOption = (dn, guid, option, value) => {
+        const found = findLink(tree, dn, guid);
+        if (!found) return;
+        const label = option === 'enforced' ? 'Enforced' : 'Link Enabled';
+        const what = option === 'enforced' ? (value ? 'Enforce' : 'Stop enforcing') : (value ? 'Enable' : 'Disable');
+        runChange({
+            confirm: `${what} the link of '${gpoName(guid)}' on ${found.node.name}?`, title: label,
+            request: () => api.post('/gpo/link/set', { guid, target: dn, name: gpoName(guid), [option]: value }),
+            success: `Link of '${gpoName(guid)}' on ${found.node.name}: ${label} = ${value ? 'Yes' : 'No'}.`,
+            failure: 'Could not change the link.',
+        });
+    };
+    const moveLink = (node, row, order) => {
+        if (order === null) return;
+        runChange({
+            request: () => api.post('/gpo/link/set', { guid: row.guid, target: node.dn, name: row.name, order }),
+            success: `'${row.name}' is now link order ${order} on ${node.name}.`, failure: 'Could not change the link order.',
+        });
+    };
+    const setBlock = (node, blocked) => runChange({
+        confirm: blocked
+            ? `Block inheritance on ${node.name}? GPOs linked above it will no longer apply here, except enforced links.`
+            : `Stop blocking inheritance on ${node.name}?`,
+        title: 'Block Inheritance',
+        request: () => api.post('/gpo/inheritance', { target: node.dn, blocked }),
+        success: `${node.name}: inheritance ${blocked ? 'blocked' : 'no longer blocked'}.`, failure: 'Could not change inheritance blocking.',
+    });
+
     const runBackup = async () => {
         const { guid, name, path } = backup;
         setBackup(null);
@@ -144,6 +206,18 @@ export default function GPOManager() {
         const name = gpoName(guid);
         return (
             <>
+                {linkDn && canEdit && (() => {
+                    const found = findLink(tree, linkDn, guid);
+                    if (!found) return null;
+                    return (
+                        <>
+                            <MenuItem checked={found.link.enforced} disabled={busy} onClick={() => setLinkOption(linkDn, guid, 'enforced', !found.link.enforced)}>Enforced</MenuItem>
+                            <MenuItem checked={found.link.enabled} disabled={busy} onClick={() => setLinkOption(linkDn, guid, 'enabled', !found.link.enabled)}>Link Enabled</MenuItem>
+                            <MenuItem disabled={busy} onClick={() => deleteLink(linkDn, guid)}>Delete link</MenuItem>
+                            <MenuSeparator />
+                        </>
+                    );
+                })()}
                 {linkDn && <MenuItem onClick={() => openGpo(guid)}>Go to GPO</MenuItem>}
                 {canEdit && <MenuItem onClick={() => setRegistryGpo({ guid, name })}>Edit registry settings…</MenuItem>}
                 {canEdit && (
@@ -168,6 +242,17 @@ export default function GPOManager() {
                 style={{ position: 'fixed', left: menu.x, top: menu.y, zIndex: 1100, minWidth: '250px', padding: '4px 0', background: 'var(--bg-secondary)', border: C.border, borderRadius: '10px', boxShadow: 'var(--shadow-lg)' }}
                 onClickCapture={() => setTimeout(() => setMenu(null), 0)}>
                 {(t.type === 'gpo' || t.type === 'link') && gpoMenuItems(t.guid, t.type === 'link' ? t.dn : null)}
+                {(t.type === 'domain' || t.type === 'ou') && canEdit && (() => {
+                    const node = tree.byDn.get(String(t.dn).toLowerCase());
+                    if (!node) return null;
+                    return (
+                        <>
+                            <MenuItem disabled={busy} onClick={() => setLinkTarget(node.dn)}>Link an Existing GPO…</MenuItem>
+                            <MenuItem checked={node.blockInheritance} disabled={busy} onClick={() => setBlock(node, !node.blockInheritance)}>Block Inheritance</MenuItem>
+                            <MenuSeparator />
+                        </>
+                    );
+                })()}
                 {t.type === 'gpos' && canEdit && <MenuItem disabled={busy} onClick={() => setBackup({ guid: 'ALL', name: 'all GPOs', path: '' })}>Back Up All…</MenuItem>}
                 {(t.type === 'gpo' || t.type === 'link' || (t.type === 'gpos' && canEdit)) && <MenuSeparator />}
                 <MenuItem onClick={load}>Refresh</MenuItem>
@@ -187,6 +272,27 @@ export default function GPOManager() {
                         <button style={btn} disabled={busy} onClick={() => setBackup({ guid: selectedGuid, name: gpoName(selectedGuid), path: '' })}><FiSave /> Back up</button>
                     </>
                 )}
+                {canEdit && tree && selection && selection.type === 'link' && (() => {
+                    const found = findLink(tree, selection.dn, selection.guid);
+                    if (!found) return null;
+                    return (
+                        <>
+                            <button style={btn} disabled={busy} onClick={() => setLinkOption(selection.dn, selection.guid, 'enforced', !found.link.enforced)}><FiLock /> {found.link.enforced ? 'Stop enforcing' : 'Enforce'}</button>
+                            <button style={btn} disabled={busy} onClick={() => setLinkOption(selection.dn, selection.guid, 'enabled', !found.link.enabled)}><FiSlash /> {found.link.enabled ? 'Disable link' : 'Enable link'}</button>
+                            <button style={btn} disabled={busy} onClick={() => deleteLink(selection.dn, selection.guid)}><FiTrash2 /> Delete link</button>
+                        </>
+                    );
+                })()}
+                {canEdit && tree && selection && (selection.type === 'domain' || selection.type === 'ou') && (() => {
+                    const node = tree.byDn.get(String(selection.dn).toLowerCase());
+                    if (!node) return null;
+                    return (
+                        <>
+                            <button style={btn} disabled={busy} onClick={() => setLinkTarget(node.dn)}><FiLink /> Link an existing GPO</button>
+                            <button style={btn} disabled={busy} onClick={() => setBlock(node, !node.blockInheritance)}><FiAlertCircle /> {node.blockInheritance ? 'Stop blocking inheritance' : 'Block inheritance'}</button>
+                        </>
+                    );
+                })()}
                 {canEdit && selection && selection.type === 'gpos' && (
                     <button style={btn} disabled={busy} onClick={() => setBackup({ guid: 'ALL', name: 'all GPOs', path: '' })}><FiSave /> Back up all</button>
                 )}
@@ -216,9 +322,9 @@ export default function GPOManager() {
                     <div style={{ flex: '1 1 480px', minWidth: 0 }}>
                         {selectedGuid ? (
                             <GpoPane key={selectedGuid} guid={selectedGuid} tree={tree} canEdit={canEdit} canReport={canReport} refreshKey={refreshKey}
-                                onSetStatus={setStatus} onOpenContainer={openContainer} />
+                                onSetStatus={setStatus} onOpenContainer={openContainer} onLinkContextMenu={(e, dn) => openMenu(e, { type: 'link', guid: selectedGuid, dn })} />
                         ) : selection ? (
-                            <ContainerPane selection={selection} tree={tree} wmiFilters={wmi.list} wmiError={wmi.error} onOpenGpo={openGpo}
+                            <ContainerPane selection={selection} tree={tree} wmiFilters={wmi.list} wmiError={wmi.error} canEdit={canEdit} busy={busy} onOpenGpo={openGpo} onMoveLink={moveLink}
                                 onGpoContextMenu={(e, guid, dn) => openMenu(e, dn ? { type: 'link', guid, dn } : { type: 'gpo', guid })} />
                         ) : null}
                     </div>
@@ -240,6 +346,11 @@ export default function GPOManager() {
                         </div>
                     </div>
                 </div>
+            )}
+
+            {linkTarget && tree && tree.byDn.get(linkTarget.toLowerCase()) && (
+                <LinkGpoModal node={tree.byDn.get(linkTarget.toLowerCase())} gpoById={tree.gpoById} onCancel={() => setLinkTarget(null)}
+                    onLink={(gpo) => linkGpo(tree.byDn.get(linkTarget.toLowerCase()), gpo)} />
             )}
 
             {registryGpo && (

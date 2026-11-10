@@ -128,3 +128,26 @@ export function formatDate(iso) {
     const d = new Date(iso);
     return Number.isNaN(d.getTime()) ? String(iso) : d.toLocaleString();
 }
+
+/** The link of a GPO on a container, or null. */
+export function findLink(tree, dn, guid) {
+    const node = tree.byDn.get(String(dn).toLowerCase());
+    if (!node) return null;
+    const link = (node.links || []).find(l => l.guid === String(guid).toLowerCase());
+    return link ? { node, link } : null;
+}
+
+/** GPOs not yet linked to a container, by name (Link an Existing GPO). */
+export function linkableGpos(node, gpoById, filter = '') {
+    const linked = new Set((node.links || []).map(l => l.guid));
+    const f = String(filter).trim().toLowerCase();
+    return sortedGpos(gpoById).filter(g => !linked.has(g.id) && (!f || g.name.toLowerCase().includes(f)));
+}
+
+/** New link order after moving a link up (-1) or down (+1), or null at either end. */
+export function movedOrder(node, guid, delta) {
+    const link = (node.links || []).find(l => l.guid === guid);
+    if (!link) return null;
+    const next = link.order + delta;
+    return next >= 1 && next <= node.links.length ? next : null;
+}

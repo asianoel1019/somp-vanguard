@@ -237,6 +237,114 @@ router.get('/wmi-filters', async (req, res) => {
     }
 });
 
+// ---- Link management (Operator+) ----
+
+const MAX_LINK_ORDER = 999;
+const auditName = (name, fallback) => String(name || fallback).replace(/[\x00-\x1f]/g, ' ').slice(0, 256);
+const yesNoArg = (v) => (v === undefined || v === null ? '' : v ? 'Yes' : 'No');
+
+// Only the domain root or an OU can take a link or block inheritance; checked again on the DC.
+const TARGET_CHECK = `
+        Import-Module ActiveDirectory
+        $o = Get-ADObject -Identity $t -Server localhost
+        if (@('organizationalUnit', 'domainDNS') -notcontains [string]$o.ObjectClass) { throw "The target must be the domain or an OU" }`;
+
+function badTarget(res, target) {
+    if (!gpoModel.isContainerDn(target)) {
+        res.status(400).json({ error: 'target must be the distinguished name of the domain or an OU' });
+        return true;
+    }
+    return false;
+}
+
+// POST /link — link an existing GPO to the domain or an OU (the new link is enabled, last in link order)
+router.post('/link', checkRole(['SuperAdmin', 'Operator']), async (req, res) => {
+    const { guid, target, name } = req.body || {};
+    if (!GUID_RE.test(String(guid || ''))) return res.status(400).json({ error: 'Invalid GPO id' });
+    if (badTarget(res, target)) return;
+    try {
+        await onDc(`
+        param($gId, $t)
+${GPMC_CHECK}
+${TARGET_CHECK}
+        New-GPLink -Guid $gId -Target $t -LinkEnabled Yes -Server localhost | Out-Null`, [String(guid), String(target)]);
+        auditLog(req.user.username, 'GPO Manager', `Linked GPO '${auditName(name, guid)}' to ${target}`);
+        res.json({ success: true });
+    } catch (e) {
+        sendError(res, e);
+    }
+});
+
+// POST /link/delete — remove a link (the GPO itself stays)
+router.post('/link/delete', checkRole(['SuperAdmin', 'Operator']), async (req, res) => {
+    const { guid, target, name } = req.body || {};
+    if (!GUID_RE.test(String(guid || ''))) return res.status(400).json({ error: 'Invalid GPO id' });
+    if (badTarget(res, target)) return;
+    try {
+        await onDc(`
+        param($gId, $t)
+${GPMC_CHECK}
+        Remove-GPLink -Guid $gId -Target $t -Server localhost | Out-Null`, [String(guid), String(target)]);
+        auditLog(req.user.username, 'GPO Manager', `Deleted the link of GPO '${auditName(name, guid)}' from ${target}`);
+        res.json({ success: true });
+    } catch (e) {
+        sendError(res, e);
+    }
+});
+
+// POST /link/set — Enforced, Link Enabled and / or Link Order of one link
+router.post('/link/set', checkRole(['SuperAdmin', 'Operator']), async (req, res) => {
+    const { guid, target, name, enforced, enabled, order } = req.body || {};
+    if (!GUID_RE.test(String(guid || ''))) return res.status(400).json({ error: 'Invalid GPO id' });
+    if (badTarget(res, target)) return;
+    for (const [label, v] of [['enforced', enforced], ['enabled', enabled]]) {
+        if (v !== undefined && typeof v !== 'boolean') return res.status(400).json({ error: `${label} must be true or false` });
+    }
+    if (order !== undefined && !(Number.isInteger(order) && order >= 1 && order <= MAX_LINK_ORDER)) {
+        return res.status(400).json({ error: `order must be a whole number from 1 to ${MAX_LINK_ORDER}` });
+    }
+    if (enforced === undefined && enabled === undefined && order === undefined) {
+        return res.status(400).json({ error: 'Nothing to change: send enforced, enabled or order' });
+    }
+    try {
+        await onDc(`
+        param($gId, $t, $enf, $en, $ord)
+${GPMC_CHECK}
+        $p = @{ Guid = $gId; Target = $t; Server = 'localhost' }
+        if ($enf) { $p.Enforced = $enf }
+        if ($en) { $p.LinkEnabled = $en }
+        if ($ord) { $p.Order = [int]$ord }
+        Set-GPLink @p | Out-Null`, [String(guid), String(target), yesNoArg(enforced), yesNoArg(enabled), order === undefined ? '' : String(order)]);
+        const changes = [
+            enforced !== undefined ? `Enforced=${yesNoArg(enforced)}` : '',
+            enabled !== undefined ? `LinkEnabled=${yesNoArg(enabled)}` : '',
+            order !== undefined ? `Order=${order}` : '',
+        ].filter(Boolean).join(', ');
+        auditLog(req.user.username, 'GPO Manager', `Changed the link of GPO '${auditName(name, guid)}' on ${target}: ${changes}`);
+        res.json({ success: true });
+    } catch (e) {
+        sendError(res, e);
+    }
+});
+
+// POST /inheritance — block or unblock inheritance on the domain or an OU
+router.post('/inheritance', checkRole(['SuperAdmin', 'Operator']), async (req, res) => {
+    const { target, blocked } = req.body || {};
+    if (badTarget(res, target)) return;
+    if (typeof blocked !== 'boolean') return res.status(400).json({ error: 'blocked must be true or false' });
+    try {
+        await onDc(`
+        param($t, $b)
+${GPMC_CHECK}
+${TARGET_CHECK}
+        Set-GPInheritance -Target $t -IsBlocked $b -Server localhost | Out-Null`, [String(target), yesNoArg(blocked)]);
+        auditLog(req.user.username, 'GPO Manager', `${blocked ? 'Blocked' : 'Unblocked'} inheritance on ${target}`);
+        res.json({ success: true });
+    } catch (e) {
+        sendError(res, e);
+    }
+});
+
 router.post('/status', checkRole(['SuperAdmin', 'Operator']), async (req, res) => {
     const { guid, status, name } = req.body;
     if (!guid || !status) return res.status(400).json({ error: 'Missing guid or status' });

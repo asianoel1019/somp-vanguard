@@ -1,7 +1,8 @@
 // Right pane for everything that is not a GPO, as in GPMC: a domain or OU (Linked Group Policy Objects, Group Policy
 // Inheritance), the Group Policy Objects container, the WMI Filters container and one WMI filter.
 import React, { useState } from 'react';
-import { linkedGpos, inheritance, sortedGpos, canonicalPath, formatDate, GPO_STATUS_LABELS } from './gpmcModel';
+import { FiArrowUp, FiArrowDown } from 'react-icons/fi';
+import { linkedGpos, inheritance, sortedGpos, canonicalPath, formatDate, movedOrder, GPO_STATUS_LABELS } from './gpmcModel';
 import { Tabs, SectionLabel, Table, KeyValues, Notice } from './gpmcUi';
 import { yesNo } from './gpmcStyle';
 
@@ -14,7 +15,9 @@ const Title = ({ children, sub }) => (
 
 const statusLabel = (s) => GPO_STATUS_LABELS[s] || s || '';
 
-function OuPane({ node, tree, onOpenGpo, onGpoContextMenu }) {
+const arrowBtn = { display: 'inline-flex', padding: '2px', border: '1px solid var(--border-color)', borderRadius: '4px', background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer' };
+
+function OuPane({ node, tree, canEdit, busy, onOpenGpo, onGpoContextMenu, onMoveLink }) {
     const [tab, setTab] = useState('links');
     const links = linkedGpos(node, tree.gpoById);
     const inherited = inheritance(node, tree.gpoById);
@@ -31,7 +34,19 @@ function OuPane({ node, tree, onOpenGpo, onGpoContextMenu }) {
                         <SectionLabel>Link order 1 has the highest precedence</SectionLabel>
                         <Table
                             columns={[
-                                { key: 'order', label: 'Link Order', width: '80px' },
+                                { key: 'order', label: 'Link Order', width: canEdit ? '110px' : '80px', render: r => (
+                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                                        <span style={{ minWidth: '18px' }}>{r.order}</span>
+                                        {canEdit && (
+                                            <>
+                                                <button style={arrowBtn} title="Move link up" aria-label={`Move ${r.name} up`} disabled={busy || movedOrder(node, r.guid, -1) === null}
+                                                    onClick={() => onMoveLink(node, r, movedOrder(node, r.guid, -1))}><FiArrowUp /></button>
+                                                <button style={arrowBtn} title="Move link down" aria-label={`Move ${r.name} down`} disabled={busy || movedOrder(node, r.guid, 1) === null}
+                                                    onClick={() => onMoveLink(node, r, movedOrder(node, r.guid, 1))}><FiArrowDown /></button>
+                                            </>
+                                        )}
+                                    </span>
+                                ) },
                                 { key: 'name', label: 'GPO' },
                                 { key: 'enforced', label: 'Enforced', render: r => yesNo(r.enforced) },
                                 { key: 'enabled', label: 'Link Enabled', render: r => yesNo(r.enabled) },
@@ -68,11 +83,11 @@ function OuPane({ node, tree, onOpenGpo, onGpoContextMenu }) {
     );
 }
 
-export default function ContainerPane({ selection, tree, wmiFilters, wmiError, onOpenGpo, onGpoContextMenu }) {
+export default function ContainerPane({ selection, tree, wmiFilters, wmiError, canEdit, busy, onOpenGpo, onGpoContextMenu, onMoveLink }) {
     if (selection.type === 'domain' || selection.type === 'ou') {
         const node = tree.byDn.get(String(selection.dn).toLowerCase());
         if (!node) return <Notice>This container is no longer in the tree. Refresh to reload it.</Notice>;
-        return <OuPane key={node.dn} node={node} tree={tree} onOpenGpo={onOpenGpo} onGpoContextMenu={onGpoContextMenu} />;
+        return <OuPane key={node.dn} node={node} tree={tree} canEdit={canEdit} busy={busy} onOpenGpo={onOpenGpo} onGpoContextMenu={onGpoContextMenu} onMoveLink={onMoveLink} />;
     }
 
     if (selection.type === 'gpos') {

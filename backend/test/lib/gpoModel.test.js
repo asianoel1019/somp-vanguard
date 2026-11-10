@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { parseGpLink, blocksInheritance, parentDn, parseWmiQueries, shapeTree } = require('../../lib/gpoModel');
+const { parseGpLink, blocksInheritance, parentDn, isContainerDn, parseWmiQueries, shapeTree } = require('../../lib/gpoModel');
 
 const G1 = '31B2F340-016D-11D2-945F-00C04FB984F9';
 const G2 = '6AC1786C-016F-11D2-945F-00C04FB984F9';
@@ -60,4 +60,17 @@ test('shapeTree: links parsed, parents found, GPO ids normalised, OUs bounded', 
     assert.equal(t.ous[1].parentDn, 'OU=A,DC=example,DC=test');
     assert.equal(t.ous[1].links[0].enforced, true);
     assert.equal(t.gpos[0].id, G1.toLowerCase());
+});
+
+test('isContainerDn: only the domain root or an OU', () => {
+    assert.equal(isContainerDn('DC=example,DC=test'), true);
+    assert.equal(isContainerDn('OU=Kiosk,OU=Workstations,DC=example,DC=test'), true);
+    assert.equal(isContainerDn('OU=Sales\\, East,DC=example,DC=test'), true);
+    assert.equal(isContainerDn('CN=Users,DC=example,DC=test'), false, 'containers cannot take links');
+    assert.equal(isContainerDn('OU=A'), false, 'needs the domain part');
+    assert.equal(isContainerDn('DC=example,OU=A,DC=test'), false, 'OU after DC');
+    assert.equal(isContainerDn('OU=,DC=example,DC=test'), false);
+    assert.equal(isContainerDn('OU=A\nB,DC=example,DC=test'), false);
+    assert.equal(isContainerDn(''), false);
+    assert.equal(isContainerDn(`OU=${'a'.repeat(2050)},DC=test`), false);
 });

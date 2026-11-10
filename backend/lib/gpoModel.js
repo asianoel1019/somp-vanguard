@@ -70,6 +70,36 @@ function parseWmiQueries(parm2) {
     }
 }
 
+/** The parts of a DN, split at unescaped commas ("OU=a\,b,DC=x" -> ["OU=a\,b", "DC=x"]). */
+function dnParts(dn) {
+    const parts = [];
+    let rest = String(dn || '');
+    while (rest) {
+        const parent = parentDn(rest);
+        parts.push(parent ? rest.slice(0, rest.length - parent.length - 1) : rest);
+        rest = parent;
+    }
+    return parts;
+}
+
+/**
+ * A DN a GPO can be linked to here: the domain root or an OU ("OU=..,..,DC=..,DC=.."). Only OU= parts followed by
+ * DC= parts, no empty values, no control characters, at most 2048 characters.
+ */
+function isContainerDn(dn) {
+    const s = String(dn || '');
+    if (!s || s.length > 2048 || /[\x00-\x1f]/.test(s)) return false;
+    const parts = dnParts(s);
+    let seenDc = false;
+    for (const p of parts) {
+        const m = p.match(/^(OU|DC)=(.+)$/i);
+        if (!m || !m[2].trim()) return false;
+        if (m[1].toUpperCase() === 'DC') seenDc = true;
+        else if (seenDc) return false;
+    }
+    return seenDc;
+}
+
 const str = (v) => (v === null || v === undefined ? '' : String(v));
 const arr = (v) => (Array.isArray(v) ? v : v ? [v] : []);
 
@@ -96,4 +126,4 @@ function shapeTree(raw, max) {
     };
 }
 
-module.exports = { parseGpLink, blocksInheritance, parentDn, parseWmiQueries, shapeTree };
+module.exports = { parseGpLink, blocksInheritance, parentDn, dnParts, isContainerDn, parseWmiQueries, shapeTree };

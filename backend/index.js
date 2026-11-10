@@ -214,20 +214,12 @@ if (!process.env.JWT_SECRET) {
 const { startLogRotation, auditLog } = require('./lib/logger');
 
 // --- Global Process Crash Handlers (prevents silent crashes) ---
+// Only network failures and errors raised inside the Guacamole / WebSocket stack are contained (lib/processErrors);
+// every other uncaught error stops the process so it restarts in a known state.
+const { isContainedError } = require('./lib/processErrors');
 process.on('uncaughtException', (err) => {
     const rawMsg = err?.message || String(err);
-    const msg = rawMsg.toLowerCase();
-    const code = err?.code;
-
-    // Network disconnect, socket reset, websocket teardown, or guacd/proxy errors should NEVER crash the production backend!
-    if (
-        code === 'ECONNRESET' || code === 'EPIPE' || code === 'ECONNABORTED' || code === 'ECONNREFUSED' ||
-        code === 'ETIMEDOUT' || code === 'EHOSTUNREACH' || code === 'ENETUNREACH' ||
-        msg.includes('econnreset') || msg.includes('epipe') || msg.includes('websocket') ||
-        msg.includes('guacd') || msg.includes('guacamole') || msg.includes('socket') || msg.includes('closed') || msg.includes('token') ||
-        msg.includes('handshake') || msg.includes('abort') || msg.includes('unhandled \'error\'') ||
-        msg.includes('connection') || msg.includes('decrypt')
-    ) {
+    if (isContainedError(err)) {
         console.warn('[Process] Non-fatal network/proxy error caught and contained:', rawMsg);
         return;
     }
@@ -237,17 +229,7 @@ process.on('uncaughtException', (err) => {
 });
 process.on('unhandledRejection', (reason) => {
     const rawMsg = reason?.message || String(reason);
-    const msg = rawMsg.toLowerCase();
-    const code = reason?.code;
-
-    if (
-        code === 'ECONNRESET' || code === 'EPIPE' || code === 'ECONNABORTED' || code === 'ECONNREFUSED' ||
-        code === 'ETIMEDOUT' || code === 'EHOSTUNREACH' || code === 'ENETUNREACH' ||
-        msg.includes('econnreset') || msg.includes('epipe') || msg.includes('websocket') ||
-        msg.includes('guacd') || msg.includes('guacamole') || msg.includes('socket') || msg.includes('closed') || msg.includes('token') ||
-        msg.includes('handshake') || msg.includes('abort') || msg.includes('unhandled \'error\'') ||
-        msg.includes('connection') || msg.includes('decrypt')
-    ) {
+    if (isContainedError(reason)) {
         console.warn('[Process] Non-fatal network/proxy rejection caught and contained:', rawMsg);
         return;
     }

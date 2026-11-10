@@ -1409,7 +1409,7 @@
             <li><strong>Frontend Web Client (HTML5 Canvas)</strong>：載入輕量 <code>guacamole-common-js</code> 渲染器，接收 WebSocket 向量繪圖指令與音訊串流，提供極致流暢之互動體驗。</li>
             <li><strong>Backend WebSocket Proxy (Node.js Gateway)</strong>：
               <ul>
-                <li><strong>30 秒一次性加密 Token</strong>：前端呼叫 <code>POST /api/remote/token</code> 經由 RBAC 驗證後，後端透過 AES-256-CBC 簽發包含連線參數的加密 Token，時效僅 30 秒，逾時自動失效。</li>
+                <li><strong>30 秒一次性加密 Token</strong>：前端呼叫 <code>POST /api/remote/token</code> 經由 RBAC 驗證後，後端以 AES-256-GCM（含完整性驗證）簽發包含連線參數的 Token；WebSocket 連線時伺服器驗證並作廢 Token，逾時、遭竄改或重複使用一律拒絕。</li>
                 <li><strong>WebSocket 專屬轉發通道</strong>：前端帶入 Token 連線至 <code>/ws/remote?token={token}</code>，Node.js 閘道驗證 Token 後以本機 TCP Socket (Port 4822) 轉發至 <code>guacd</code>。</li>
                 <li><strong>非致命錯誤安全遏止 (Crash Containment)</strong>：針對 Windows Server 2016 運維環境，後端對 WebSocket 異常中斷、網路斷線 (<code>ECONNRESET</code>, <code>EPIPE</code>) 與 <code>guacd</code> 逾時進行全域隔離，確保遠端桌面中斷絕不波及 Vanguard 主服務。</li>
               </ul>

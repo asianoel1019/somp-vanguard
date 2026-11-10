@@ -74,6 +74,14 @@
 *   **AI Ops Agent**：查詢 Runbook 的工具需要 `runbook` 功能；搜尋日誌的工具接受 Scout Monitor、Live Event Viewer 或 Log Settings 任一功能。
 *   **側邊欄**：所有使用者（不只 SuperAdmin）的 `/api/auth/config` 都會回傳完整的功能清單，因此所屬 Mapping 未開啟的畫面（包含 Scout Monitor、Alerts & Rules、Agents、NAS Manager、HostMonitor Checker）一律隱藏；Web Remote 被拒（403）時，主機詳情視窗不再顯示遠端連線按鈕。
 *   **Web RDP 帳密**：帳號預設帶入目前登入者（可修改），密碼一律需自行輸入；系統不再於帳號等於 `AD_ADMIN_USER` 時自動帶入 `AD_ADMIN_PWD`，未輸入密碼時無法建立連線。每次連線都會記錄操作者、目標主機與使用的帳號。Web SSH 行為不變（帳密於連線時自行輸入）。
+*   **Web Remote（RDP / SSH）連線安全**：
+    *   連線 token 改為 AES-256-GCM 加密並驗證完整性，**30 秒內有效、只能使用一次**；被複製或出現在記錄中的連線網址無法再開啟第二個連線。重新連線會自動取得新的 token。金鑰由 `JWT_SECRET` 另行衍生，未設定 `JWT_SECRET` 時無法使用 Web Remote。
+    *   目標只接受 IP 位址（IPv4 / IPv6）或主機名稱，埠號須為 1–65535，RDP 安全模式只接受 Any / NLA / TLS / RDP。
+    *   稽核紀錄由伺服器自動寫入：申請連線、連線成功、斷線（含連線時間長度）、無法建立連線（含原因），不再依賴瀏覽器回報；原本可由瀏覽器寫入任意稽核內容的 `/api/remote/audit-event` 已移除。
+    *   遠端畫面以視窗實際大小開啟（不再固定 1024×768 再縮放），調整視窗大小或切換全螢幕時，RDP 桌面與 SSH 終端機會跟著調整。
+    *   修正重新連線後鍵盤每個按鍵會送出兩次的問題，以及「重試」可能使用修改前網域的問題。
+    *   guacd 連不到時只顯示警告，不再自動改連本機的 guacd。
+    *   後端只對網路中斷與 Guacamole / WebSocket 本身的錯誤容錯；其他未處理的錯誤會讓服務結束並由服務管理程式重新啟動，不再帶著不一致的狀態繼續執行。
 *   **生效時間**：API 檢查在修改後立即生效；側邊欄在重新整理頁面或下次登入後更新；登入時取得的功能清單（例如 Self-Healing 按鈕）在下次登入後更新。
 *   **防鎖死**：Settings（System Settings、Dev Tools、RBAC & AD Mappings）與 Audit log 對 SuperAdmin 永遠開啟，在編輯器中顯示為已勾選且不可取消。
 *   **緊急帳號**：本機管理員帳號（`LOCAL_ADMIN_USER`，網域 local）不受此 Mapping 限制，永遠擁有全部功能。

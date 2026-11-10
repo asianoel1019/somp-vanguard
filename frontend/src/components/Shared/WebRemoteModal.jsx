@@ -308,6 +308,41 @@ export default function WebRemoteModal({ isOpen, onClose, target, initialTheme =
     };
   }, [isDragging, isResizing, windowSize]);
 
+  // Size to ask the remote side for: the viewport in CSS pixels, within what guacd accepts
+  const remoteSize = useCallback(() => {
+    const el = viewportRef.current;
+    const clamp = (v, min, max, dflt) => (Number.isFinite(v) && v > 0 ? Math.min(max, Math.max(min, Math.round(v))) : dflt);
+    return { width: clamp(el && el.clientWidth, 320, 8192, 1024), height: clamp(el && el.clientHeight, 200, 8192, 768) };
+  }, []);
+
+  // One keyboard handler while the window is open. Guacamole.Keyboard cannot be detached from the document, so a
+  // new one per connection made every key arrive twice after a reconnect. On close its handlers are cleared, and a
+  // Guacamole.Keyboard without handlers leaves keys to the browser.
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const keyboard = new Guacamole.Keyboard(document);
+    keyboardRef.current = keyboard;
+    const isTyping = () => {
+      const active = document.activeElement;
+      return !!active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT' || active.isContentEditable);
+    };
+    keyboard.onkeydown = (keysym) => {
+      if (isTyping() || !clientRef.current) return true; // form inputs and browser shortcuts keep working
+      clientRef.current.sendKeyEvent(1, keysym);
+      return false;
+    };
+    keyboard.onkeyup = (keysym) => {
+      if (isTyping() || !clientRef.current) return;
+      clientRef.current.sendKeyEvent(0, keysym);
+    };
+    return () => {
+      keyboard.onkeydown = null;
+      keyboard.onkeyup = null;
+      keyboard.reset();
+      if (keyboardRef.current === keyboard) keyboardRef.current = null;
+    };
+  }, [isOpen]);
+
   // Connect to Guacamole Gateway
   const connectSession = useCallback(async (customUser = authUsername, customPwd = authPassword, customDomain = authDomain) => {
     if (!targetIp) return;
@@ -410,26 +445,7 @@ export default function WebRemoteModal({ isOpen, onClose, target, initialTheme =
         }
       };
 
-      // 6. Mount Keyboard Handler (Prevent intercepting keys when user types in inputs)
-      const keyboard = new Guacamole.Keyboard(document);
-      keyboardRef.current = keyboard;
-      keyboard.onkeydown = (keysym) => {
-        const active = document.activeElement;
-        const isTyping = active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT' || active.isContentEditable);
-        if (isTyping || !clientRef.current) {
-          return true; // Allow browser default handling for form inputs & shortcuts!
-        }
-        clientRef.current.sendKeyEvent(1, keysym);
-        return false;
-      };
-      keyboard.onkeyup = (keysym) => {
-        const active = document.activeElement;
-        const isTyping = active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT' || active.isContentEditable);
-        if (isTyping || !clientRef.current) {
-          return;
-        }
-        clientRef.current.sendKeyEvent(0, keysym);
-      };
+      // 6. Keyboard: one handler per open window (see the keyboard effect below), it follows clientRef
 
       // 7. Handle Client State Changes
       // 0: IDLE, 1: CONNECTING, 2: WAITING, 3: CONNECTED, 4: DISCONNECTING, 5: DISCONNECTED
@@ -481,8 +497,10 @@ export default function WebRemoteModal({ isOpen, onClose, target, initialTheme =
         }
       };
 
-      // Connect with token parameter (Guacamole.Client formats tunnelURL + "?" + data)
-      client.connect(`token=${encodeURIComponent(token)}`);
+      // Connect with token parameter (Guacamole.Client formats tunnelURL + "?" + data) and the viewport size,
+      // so the remote desktop / terminal starts at the size it is shown at instead of 1024x768
+      const size = remoteSize();
+      client.connect(`token=${encodeURIComponent(token)}&width=${size.width}&height=${size.height}&dpi=96`);
 
     } catch (err) {
       console.error('[WebRemote] Connection failed:', err);
@@ -491,7 +509,7 @@ export default function WebRemoteModal({ isOpen, onClose, target, initialTheme =
       setConnectionStatus('error');
       setStatusMessage(`Error: ${errMsg}`);
     }
-  }, [targetIp, targetName, isWindows, protocol, authUsername, authPassword, nlaSecurity, defaultLoginUser]);
+  }, [targetIp, targetName, isWindows, protocol, authUsername, authPassword, authDomain, hideLocalCursor, nlaSecurity, defaultLoginUser, remoteSize]);
 
   // Initiate on Open
   useEffect(() => {
@@ -565,12 +583,21 @@ export default function WebRemoteModal({ isOpen, onClose, target, initialTheme =
   // Dynamic ResizeObserver on viewport to handle panel open/close & container changes immediately
   useEffect(() => {
     if (!viewportRef.current) return;
+    let timer = null;
     const observer = new ResizeObserver(() => {
       updateDisplayScale();
+      // Guacamole.Client.sendSize does nothing until the session is connected
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (clientRef.current) {
+          const size = remoteSize();
+          clientRef.current.sendSize(size.width, size.height);
+        }
+      }, 300);
     });
     observer.observe(viewportRef.current);
-    return () => observer.disconnect();
-  }, [updateDisplayScale]);
+    return () => { clearTimeout(timer); observer.disconnect(); };
+  }, [updateDisplayScale, remoteSize]);
 
   // Toggle hide local cursor
   const toggleHideLocalCursor = () => {

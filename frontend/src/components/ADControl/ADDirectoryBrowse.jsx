@@ -1,299 +1,80 @@
-import { useToast } from '../../contexts/ToastContext';
-import { useConfirm } from '../../contexts/ConfirmContext';
-import React, { useState, useEffect, useCallback } from 'react';
+// Browse BU Hierarchy: the company / BU OUs configured in .env (AD_COMPANIES, AD_BUS_*, AD_OU_*), with the shared
+// user list and the Grant action where AD_GRANT_COMPANIES allows it.
+import React, { useCallback, useEffect, useState } from 'react';
+import { FiRefreshCw } from 'react-icons/fi';
 import api from '../../api';
-import { STATUS_BADGE, ActionBtn } from './Shared';
-import UserDetailsModal from './UserDetailsModal';
+import { Btn, Banner } from './Shared';
+import { fieldStyle } from './adStyle';
+import UserList from './UserList';
 
 export default function ADDirectoryBrowse() {
-    const { showToast } = useToast();
-    const { showConfirm } = useConfirm();
-  const user = JSON.parse(localStorage.getItem('user') || '{}');
-  const role = user.role || 'Viewer';
-  const [companies, setCompanies] = useState([]);
-  const [grantCompanies, setGrantCompanies] = useState([]);
-  const [category, setCategory] = useState('');
-  const [buList, setBuList] = useState({});
-  const [selectedBU, setSelectedBU] = useState('');
-  const [users, setUsers] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [actionLoading, setActionLoading] = useState('');
-  const [message, setMessage] = useState(null);
-  const [mappingError, setMappingError] = useState(null);
-  const [expandedUser, setExpandedUser] = useState(null);
-  const [confirmAction, setConfirmAction] = useState(null);
-  const [passwordResult, setPasswordResult] = useState(null);
-  const [filterText, setFilterText] = useState('');
-  const [selectedSamForDetails, setSelectedSamForDetails] = useState(null);
-  const [page, setPage] = useState(1);
-  const [truncatedAt, setTruncatedAt] = useState(null);
+    const [mappings, setMappings] = useState({ companies: [], grantCompanies: [] });
+    const [mappingError, setMappingError] = useState(null);
+    const [category, setCategory] = useState('');
+    const [bu, setBu] = useState('');
+    const [state, setState] = useState({ loading: false, users: null, truncatedAt: null, error: null });
 
-  useEffect(() => {
-    api.get('/ad/mappings')
-      .then(r => {
-        const data = r.data;
-        setCompanies(data.companies || []);
-        setGrantCompanies(data.grantCompanies || []);
-        setBuList(data);
-        if (data.companies && data.companies.length > 0) {
-          setCategory(data.companies[0]);
+    useEffect(() => {
+        api.get('/ad/mappings')
+            .then(r => {
+                setMappings(r.data);
+                if (r.data.companies && r.data.companies.length) setCategory(r.data.companies[0]);
+            })
+            .catch(e => setMappingError(`Could not load the BU list: ${e?.response?.data?.error || e.message}`));
+    }, []);
+
+    const loadUsers = useCallback(async (cat, b) => {
+        if (!b) return;
+        setState(s => ({ ...s, loading: true, error: null }));
+        try {
+            const r = await api.post('/ad/users', { category: cat, bu: b });
+            const users = (r.data.users || []).sort((x, y) => String(x.SamAccountName).localeCompare(String(y.SamAccountName)));
+            setState({ loading: false, users, truncatedAt: r.data.truncated ? r.data.limit : null, error: null });
+        } catch (e) {
+            setState({ loading: false, users: null, truncatedAt: null, error: e?.response?.data?.error || 'Could not load the accounts.' });
         }
-      })
-      .catch(e => {
-        const msg = e.response?.data?.error || e.message || 'Unknown error';
-        setMappingError(`Failed to load BU list: ${msg}`);
-      });
-  }, []);
+    }, []);
 
-  useEffect(() => {
-    setSelectedBU('');
-    setUsers([]);
-    setExpandedUser(null);
-    setMessage(null);
-    setFilterText('');
-  }, [category]);
+    const chooseCompany = (cat) => { setCategory(cat); setBu(''); setState({ loading: false, users: null, truncatedAt: null, error: null }); };
+    const chooseBu = (b) => { setBu(b); loadUsers(category, b); };
+    const bus = mappings[category] || [];
+    const canGrant = (mappings.grantCompanies || []).includes(category);
 
-  const loadUsers = useCallback(async (bu) => {
-    if (!bu) return;
-    setLoading(true);
-    setUsers([]);
-    setExpandedUser(null);
-    setMessage(null);
-    try {
-      const r = await api.post('/ad/users', { category, bu });
-      const sorted = (r.data.users || []).sort((a, b) => a.SamAccountName.localeCompare(b.SamAccountName));
-      setUsers(sorted);
-      setPage(1);
-      setTruncatedAt(r.data.truncated ? r.data.limit : null);
-      if (sorted.length === 0) setMessage({ type: 'info', text: 'No users found in this OU.' });
-    } catch (e) {
-      setMessage({ type: 'error', text: e.response?.data?.error || 'Failed to load users.' });
-    } finally {
-      setLoading(false);
-    }
-  }, [category]);
-
-  const handleBUChange = (e) => {
-    const bu = e.target.value;
-    setSelectedBU(bu);
-    setFilterText('');
-    loadUsers(bu);
-  };
-
-  const executeAction = async (sam, action) => {
-    setActionLoading(`${sam}_${action}`);
-    setMessage(null);
-    try {
-      const res = await api.post('/ad/action', { category, bu: selectedBU, sam, action });
-      if (action === 'reset_password' && res.data.password) {
-        setPasswordResult({ sam, password: res.data.password });
-        setMessage({ type: 'success', text: `Password for ${sam} reset successfully.` });
-      } else {
-        setMessage({ type: 'success', text: `${action.replace('_', ' ')} for ${sam} completed successfully.` });
-      }
-      await loadUsers(selectedBU);
-    } catch (e) {
-      setMessage({ type: 'error', text: e.response?.data?.error || `Action failed for ${sam}.` });
-    } finally {
-      setActionLoading('');
-      setConfirmAction(null);
-    }
-  };
-
-  const isLoading = (sam, action) => actionLoading === `${sam}_${action}`;
-  const currentBUList = buList[category] || [];
-
-  const filteredUsers = users.filter(u => {
-    if (!filterText.trim()) return true;
-    const q = filterText.toLowerCase();
-    return (u.Name || '').toLowerCase().includes(q)
-      || (u.SamAccountName || '').toLowerCase().includes(q)
-      || (u.Description || '').toLowerCase().includes(q);
-  });
-
-  // large OUs are shown PAGE_SIZE accounts at a time
-  const PAGE_SIZE = 50;
-  const totalPages = Math.max(1, Math.ceil(filteredUsers.length / PAGE_SIZE));
-  const currentPage = Math.min(page, totalPages);
-  const pagedUsers = filteredUsers.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
-
-  const handleConfirmAction = () => {
-    if (!confirmAction) return;
-    executeAction(confirmAction.sam, confirmAction.action);
-  };
-
-  const copyPassword = (pwd) => {
-    if (navigator.clipboard && window.isSecureContext) {
-      navigator.clipboard.writeText(pwd).then(() => showToast('Password copied to clipboard!'));
-    } else {
-      const textArea = document.createElement('textarea');
-      textArea.value = pwd;
-      textArea.style.position = 'fixed';
-      textArea.style.left = '-99999px';
-      document.body.appendChild(textArea);
-      textArea.focus();
-      textArea.select();
-      try {
-        document.execCommand('copy');
-        showToast('Password copied to clipboard!');
-      } catch (err) {
-        showToast('Failed to copy password.');
-      }
-      document.body.removeChild(textArea);
-    }
-  };
-
-  return (
-    <div className="animate-fade-in">
-      {mappingError && (
-        <div style={{ padding: '0.85rem 1.2rem', borderRadius: '10px', marginBottom: '1.2rem', fontSize: '0.88rem', background: 'rgba(239,68,68,0.15)', border: '1px solid #ef444444', color: '#ef4444' }}>
-          ❌ {mappingError}
-        </div>
-      )}
-
-      {message && (
-        <div style={{ padding: '0.85rem 1.2rem', borderRadius: '10px', marginBottom: '1.2rem', fontSize: '0.9rem', fontWeight: 500, background: message.type === 'success' ? 'rgba(16,185,129,0.15)' : message.type === 'error' ? 'rgba(239,68,68,0.15)' : 'rgba(59,130,246,0.12)', border: `1px solid ${message.type === 'success' ? '#10b98144' : message.type === 'error' ? '#ef444444' : 'var(--border-color)'}`, color: message.type === 'success' ? '#10b981' : message.type === 'error' ? '#ef4444' : 'var(--text-primary)' }}>
-          {message.type === 'success' ? '✅ ' : message.type === 'error' ? '❌ ' : 'ℹ️ '}{message.text}
-        </div>
-      )}
-
-      <div style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'center', marginBottom: '1.5rem' }}>
-        <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-          {companies.map(cat => (
-            <button key={cat} onClick={() => setCategory(cat)} style={{ padding: '0.75rem 2.5rem', fontSize: '1rem', fontWeight: 700, borderRadius: '12px', cursor: 'pointer', border: '2px solid', borderColor: category === cat ? 'var(--accent-primary)' : 'var(--border-color)', background: category === cat ? 'rgba(59,130,246,0.1)' : 'rgba(255,255,255,0.02)', color: category === cat ? 'var(--accent-primary)' : 'var(--text-secondary)', transition: 'all 0.25s', boxShadow: category === cat ? '0 0 15px var(--accent-glow)' : 'none' }}>
-              {cat}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.5rem' }}>
-        <label style={{ color: 'var(--text-secondary)', fontWeight: 600, whiteSpace: 'nowrap' }}>Select BU:</label>
-        <select value={selectedBU} onChange={handleBUChange} disabled={loading} style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)', borderRadius: '10px', padding: '0.55rem 1.2rem', fontSize: '0.9rem', cursor: 'pointer', minWidth: '200px', outline: 'none' }}>
-          <option value="">-- Select BU --</option>
-          {currentBUList.map(bu => <option key={bu} value={bu}>{bu}</option>)}
-        </select>
-        {selectedBU && (
-          <button onClick={() => loadUsers(selectedBU)} disabled={loading} style={{ padding: '0.5rem 1.2rem', borderRadius: '8px', border: '2px solid var(--accent-primary)', background: 'var(--bg-secondary)', color: 'var(--accent-primary)', cursor: 'pointer', fontWeight: 700, fontSize: '0.85rem', boxShadow: '0 4px 10px var(--accent-glow)' }}>
-            🔄 Refresh
-          </button>
-        )}
-      </div>
-
-      {users.length > 0 && (
-        <div style={{ marginBottom: '1rem' }}>
-          <input type="text" placeholder="🔍 Filter by Name, Account or Description..." value={filterText} onChange={e => { setFilterText(e.target.value); setPage(1); }} style={{ width: '100%', maxWidth: '450px', padding: '0.55rem 1rem', fontSize: '0.88rem', background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)', borderRadius: '10px', outline: 'none' }} />
-        </div>
-      )}
-
-      {loading && (
-        <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-secondary)' }}>
-          <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>⏳</div>Querying Active Directory...
-        </div>
-      )}
-
-      {!loading && filteredUsers.length > 0 && (
-        <div style={{ background: 'var(--bg-secondary)', borderRadius: '14px', border: '1px solid var(--border-color)', overflow: 'hidden', boxShadow: 'var(--shadow-md)' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1.2fr 90px 90px 2.2fr', padding: '1rem 1.2rem', background: 'rgba(59,130,246,0.05)', borderBottom: '1px solid var(--border-color)', fontSize: '0.78rem', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-            <span>Display Name</span><span>Account (SAM)</span><span>Description</span><span>Enabled</span><span>Locked</span><span>Actions</span>
-          </div>
-          {pagedUsers.map((u, idx) => {
-            const isExpanded = expandedUser === u.SamAccountName;
-            const isDisabled = !u.Enabled;
-            const isLocked = u.LockedOut;
-            return (
-              <div key={u.SamAccountName} style={{ borderBottom: idx < pagedUsers.length - 1 ? '1px solid var(--border-color)' : 'none', background: isExpanded ? 'rgba(59,130,246,0.07)' : 'transparent', transition: 'background 0.2s' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1.2fr 90px 90px 2.2fr', padding: '0.85rem 1.2rem', alignItems: 'center', cursor: 'pointer' }} onClick={() => setExpandedUser(isExpanded ? null : u.SamAccountName)}>
-                  <span style={{ color: 'var(--text-primary)', fontWeight: 600, fontSize: '0.88rem' }}>{u.Name}</span>
-                  <button onClick={(e) => { e.stopPropagation(); setSelectedSamForDetails(u.SamAccountName); }} style={{ background: 'transparent', border: 'none', color: 'var(--accent-primary)', fontFamily: 'monospace', fontSize: '0.85rem', cursor: 'pointer', textDecoration: 'underline', padding: 0, textAlign: 'left' }}>{u.SamAccountName}</button>
-                  <span style={{ color: 'var(--text-secondary)', fontSize: '0.82rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.Description || '—'}</span>
-                  <span><STATUS_BADGE ok={u.Enabled} trueLabel="Yes" falseLabel="No" /></span>
-                  <span>
-                    {isLocked ? <span style={{ display: 'inline-block', padding: '2px 10px', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 700, background: 'rgba(245,158,11,0.15)', color: '#f59e0b', border: '1px solid #f59e0b44' }}>🔒 Locked</span> : <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>—</span>}
-                  </span>
-                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                    {role !== 'Viewer' ? (
-                      <>
-                        {isDisabled && <ActionBtn icon="✅" label="Enable" color="green" loading={isLoading(u.SamAccountName, 'enable')} onClick={e => { e.stopPropagation(); setConfirmAction({ sam: u.SamAccountName, action: 'enable', label: 'Enable Account' }); }} />}
-                        {!isDisabled && <ActionBtn icon="🚫" label="Disable" color="red" loading={isLoading(u.SamAccountName, 'disable')} onClick={e => { e.stopPropagation(); setConfirmAction({ sam: u.SamAccountName, action: 'disable', label: 'Disable Account' }); }} />}
-                        {isLocked && <ActionBtn icon="🔓" label="Unlock" color="yellow" loading={isLoading(u.SamAccountName, 'unlock')} onClick={e => { e.stopPropagation(); setConfirmAction({ sam: u.SamAccountName, action: 'unlock', label: 'Unlock Account' }); }} />}
-                        <ActionBtn icon="🔑" label="Reset PWD" color="blue" loading={isLoading(u.SamAccountName, 'reset_password')} onClick={e => { e.stopPropagation(); setConfirmAction({ sam: u.SamAccountName, action: 'reset_password', label: 'Reset Password to a Random Secure Password' }); }} />
-                        {grantCompanies.includes(category) && <ActionBtn icon="🛡️" label={`Grant (_Guardian_${selectedBU})`} color="purple" loading={isLoading(u.SamAccountName, 'grant')} onClick={e => { e.stopPropagation(); setConfirmAction({ sam: u.SamAccountName, action: 'grant', label: `Grant Permission to _Guardian_${selectedBU}` }); }} />}
-                      </>
-                    ) : (
-                      <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Read Only</span>
-                    )}
-                  </div>
+    return (
+        <div className="glass-panel animate-fade-in" style={{ padding: '16px', borderRadius: '16px', border: '1px solid var(--border-color)' }}>
+            {mappingError && <Banner message={{ type: 'error', text: mappingError }} />}
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '12px' }}>
+                <div role="tablist" aria-label="Company" style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    {(mappings.companies || []).map(c => (
+                        <button key={c} role="tab" aria-selected={category === c} onClick={() => chooseCompany(c)}
+                            style={{ padding: '6px 16px', borderRadius: '8px', fontSize: '13px', fontWeight: 700, cursor: 'pointer',
+                                border: `1px solid ${category === c ? 'var(--accent-primary)' : 'var(--border-color)'}`,
+                                background: category === c ? 'rgba(59,130,246,0.12)' : 'transparent', color: category === c ? 'var(--accent-primary)' : 'var(--text-secondary)' }}>{c}</button>
+                    ))}
                 </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
+                <label style={{ fontSize: '13px', color: 'var(--text-secondary)', marginLeft: '8px' }}>BU</label>
+                <select value={bu} onChange={e => chooseBu(e.target.value)} disabled={state.loading || !category} style={{ ...fieldStyle, minWidth: '200px' }}>
+                    <option value="">Select a BU</option>
+                    {bus.map(b => <option key={b} value={b}>{b}</option>)}
+                </select>
+                {bu && <Btn icon={<FiRefreshCw />} label={state.loading ? 'Loading…' : 'Refresh'} disabled={state.loading} onClick={() => loadUsers(category, bu)} />}
+            </div>
 
-      {!loading && users.length > 0 && (
-        <div style={{ marginTop: '1rem', color: 'var(--text-muted)', fontSize: '0.82rem', textAlign: 'right' }}>
-          Showing {filteredUsers.length}{filterText ? ` of ${users.length}` : ''} user{filteredUsers.length !== 1 ? 's' : ''} in {category} / {selectedBU} &nbsp;&nbsp;|&nbsp;&nbsp;
-          Enabled: {users.filter(u => u.Enabled).length} &nbsp; Locked: {users.filter(u => u.LockedOut).length}
-          {totalPages > 1 && (
-            <div style={{ marginTop: 8, display: 'flex', gap: 8, justifyContent: 'flex-end', alignItems: 'center' }}>
-              <button type="button" disabled={currentPage <= 1} onClick={() => setPage(currentPage - 1)}>‹ Prev</button>
-              <span>Page {currentPage} / {totalPages}</span>
-              <button type="button" disabled={currentPage >= totalPages} onClick={() => setPage(currentPage + 1)}>Next ›</button>
-            </div>
-          )}
-          {truncatedAt && (
-            <div style={{ marginTop: 6, color: 'var(--warning)' }}>
-              This OU has more than {truncatedAt} accounts: only the first {truncatedAt} are loaded. Use Object Search to find the others.
-            </div>
-          )}
+            {state.error && <Banner message={{ type: 'error', text: state.error }} />}
+            {state.loading && !state.users && <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-secondary)' }}>Reading accounts from Active Directory…</div>}
+            {!bu && !state.loading && <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>Choose a company and a BU to list its accounts.</div>}
+            {state.users && (
+                <>
+                    <UserList users={state.users} summary={`${category} / ${bu}`} exportName={`ad-${category}-${bu}`}
+                        grant={canGrant ? { label: `Grant (_Guardian_${bu})`, body: { category, bu } } : null}
+                        onChanged={() => loadUsers(category, bu)} />
+                    {state.truncatedAt && (
+                        <div style={{ marginTop: '8px', fontSize: '12.5px', color: '#f59e0b' }}>
+                            This OU has more than {state.truncatedAt} accounts: only the first {state.truncatedAt} are loaded. Use Object Search to find the others.
+                        </div>
+                    )}
+                </>
+            )}
         </div>
-      )}
-
-      {confirmAction && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 999, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '2rem', maxWidth: '420px', width: '90%', boxShadow: 'var(--shadow-lg)' }}>
-            <h3 style={{ marginBottom: '0.75rem', color: 'var(--text-primary)' }}>⚠️ Confirm Action</h3>
-            <p style={{ color: 'var(--text-secondary)', marginBottom: '1.5rem', lineHeight: 1.6 }}>
-              Are you sure you want to perform <strong style={{ color: '#f59e0b' }}>{confirmAction.label}</strong> on account <code style={{ color: 'var(--accent-primary)' }}>{confirmAction.sam}</code>?
-            </p>
-            <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end' }}>
-              <button onClick={() => setConfirmAction(null)} style={{ padding: '0.5rem 1.5rem', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer' }}>Cancel</button>
-              <button onClick={handleConfirmAction} style={{ padding: '0.5rem 1.5rem', borderRadius: '8px', border: 'none', background: '#ef4444', color: 'white', cursor: 'pointer', fontWeight: 700 }}>Confirm</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {passwordResult && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 1000, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '2rem', maxWidth: '420px', width: '90%', boxShadow: 'var(--shadow-lg)' }}>
-            <h3 style={{ marginBottom: '0.75rem', color: 'var(--text-primary)' }}>✅ Password Reset Successful</h3>
-            <p style={{ color: 'var(--text-secondary)', marginBottom: '1rem', lineHeight: 1.5 }}>
-              The password for <code style={{ color: 'var(--accent-primary)', background: 'rgba(0,0,0,0.2)', padding: '2px 6px', borderRadius: '4px' }}>{passwordResult.sam}</code> has been reset.
-            </p>
-            <div style={{ background: 'rgba(0,0,0,0.3)', padding: '1rem', borderRadius: '8px', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', border: '1px solid var(--border-color)' }}>
-              <span style={{ fontFamily: 'monospace', fontSize: '1.2rem', color: '#10b981', fontWeight: 'bold' }}>{passwordResult.password}</span>
-              <button 
-                onClick={() => copyPassword(passwordResult.password)}
-                style={{ background: 'var(--accent-primary)', color: 'white', border: 'none', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 'bold' }}
-              >
-                Copy
-              </button>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-              <button onClick={() => setPasswordResult(null)} style={{ padding: '0.65rem 1.5rem', borderRadius: '10px', border: 'none', background: 'var(--bg-primary)', color: 'var(--text-primary)', cursor: 'pointer', fontWeight: 600 }}>Close</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {selectedSamForDetails && (
-          <UserDetailsModal 
-              samAccountName={selectedSamForDetails} 
-              onClose={() => setSelectedSamForDetails(null)} 
-          />
-      )}
-    </div>
-  );
+    );
 }

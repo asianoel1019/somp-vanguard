@@ -26,6 +26,7 @@
    - [安全事件鑑識調查 (Security Forensics)](#-安全事件鑑識調查-security-forensics)
 6. [服務管理 (Services Management)](#6-服務管理)
    - [DNS Hub 網域紀錄管理](#-dns-hub)
+   - [AD Control：帳號管理](#-ad-control帳號管理)
    - [AD Control：Group Policy 管理](#-ad-controlgroup-policy-管理)
    - [Nutanix Prism 虛擬化與克隆](#-nutanix-prism-虛擬化管理)
    - [SSL Certificate 憑證生命週期中心](#-ssl-certificate-ssl-憑證管理中心)
@@ -328,6 +329,28 @@ Server List 是 SOMP Vanguard 的核心伺服器資產資料庫 (CMDB)，自動�
 *   **變更紀錄**：新增記為 `Add: 名稱 -> IP`，修改記為 `Modify: 名稱: 舊 IP -> 新 IP`，刪除每筆紀錄各記一行 `Delete: 名稱 類型 資料`，事後可查到原本的值。
 *   **一次處理上限**：新增、刪除每次最多 500 筆。整批失敗時顯示錯誤原因的第一行（例如 WinRM 連不到伺服器），不會顯示帳密。
 *   **在線存活探測**：卡片即時顯示在線健康狀態，支援快速啟用/停用切換。
+
+### 👥 AD Control：帳號管理
+AD Control 上方有五個分頁：「Browse BU Hierarchy」、「OU Tree」、「Object Search」、「Reports」與「Group Policy」。上次選的分頁會被記住。
+*   **Browse BU Hierarchy（原本的模式）**：依 `.env` 設定的公司 / BU（`AD_COMPANIES`、`AD_BUS_*`、`AD_OU_*`）列出該 OU 的帳號，可用 Grant 加入 `_Guardian_<BU>` 群組（`AD_GRANT_COMPANIES` 中的公司）。
+*   **OU Tree（新模式，與 BU 模式並行）**：左側是網域實際的 OU 階層，加上網域根底下的 Users、Computers 等容器（System、Program Data 不顯示）；右側列出所選 OU / 容器**這一層**的使用者、群組、電腦（各最多 2000 筆，超過會提示）。使用者可直接做與 BU 模式相同的操作；電腦顯示作業系統、最後登入、是否停用。OU 最多讀取 2000 個。
+*   **Object Search**：以名稱搜尋使用者、群組或電腦（最多 200 筆）。電腦結果新增作業系統、最後登入、狀態欄位。
+*   **Reports（維運報表）**：
+    *   「Locked accounts」：目前被鎖定的帳號。
+    *   「Inactive accounts」：N 天（預設 90）沒有登入或從未登入的帳號；依 `lastLogonTimestamp` 計算，誤差最多約 14 天。
+    *   「Passwords expiring」：N 天（預設 14）內密碼到期或已過期的啟用帳號（密碼永不過期的帳號不列入）。
+    *   有設定 `AD_OU_SEARCH` 時只查該 OU 底下；每份報表最多 2000 筆。報表中的帳號一樣可以單筆或批次操作。
+*   **帳號清單（所有模式共用）**：
+    *   可篩選、分頁（每頁 50 筆），點帳號名稱看詳細資料。Operator 以上可停用 / 啟用、解鎖、重設密碼（重設後的密碼只顯示一次）。
+    *   **批次操作（Operator 以上）**：勾選帳號（標題列的勾選框選取本頁全部）後，可批次「Unlock」、「Enable」、「Disable」。執行前先預覽：已經是目標狀態的帳號（例如沒被鎖定的帳號之於 Unlock）會被排除；一次最多 100 個帳號。執行後逐筆列出成功或失敗原因，每個成功的帳號各記一筆稽核紀錄。批次不提供重設密碼。
+    *   **Export CSV**：匯出目前篩選後的清單（UTF-8，Excel 可直接開啟）。開頭為 `=`、`+`、`-`、`@` 的內容會加上 `'`，避免被當成公式執行。群組與電腦清單也可匯出。
+*   **使用者詳細資料**：
+    *   群組名稱改由完整的 DN 解析，名稱中含逗號等跳脫字元（例如 `Sales, East`）也會正確顯示；另列出主要群組（Primary group，通常是 Domain Users）。
+    *   「Last logon (approx.)」是 AD 複寫的 `lastLogonTimestamp`，可能比實際晚最多約 14 天。需要精確時間時按「Check exact」：會逐台詢問網域控制站自己的 `lastLogon`，顯示最新的時間與是哪台 DC，無法連線的 DC 會列出（DC 多時需要一點時間）。
+*   **可操作的帳號範圍**（停用 / 啟用、解鎖、重設密碼、Grant、批次操作都適用，SuperAdmin 也一樣）：
+    *   **受保護帳號一律不能改**：`adminCount = 1` 的帳號（Domain Admins 等受 AdminSDHolder 保護群組的成員，或曾經是成員）、`krbtgt`，以及 Vanguard 使用的 AD 服務帳號本身。清單中這類帳號會標示「Protected」，不顯示操作按鈕，批次預覽也會自動排除。
+    *   **只能改受管 OU 底下的帳號**：在 Settings > System Settings > AD 設定 `AD_MANAGE_OUS`（多個 OU 的 DN 以 `;` 分隔，含其下所有子 OU）。沒有設定時，以所有 `AD_OU_*` 設定的 OU（含 `AD_OU_SEARCH`）為範圍；這些也都沒設定時才是整個網域（仍排除受保護帳號）。`AD_MANAGE_OUS` 格式錯誤時，所有帳號操作都會被拒絕並顯示原因。
+    *   檢查在網域控制站上、變更前一刻依帳號目前的 DN 與 `adminCount` 進行，並直接對檢查過的那個帳號變更。被拒絕時單筆操作顯示原因；批次結果標示「Refused」並列出原因。查詢與報表不受範圍限制。
 
 ### 🛡️ AD Control：Group Policy 管理
 AD Control 的「Group Policy」分頁仿照微軟的群組原則管理主控台（GPMC）排版：可以檢視網域、OU 與 GPO，管理 GPO 連結與繼承封鎖，新增、複製、重新命名、刪除 GPO，編輯安全性篩選、WMI 篩選與委派，以及切換狀態、備份、還原與編輯登錄值。尚未提供：群組原則結果 / 模型、新增 WMI 篩選、系統管理範本的完整編輯器。

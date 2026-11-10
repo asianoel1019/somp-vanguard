@@ -2647,6 +2647,13 @@ curl -H "Authorization: Bearer <YOUR_API_KEY>" "${window.location.origin}/api/v1
                                     <input type="text" style={S.input} value={sysConfig.AD_OU_SEARCH || ''} onChange={e => handleConfigChange('AD_OU_SEARCH', e.target.value)} />
                                 </div>
                                 <div style={S.fieldBlock}>
+                                    <label style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-muted)' }}>AD_MANAGE_OUS <span style={{ color: 'var(--text-muted)', fontWeight: 'normal' }}>(OU DNs separated by ;)</span></label>
+                                    <input type="text" style={S.input} value={sysConfig.AD_MANAGE_OUS || ''} placeholder="OU=Staff,DC=example,DC=test;OU=Contractors,DC=example,DC=test" onChange={e => handleConfigChange('AD_MANAGE_OUS', e.target.value)} />
+                                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                                        AD Control only changes accounts inside these OUs (and below). Empty: every AD_OU_* OU above; with none set, the whole domain. Administrator accounts, krbtgt and the service account are never changed.
+                                    </div>
+                                </div>
+                                <div style={S.fieldBlock}>
                                     <label style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-muted)' }}>AD_COMPANIES <span style={{ color: 'var(--text-muted)', fontWeight: 'normal' }}>(comma separated)</span></label>
                                     <input type="text" style={S.input} value={sysConfig.AD_COMPANIES || ''} onChange={e => handleConfigChange('AD_COMPANIES', e.target.value)} />
                                 </div>

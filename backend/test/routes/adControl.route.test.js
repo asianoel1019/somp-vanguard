@@ -83,7 +83,8 @@ test('actions: account names are literals ($ kept), the audit line names the sig
     setAccount();
     const calls = capturePs(t, '');
     await request(app).post('/api/ad/action').set('Authorization', op).send({ sam: 'PC01$', action: 'disable' }).expect(200);
-    assert.ok(calls[0].script.includes("Disable-ADAccount -Identity 'PC01$'"), 'no backtick inserted into the literal');
+    assert.ok(calls[0].script.includes("$target = Get-ManagedUser 'PC01$'"), 'no backtick inserted into the literal');
+    assert.ok(calls[0].script.includes('Disable-ADAccount -Identity $target'), 'the change hits the account that was checked');
 
     const r = await request(app).post('/api/ad/action').set('Authorization', op).send({ sam: 'alice', action: 'reset_password' }).expect(200);
     assert.equal(r.headers['cache-control'], 'no-store');

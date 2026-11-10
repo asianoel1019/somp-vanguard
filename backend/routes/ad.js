@@ -4,6 +4,8 @@ const crypto = require('crypto');
 const { requireAuth, checkRole, checkFeature } = require('../middleware/auth');
 const { auditLog } = require('../lib/logger');
 const { runAsService, psLit, adErrorMessage, serviceAccount } = require('../lib/adService');
+const { isSam, parseList, groupNames, rdnValue } = require('../lib/adModel');
+const { guardScript, guardRefusal } = require('../lib/adGuard');
 
 router.use(requireAuth);
 router.use(checkFeature('adControl'));
@@ -46,21 +48,11 @@ function getGrantCompanies() {
 // Limits on what one request may pull out of the directory
 const MAX_SEARCH_RESULTS = 200;
 const MAX_OU_USERS = 2000;
-// sAMAccountName may not contain " / \ [ ] : ; | = , + * ? < > (a trailing $ marks computer accounts)
-const SAM_RE = /^[^\x00-\x1f"/\\[\]:;|=,+*?<>]{1,256}$/;
-const isSam = (v) => typeof v === 'string' && SAM_RE.test(v);
 
 function sendAdError(res, e) {
     res.status(e && e.status ? e.status : 500).json({ error: adErrorMessage(e) });
 }
 
-/** JSON written by ConvertTo-Json: one object comes back unwrapped, nothing comes back as "" */
-function parseList(output) {
-    const raw = String(output || '').trim();
-    if (!raw || raw === '[]' || raw === 'null') return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [parsed];
-}
 
 // GET /mappings — returns { companies: [...], companyName: [bu1, bu2, ...], ... }
 router.get('/mappings', (req, res) => {
@@ -84,9 +76,9 @@ router.post('/users', async (req, res) => {
 
     try {
         const output = await runAsService(`
-$users = Get-ADUser -Filter * -SearchBase ${psLit(targetOU)} -ResultSetSize ${MAX_OU_USERS + 1} -Properties Enabled, LockedOut, Description -Credential $global:AD_CRED @dcArgs
+$users = Get-ADUser -Filter * -SearchBase ${psLit(targetOU)} -ResultSetSize ${MAX_OU_USERS + 1} -Properties Enabled, LockedOut, Description, adminCount -Credential $global:AD_CRED @dcArgs
 if ($users) {
-    @($users) | Select-Object Name, SamAccountName, Enabled, LockedOut, Description | ConvertTo-Json
+    @($users) | Select-Object Name, SamAccountName, Enabled, LockedOut, Description, @{ n = 'Protected'; e = { $_.adminCount -eq 1 } } | ConvertTo-Json
 } else {
     Write-Output "[]"
 }
@@ -125,22 +117,22 @@ router.post('/action', checkRole(['SuperAdmin', 'Operator']), async (req, res) =
         let generatedPassword = null;
 
         if (action === 'enable') {
-            actionScript = `Enable-ADAccount -Identity ${id} -Credential $global:AD_CRED @dcArgs`;
+            actionScript = `Enable-ADAccount -Identity $target -Credential $global:AD_CRED @dcArgs`;
             actionDesc = `Enabled AD Account: ${sam}`;
         } else if (action === 'disable') {
-            actionScript = `Disable-ADAccount -Identity ${id} -Credential $global:AD_CRED @dcArgs`;
+            actionScript = `Disable-ADAccount -Identity $target -Credential $global:AD_CRED @dcArgs`;
             actionDesc = `Disabled AD Account: ${sam}`;
         } else if (action === 'unlock') {
-            actionScript = `Unlock-ADAccount -Identity ${id} -Credential $global:AD_CRED @dcArgs`;
+            actionScript = `Unlock-ADAccount -Identity $target -Credential $global:AD_CRED @dcArgs`;
             actionDesc = `Unlocked AD Account: ${sam}`;
         } else if (action === 'reset_password') {
             generatedPassword = generatePassword();
             // the new password also travels as a literal; it is random and only made of the characters above
             actionScript = `
 $newPass = ConvertTo-SecureString ${psLit(generatedPassword)} -AsPlainText -Force
-Set-ADAccountPassword -Identity ${id} -NewPassword $newPass -Reset -Credential $global:AD_CRED @dcArgs
-Set-ADUser -Identity ${id} -PasswordNeverExpires $false -Credential $global:AD_CRED @dcArgs
-Set-ADUser -Identity ${id} -ChangePasswordAtLogon $true -Credential $global:AD_CRED @dcArgs
+Set-ADAccountPassword -Identity $target -NewPassword $newPass -Reset -Credential $global:AD_CRED @dcArgs
+Set-ADUser -Identity $target -PasswordNeverExpires $false -Credential $global:AD_CRED @dcArgs
+Set-ADUser -Identity $target -ChangePasswordAtLogon $true -Credential $global:AD_CRED @dcArgs
 `;
             actionDesc = `Reset Password for AD Account: ${sam}`;
         } else if (action === 'grant') {
@@ -154,7 +146,7 @@ Set-ADUser -Identity ${id} -ChangePasswordAtLogon $true -Credential $global:AD_C
 $buName = ${psLit(bu)}.Replace("'", "''")
 $targetGroup = Get-ADGroup -Filter "Name -like '*$buName*'" -SearchBase ${psLit(targetOU)} -Credential $global:AD_CRED @dcArgs | Select-Object -First 1
 if ($targetGroup) {
-    Add-ADGroupMember -Identity $targetGroup -Members ${id} -Credential $global:AD_CRED @dcArgs
+    Add-ADGroupMember -Identity $targetGroup -Members $target -Credential $global:AD_CRED @dcArgs
 } else {
     throw "Target group not found in OU"
 }`;
@@ -163,7 +155,8 @@ if ($targetGroup) {
             return res.status(400).json({ error: 'Unknown action' });
         }
 
-        await runAsService(actionScript);
+        // the account is re-read and checked (protected accounts, managed OUs) right before the change
+        await runAsService(`${guardScript()}\n$target = Get-ManagedUser ${id}\n${actionScript}`);
 
         // who did it is the signed-in user; the service account only carries it out
         auditLog(req.user.username, 'AD User Control', `${actionDesc} (via service account ${serviceAccount().username})`);
@@ -174,6 +167,8 @@ if ($targetGroup) {
         }
         res.json(responseData);
     } catch (e) {
+        const refused = guardRefusal(e && (e.stderr || e.message));
+        if (refused) return res.status(refused.status).json({ error: refused.error });
         sendAdError(res, e);
     }
 });
@@ -198,9 +193,9 @@ router.post('/search', async (req, res) => {
     if (type === 'User') {
         psScript = `
 ${termSetup}
-$users = Get-ADUser -Filter "Name -like '*$term*' -or SamAccountName -like '*$term*'" ${searchBaseArg} ${size} -Properties Enabled, LockedOut, Description -Credential $global:AD_CRED @dcArgs
+$users = Get-ADUser -Filter "Name -like '*$term*' -or SamAccountName -like '*$term*'" ${searchBaseArg} ${size} -Properties Enabled, LockedOut, Description, adminCount -Credential $global:AD_CRED @dcArgs
 if ($users) {
-    @($users) | Select-Object Name, SamAccountName, Enabled, LockedOut, Description | ConvertTo-Json
+    @($users) | Select-Object Name, SamAccountName, Enabled, LockedOut, Description, @{ n = 'Protected'; e = { $_.adminCount -eq 1 } } | ConvertTo-Json
 } else {
     Write-Output "[]"
 }
@@ -227,12 +222,14 @@ if ($groups) {
     } else {
         psScript = `
 ${termSetup}
-$computers = Get-ADComputer -Filter "Name -like '*$term*'" ${searchBaseArg} ${size} -Credential $global:AD_CRED @dcArgs
+$computers = Get-ADComputer -Filter "Name -like '*$term*'" ${searchBaseArg} ${size} -Properties Enabled, OperatingSystem, LastLogonDate, Description -Credential $global:AD_CRED @dcArgs
 if ($computers) {
     $res = @()
     foreach ($c in @($computers)) {
         $dn = $c.DistinguishedName
-        $res += [PSCustomObject]@{ Name = $c.Name; SamAccountName = $c.SamAccountName; DistinguishedName = $dn; OU = ($dn -replace '^CN=[^,]+,', '') }
+        $res += [PSCustomObject]@{ Name = $c.Name; SamAccountName = $c.SamAccountName; DistinguishedName = $dn; OU = ($dn -replace '^CN=[^,]+,', '')
+            Enabled = [bool]$c.Enabled; OperatingSystem = [string]$c.OperatingSystem; Description = [string]$c.Description
+            LastLogonDate = $(if ($c.LastLogonDate) { $c.LastLogonDate.ToUniversalTime().ToString('o') } else { '' }) }
     }
     $res | ConvertTo-Json -Depth 10
 } else {
@@ -255,22 +252,11 @@ router.get('/user/:sam', async (req, res) => {
     if (!sam) return res.status(400).json({ error: 'Missing SAM account name' });
     if (!isSam(sam)) return res.status(400).json({ error: 'Invalid account name' });
 
-    const props = 'Description,EmailAddress,Title,Department,Company,Manager,MemberOf,Enabled,LockedOut,PasswordLastSet,LastLogonDate,AccountExpirationDate,BadLogonCount,Created,Modified,pwdLastSet';
+    const props = 'Description,EmailAddress,Title,Department,Company,Manager,MemberOf,PrimaryGroup,Enabled,LockedOut,PasswordLastSet,LastLogonDate,AccountExpirationDate,BadLogonCount,Created,Modified,pwdLastSet';
     try {
         const output = await runAsService(`
 $user = Get-ADUser -Identity ${psLit(sam)} -Properties ${props} -Credential $global:AD_CRED @dcArgs
 if ($user) {
-    # Clean up MemberOf to just group names
-    $groups = @()
-    if ($user.MemberOf) {
-        foreach ($group in $user.MemberOf) {
-            $groups += ($group -replace '^CN=([^,]+),.*', '$1')
-        }
-    }
-    $managerName = ""
-    if ($user.Manager) {
-        $managerName = ($user.Manager -replace '^CN=([^,]+),.*', '$1')
-    }
     [PSCustomObject]@{
         Name = $user.Name
         SamAccountName = $user.SamAccountName
@@ -280,7 +266,8 @@ if ($user) {
         Title = $user.Title
         Department = $user.Department
         Company = $user.Company
-        Manager = $managerName
+        ManagerDn = [string]$user.Manager
+        PrimaryGroupDn = [string]$user.PrimaryGroup
         Enabled = $user.Enabled
         LockedOut = $user.LockedOut
         PasswordLastSet = $user.PasswordLastSet
@@ -289,7 +276,7 @@ if ($user) {
         BadLogonCount = $user.BadLogonCount
         Created = $user.Created
         Modified = $user.Modified
-        MemberOf = $groups
+        MemberOfDns = @($user.MemberOf | ForEach-Object { [string]$_ })
     } | ConvertTo-Json -Depth 10
 } else {
     Write-Output "{}"
@@ -297,11 +284,21 @@ if ($user) {
 `);
         const raw = String(output || '').trim();
         const userInfo = raw && raw !== '{}' && raw !== 'null' ? JSON.parse(raw) : {};
+        if (userInfo.Name) {
+            // names come from the DNs here, so escaped commas ("CN=Sales\, East,...") stay inside the name
+            userInfo.MemberOf = groupNames(userInfo.MemberOfDns);
+            userInfo.PrimaryGroup = rdnValue(userInfo.PrimaryGroupDn);
+            userInfo.Manager = rdnValue(userInfo.ManagerDn);
+            delete userInfo.MemberOfDns; delete userInfo.PrimaryGroupDn; delete userInfo.ManagerDn;
+        }
         res.json({ userInfo });
     } catch (e) {
         sendAdError(res, e);
     }
 });
+
+// OU tree mode, reports, batch actions and the exact last logon
+router.use(require('./adDirectory'));
 
 // Test hooks
 router._test = { generatePassword, isSam };

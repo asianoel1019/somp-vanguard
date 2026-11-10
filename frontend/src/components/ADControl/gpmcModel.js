@@ -104,18 +104,44 @@ export function gpoLocations(guid, tree) {
 
 const trusteeName = (p) => (p.domain ? `${p.domain}\\${p.trustee}` : p.trustee);
 
-/** Security Filtering: who the GPO applies to. */
-export function securityFiltering(permissions) {
-    return (permissions || []).filter(p => p.permission === 'GpoApply' && !p.denied).map(p => ({ name: trusteeName(p), sidType: p.sidType || '' }));
+/** Set-GPPermission -TargetType of a trustee's SID type (well-known groups and aliases are groups). */
+export function trusteeTargetType(sidType) {
+    const t = String(sidType || '');
+    if (/computer/i.test(t)) return 'Computer';
+    if (/group|alias/i.test(t)) return 'Group';
+    return 'User';
 }
 
-/** Delegation tab rows. */
+/** Security Filtering: who the GPO applies to. trustee / trusteeType are what a change request sends. */
+export function securityFiltering(permissions) {
+    return (permissions || []).filter(p => p.permission === 'GpoApply' && !p.denied).map(p => ({
+        name: trusteeName(p), sidType: p.sidType || '', trustee: p.trustee, trusteeType: trusteeTargetType(p.sidType),
+    }));
+}
+
+/** Delegation tab rows. Inherited and denied entries cannot be changed here. */
 export function delegationRows(permissions) {
     return (permissions || []).map(p => ({
         name: trusteeName(p),
         allowed: (p.denied ? 'Deny: ' : '') + (PERMISSION_LABELS[p.permission] || p.permission),
         inherited: p.inherited ? 'Yes' : 'No',
+        trustee: p.trustee, trusteeType: trusteeTargetType(p.sidType), permission: p.permission,
+        changeable: !p.inherited && !p.denied,
     })).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Permission levels the Delegation tab can grant. */
+export const DELEGATION_LEVELS = ['GpoRead', 'GpoEdit', 'GpoEditDeleteModifySecurity'];
+
+/** Account or group name as the server accepts it (optionally DOMAIN\name). */
+// eslint-disable-next-line no-control-regex -- rejecting control characters is the point
+export const TRUSTEE_RE = /^(?:[^\\\x00-\x1f"/[\]:;|=,+*?<>]{1,64}\\)?[^\\\x00-\x1f"/[\]:;|=,+*?<>]{1,256}$/;
+
+/** A GPO name the server accepts: 1-255 characters after trimming, no control characters. */
+export function validGpoName(v) {
+    const s = String(v || '').trim();
+    // eslint-disable-next-line no-control-regex -- rejecting control characters is the point
+    return s.length > 0 && s.length <= 255 && !/[\x00-\x1f]/.test(s);
 }
 
 /** All GPOs, by name (the Group Policy Objects container). */

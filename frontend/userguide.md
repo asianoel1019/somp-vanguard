@@ -330,7 +330,7 @@ Server List 是 SOMP Vanguard 的核心伺服器資產資料庫 (CMDB)，自動�
 *   **在線存活探測**：卡片即時顯示在線健康狀態，支援快速啟用/停用切換。
 
 ### 🛡️ AD Control：Group Policy 管理
-AD Control 的「Group Policy」分頁仿照微軟的群組原則管理主控台（GPMC）排版：可以檢視網域、OU 與 GPO，管理 GPO 連結與繼承封鎖，以及切換狀態、備份與編輯登錄值。新增 / 刪除 / 複製 GPO、編輯安全性篩選與委派尚未提供。
+AD Control 的「Group Policy」分頁仿照微軟的群組原則管理主控台（GPMC）排版：可以檢視網域、OU 與 GPO，管理 GPO 連結與繼承封鎖，新增、複製、重新命名、刪除 GPO，編輯安全性篩選、WMI 篩選與委派，以及切換狀態、備份、還原與編輯登錄值。尚未提供：群組原則結果 / 模型、新增 WMI 篩選、系統管理範本的完整編輯器。
 *   **左側樹狀**：網域 → OU 階層，每個網域 / OU 底下列出連結的 GPO（依連結順序）；另有「Group Policy Objects」（網域內所有 GPO）與「WMI Filters」兩個容器。強制（Enforced）的連結有鎖頭圖示，停用的連結與全部設定停用的 GPO 會變淡，封鎖繼承的 OU 有藍色驚嘆號。OU 最多讀取 2000 個，超過時頁面會提示。
 *   **點網域或 OU**：
     *   「Linked Group Policy Objects」：連結順序、強制、連結啟用、GPO 狀態、WMI 篩選、修改時間。
@@ -339,7 +339,7 @@ AD Control 的「Group Policy」分頁仿照微軟的群組原則管理主控台
     *   「Scope」：連結到哪些網域 / OU（雙擊可跳到該位置）、安全性篩選（套用對象）、WMI 篩選。
     *   「Details」：網域、擁有者、建立 / 修改時間、使用者與電腦設定的 AD / SYSVOL 版本、GUID、GPO 狀態（Operator 以上可在此切換）、註解。AD 與 SYSVOL 版本不一致時會提示可能還在複寫。
     *   「Settings」：GPMC 原生的設定報表。只有 Operator 與 SuperAdmin 能看，因為群組原則喜好設定可能含有儲存的密碼；報表在不執行任何腳本的沙箱框架中顯示。
-    *   「Delegation」：每個群組 / 使用者對這個 GPO 的權限與是否繼承（唯讀）。
+    *   「Delegation」：每個群組 / 使用者對這個 GPO 的權限與是否繼承。
 *   **WMI Filters**：列出網域內的 WMI 篩選，點進去可看描述、查詢語句，以及哪些 GPO 使用它。
 *   **操作**：在樹狀或表格上按右鍵，或使用上方工具列。Operator 以上可以切換 GPO 狀態、備份（單一 GPO 或在「Group Policy Objects」上備份全部，路徑留空則存到 DC 的 `C:\GPO_Backups`），以及編輯 `Software\Policies` 底下的登錄值設定。
 *   **連結管理（Operator 以上）**：
@@ -348,6 +348,18 @@ AD Control 的「Group Policy」分頁仿照微軟的群組原則管理主控台
     *   **連結順序**：在「Linked Group Policy Objects」分頁用 ▲ ▼ 調整，順序 1 優先。
     *   **封鎖繼承**：在網域或 OU 上按右鍵勾選 / 取消「Block Inheritance」。封鎖後上層的連結不再套用到這裡，強制的連結除外。
     *   除了調整順序與連結新 GPO，每項變更都會先請你確認；完成後會重新讀取樹狀。所有變更都記在稽核紀錄（操作者、GPO 名稱、OU 的 DN 與變更內容）。只能連結到網域根或 OU，其他容器（例如 `CN=Users`）會被拒絕。
+*   **GPO 本身（Operator 以上，刪除限 SuperAdmin）**：
+    *   **新增**：在「Group Policy Objects」上按右鍵選「New…」（不連結），或在網域 / OU 上選「Create a GPO in this domain, and Link it here…」（建立後直接連結到該處）。可輸入註解。建立後會自動選取新的 GPO。
+    *   **複製**：GPO 右鍵「Copy…」，輸入新名稱；可勾選保留原本的權限，否則套用預設權限。連結不會被複製。
+    *   **重新命名**：GPO 右鍵「Rename…」。
+    *   **註解**：GPO「Details」分頁的「Comment」旁按「Edit」。
+    *   **刪除（只限 SuperAdmin）**：在「Group Policy Objects」底下的 GPO 上按右鍵選「Delete GPO…」，必須再輸入一次 GPO 名稱才能刪除；網域內所有指向它的連結也會一併刪除，無法復原（需靠備份還原）。若 GPO 在這段期間被改名，DC 端會拒絕刪除。
+*   **安全性篩選與 WMI 篩選（Operator 以上）**：在 GPO「Scope」分頁：
+    *   「Security Filtering」按「Add…」加入使用者 / 群組 / 電腦（給予套用權限）；按「Remove」移除套用權限但保留讀取權限（GPO 必須仍能被讀取，否則電腦無法處理群組原則）。
+    *   「WMI Filtering」用下拉選單選擇網域內既有的 WMI 篩選，或選「&lt;none&gt;」移除。
+*   **委派（只限 SuperAdmin）**：GPO「Delegation」分頁按「Add…」，輸入使用者 / 群組並選擇「Read」、「Edit settings」或「Edit settings, delete, modify security」；既有項目可「Change」或「Remove」。繼承來的或拒絕的權限不能在這裡修改；屬於安全性篩選的「Read (from Security Filtering)」項目請在「Scope」分頁處理。
+*   **備份還原（Operator 以上）**：在「Group Policy Objects」上按右鍵選「Manage Backups…」，輸入備份位置（留空為 DC 的 `C:\GPO_Backups`），會列出最新的 500 份備份。按「Restore」：GPO 還存在時以備份覆蓋目前的設定；GPO 已被刪除時，會以備份中的名稱重新建立（新的 GUID，沒有連結，需要再連結）。
+*   以上每項變更都會先請你確認（新增、複製、重新命名、註解在對話框中確認），並記在稽核紀錄。
 *   **需求**：DC 上要有 GroupPolicy（RSAT-GPMC）與 ActiveDirectory PowerShell 模組，並使用 Settings 中設定的 AD 服務帳號。
 
 ### 🏢 Nutanix Prism 虛擬化管理

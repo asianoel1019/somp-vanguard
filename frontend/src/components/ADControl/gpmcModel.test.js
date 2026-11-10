@@ -70,3 +70,24 @@ test('link helpers: find, linkable GPOs, and moving within the link order', asyn
     assert.equal(movedOrder(node, 'ws-base', 1), 2);
     assert.equal(movedOrder(node, 'ws-off', 1), null);
 });
+
+test('permission helpers: target types, changeable delegation rows, name and trustee formats', async () => {
+    const { trusteeTargetType, TRUSTEE_RE, validGpoName } = await import('./gpmcModel.js');
+    assert.equal(trusteeTargetType('WellKnownGroup'), 'Group');
+    assert.equal(trusteeTargetType('Alias'), 'Group');
+    assert.equal(trusteeTargetType('Computer'), 'Computer');
+    assert.equal(trusteeTargetType('User'), 'User');
+    const rows = delegationRows([
+        { trustee: 'SYSTEM', domain: 'NT AUTHORITY', sidType: 'WellKnownGroup', permission: 'GpoEditDeleteModifySecurity', inherited: true, denied: false },
+        { trustee: 'Helpdesk', domain: 'EXAMPLE', sidType: 'Group', permission: 'GpoEdit', inherited: false, denied: false },
+    ]);
+    assert.deepEqual(rows.map(r => [r.trustee, r.trusteeType, r.changeable]), [['Helpdesk', 'Group', true], ['SYSTEM', 'Group', false]]);
+    assert.ok(TRUSTEE_RE.test('Authenticated Users'));
+    assert.ok(TRUSTEE_RE.test('EXAMPLE\\Kiosk PCs'));
+    assert.ok(TRUSTEE_RE.test('KIOSK01$'));
+    assert.ok(!TRUSTEE_RE.test('a"; calc'));
+    assert.ok(!TRUSTEE_RE.test('A\\B\\C'));
+    assert.ok(validGpoName('  Kiosk  '));
+    assert.ok(!validGpoName('   '));
+    assert.ok(!validGpoName('a\tb'));
+});

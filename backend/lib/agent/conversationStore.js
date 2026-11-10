@@ -64,8 +64,8 @@ function appendTurn(user, { conversationId, question, answer, steps = [], sugges
     return conv;
 }
 
-function deleteConversation(user, id) {
-    const list = load(user, new Date());
+function deleteConversation(user, id, now = new Date()) {
+    const list = load(user, now);
     const idx = list.findIndex(c => c.id === id);
     if (idx < 0) return false;
     list.splice(idx, 1);

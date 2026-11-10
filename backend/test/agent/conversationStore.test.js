@@ -61,8 +61,8 @@ test('retention: older than 30 days are dropped; max 50 kept', () => {
 
 test('deleteConversation removes only own conversation', () => {
     const conv = store.appendTurn(bob, { conversationId: store.newConversationId(), question: 'del me', answer: 'x' }, at(9));
-    assert.equal(store.deleteConversation(alice, conv.id), false);
-    assert.equal(store.deleteConversation(bob, conv.id), true);
+    assert.equal(store.deleteConversation(alice, conv.id, at(10)), false);
+    assert.equal(store.deleteConversation(bob, conv.id, at(10)), true);
     assert.equal(store.getConversation(bob, conv.id, at(10)), null);
 });
 

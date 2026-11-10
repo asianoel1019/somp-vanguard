@@ -3,6 +3,7 @@ const router = express.Router();
 const { requireAuth, checkRole, checkFeature } = require('../middleware/auth');
 const { auditLog } = require('../lib/logger');
 const { runAsService, psLit, adErrorMessage, dcHost, serviceAccount } = require('../lib/adService');
+const gpoModel = require('../lib/gpoModel');
 
 router.use(requireAuth);
 router.use(checkFeature('adControl'));
@@ -23,7 +24,7 @@ function sendError(res, e) {
  * Run a GPO script block on the domain controller: $session is opened with the service account, the block gets the
  * listed literal arguments.
  */
-function onDc(block, args = []) {
+function onDc(block, args = [], timeoutMs = 60000) {
     const dc = dcHost();
     if (!dc) {
         const err = new Error('AD_DC_HOST (or ALLOWED_AD_DOMAIN) is not configured');
@@ -40,7 +41,7 @@ ${block}
 } finally {
     Remove-PSSession -Session $session
 }
-`);
+`, timeoutMs);
 }
 
 const GPMC_CHECK = `
@@ -126,6 +127,112 @@ ${GPMC_CHECK}
         res.json({ settings });
     } catch (e) {
         console.error('[GPO Reg List] Failed:', adErrorMessage(e));
+        sendError(res, e);
+    }
+});
+
+// ---- GPMC-style views (read-only) ----
+
+const MAX_TREE_OUS = 2000;
+const MAX_REPORT_CHARS = 5 * 1024 * 1024;
+
+function parseJsonObject(output) {
+    const raw = String(output || '').trim();
+    return raw ? JSON.parse(raw) : null;
+}
+
+// GET /tree — the domain, its OUs with their GPO links and inheritance blocking, and every GPO
+router.get('/tree', async (req, res) => {
+    try {
+        const output = await onDc(`
+        param($max)
+${GPMC_CHECK}
+        Import-Module ActiveDirectory
+        $d = Get-ADDomain -Server localhost
+        $root = Get-ADObject -Identity $d.DistinguishedName -Properties gPLink, gPOptions -Server localhost
+        $ous = @(Get-ADOrganizationalUnit -Filter * -Properties gPLink, gPOptions -ResultSetSize ([int]$max + 1) -Server localhost)
+        $gpos = @(Get-GPO -All -Server localhost)
+        [PSCustomObject]@{
+            domain = [PSCustomObject]@{ dn = [string]$d.DistinguishedName; dns = [string]$d.DNSRoot; gPLink = [string]$root.gPLink; gPOptions = [string]$root.gPOptions }
+            ous = @($ous | ForEach-Object { [PSCustomObject]@{ dn = [string]$_.DistinguishedName; name = [string]$_.Name; gPLink = [string]$_.gPLink; gPOptions = [string]$_.gPOptions } })
+            gpos = @($gpos | ForEach-Object { [PSCustomObject]@{ id = [string]$_.Id; name = [string]$_.DisplayName; status = [string]$_.GpoStatus; wmi = $(if ($_.WmiFilter) { [string]$_.WmiFilter.Name } else { '' }); created = $_.CreationTime.ToString('o'); modified = $_.ModificationTime.ToString('o') } })
+        } | ConvertTo-Json -Depth 4 -Compress`, [String(MAX_TREE_OUS)]);
+        const raw = parseJsonObject(output);
+        if (!raw) return res.status(502).json({ error: 'The domain controller returned no data' });
+        res.json(gpoModel.shapeTree(raw, MAX_TREE_OUS));
+    } catch (e) {
+        console.error('[GPO Tree] Failed:', adErrorMessage(e));
+        sendError(res, e);
+    }
+});
+
+// GET /detail?guid= — Details, security filtering and delegation of one GPO
+router.get('/detail', async (req, res) => {
+    const guid = String(req.query.guid || '');
+    if (!GUID_RE.test(guid)) return res.status(400).json({ error: 'Invalid GPO id' });
+    try {
+        const output = await onDc(`
+        param($gId)
+${GPMC_CHECK}
+        $g = Get-GPO -Guid $gId -Server localhost
+        $perms = @(Get-GPPermission -Guid $gId -All -Server localhost)
+        [PSCustomObject]@{
+            id = [string]$g.Id; name = [string]$g.DisplayName; domain = [string]$g.DomainName; owner = [string]$g.Owner
+            status = [string]$g.GpoStatus; description = [string]$g.Description
+            created = $g.CreationTime.ToString('o'); modified = $g.ModificationTime.ToString('o')
+            userVersion = [PSCustomObject]@{ ds = [int]$g.User.DSVersion; sysvol = [int]$g.User.SysvolVersion }
+            computerVersion = [PSCustomObject]@{ ds = [int]$g.Computer.DSVersion; sysvol = [int]$g.Computer.SysvolVersion }
+            wmiFilter = $(if ($g.WmiFilter) { [PSCustomObject]@{ name = [string]$g.WmiFilter.Name; description = [string]$g.WmiFilter.Description } } else { $null })
+            permissions = @($perms | ForEach-Object { [PSCustomObject]@{ trustee = [string]$_.Trustee.Name; domain = [string]$_.Trustee.Domain; sidType = [string]$_.Trustee.SidType; permission = [string]$_.Permission; inherited = [bool]$_.Inherited; denied = [bool]$_.Denied } })
+        } | ConvertTo-Json -Depth 4 -Compress`, [guid]);
+        const detail = parseJsonObject(output);
+        if (!detail) return res.status(404).json({ error: 'GPO not found' });
+        detail.id = String(detail.id || '').replace(/[{}]/g, '').toLowerCase();
+        detail.permissions = Array.isArray(detail.permissions) ? detail.permissions : detail.permissions ? [detail.permissions] : [];
+        res.json(detail);
+    } catch (e) {
+        console.error('[GPO Detail] Failed:', adErrorMessage(e));
+        sendError(res, e);
+    }
+});
+
+// GET /report?guid= — the GPMC settings report (HTML). Operator+: Group Policy Preferences can carry stored passwords.
+router.get('/report', checkRole(['SuperAdmin', 'Operator']), async (req, res) => {
+    const guid = String(req.query.guid || '');
+    if (!GUID_RE.test(guid)) return res.status(400).json({ error: 'Invalid GPO id' });
+    try {
+        const output = await onDc(`
+        param($gId)
+${GPMC_CHECK}
+        Get-GPOReport -Guid $gId -ReportType Html -Server localhost`, [guid], 120000);
+        let html = String(output || '');
+        if (html.length > MAX_REPORT_CHARS) return res.status(413).json({ error: 'The settings report is too large to show here' });
+        // shown in a sandboxed frame that runs no script; scripts are removed here as well
+        html = html.replace(/<script\b[\s\S]*?<\/script\s*>/gi, '');
+        res.json({ html });
+    } catch (e) {
+        console.error('[GPO Report] Failed:', adErrorMessage(e));
+        sendError(res, e);
+    }
+});
+
+// GET /wmi-filters — the domain's WMI filters
+router.get('/wmi-filters', async (req, res) => {
+    try {
+        const output = await onDc(`
+        $ErrorActionPreference = "Stop"
+        Import-Module ActiveDirectory
+        $d = Get-ADDomain -Server localhost
+        $base = "CN=SOM,CN=WMIPolicy,CN=System," + $d.DistinguishedName
+        $f = @(Get-ADObject -SearchBase $base -Filter "objectClass -eq 'msWMI-Som'" -Properties 'msWMI-ID', 'msWMI-Name', 'msWMI-Parm1', 'msWMI-Parm2', 'whenChanged' -Server localhost)
+        ConvertTo-Json -Compress -Depth 3 -InputObject @($f | ForEach-Object { [PSCustomObject]@{ id = [string]$_.'msWMI-ID'; name = [string]$_.'msWMI-Name'; description = [string]$_.'msWMI-Parm1'; parm2 = [string]$_.'msWMI-Parm2'; modified = $_.whenChanged.ToString('o') } })`);
+        const filters = parseJsonList(output).map(f => ({
+            id: String(f.id || ''), name: String(f.name || ''), description: String(f.description || ''),
+            modified: String(f.modified || ''), queries: gpoModel.parseWmiQueries(f.parm2),
+        }));
+        res.json({ filters });
+    } catch (e) {
+        console.error('[GPO WMI] Failed:', adErrorMessage(e));
         sendError(res, e);
     }
 });

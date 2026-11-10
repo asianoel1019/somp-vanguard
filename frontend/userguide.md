@@ -26,6 +26,7 @@
    - [安全事件鑑識調查 (Security Forensics)](#-安全事件鑑識調查-security-forensics)
 6. [服務管理 (Services Management)](#6-服務管理)
    - [DNS Hub 網域紀錄管理](#-dns-hub)
+   - [AD Control：Group Policy 管理](#-ad-controlgroup-policy-管理)
    - [Nutanix Prism 虛擬化與克隆](#-nutanix-prism-虛擬化管理)
    - [SSL Certificate 憑證生命週期中心](#-ssl-certificate-ssl-憑證管理中心)
    - [Proxy、Mail Relay、Prometheus 與 Redis](#-其他服務管理)
@@ -327,6 +328,21 @@ Server List 是 SOMP Vanguard 的核心伺服器資產資料庫 (CMDB)，自動�
 *   **變更紀錄**：新增記為 `Add: 名稱 -> IP`，修改記為 `Modify: 名稱: 舊 IP -> 新 IP`，刪除每筆紀錄各記一行 `Delete: 名稱 類型 資料`，事後可查到原本的值。
 *   **一次處理上限**：新增、刪除每次最多 500 筆。整批失敗時顯示錯誤原因的第一行（例如 WinRM 連不到伺服器），不會顯示帳密。
 *   **在線存活探測**：卡片即時顯示在線健康狀態，支援快速啟用/停用切換。
+
+### 🛡️ AD Control：Group Policy 管理
+AD Control 的「Group Policy」分頁仿照微軟的群組原則管理主控台（GPMC）排版，目前為唯讀檢視，加上原有的狀態切換、備份與登錄值編輯。
+*   **左側樹狀**：網域 → OU 階層，每個網域 / OU 底下列出連結的 GPO（依連結順序）；另有「Group Policy Objects」（網域內所有 GPO）與「WMI Filters」兩個容器。強制（Enforced）的連結有鎖頭圖示，停用的連結與全部設定停用的 GPO 會變淡，封鎖繼承的 OU 有藍色驚嘆號。OU 最多讀取 2000 個，超過時頁面會提示。
+*   **點網域或 OU**：
+    *   「Linked Group Policy Objects」：連結順序、強制、連結啟用、GPO 狀態、WMI 篩選、修改時間。
+    *   「Group Policy Inheritance」：實際套用到這裡的 GPO 與優先順序。計算方式同 GPMC：停用的連結不算；封鎖繼承會擋掉上層的連結，但強制的連結照樣套用並排在最前面，越上層的強制連結優先。
+*   **點 GPO**：
+    *   「Scope」：連結到哪些網域 / OU（雙擊可跳到該位置）、安全性篩選（套用對象）、WMI 篩選。
+    *   「Details」：網域、擁有者、建立 / 修改時間、使用者與電腦設定的 AD / SYSVOL 版本、GUID、GPO 狀態（Operator 以上可在此切換）、註解。AD 與 SYSVOL 版本不一致時會提示可能還在複寫。
+    *   「Settings」：GPMC 原生的設定報表。只有 Operator 與 SuperAdmin 能看，因為群組原則喜好設定可能含有儲存的密碼；報表在不執行任何腳本的沙箱框架中顯示。
+    *   「Delegation」：每個群組 / 使用者對這個 GPO 的權限與是否繼承（唯讀）。
+*   **WMI Filters**：列出網域內的 WMI 篩選，點進去可看描述、查詢語句，以及哪些 GPO 使用它。
+*   **操作**：在樹狀或表格上按右鍵，或使用上方工具列。Operator 以上可以切換 GPO 狀態、備份（單一 GPO 或在「Group Policy Objects」上備份全部，路徑留空則存到 DC 的 `C:\GPO_Backups`），以及編輯 `Software\Policies` 底下的登錄值設定。
+*   **需求**：DC 上要有 GroupPolicy（RSAT-GPMC）與 ActiveDirectory PowerShell 模組，並使用 Settings 中設定的 AD 服務帳號。
 
 ### 🏢 Nutanix Prism 虛擬化管理
 *   **VM 電源操作（v1.7.8）**：需 Operator 以上。PE 模式提供 PowerOff、PowerCycle、Reset、GuestShutdown、GuestReboot；PC 模式（Prism Central v3）只提供 PowerOff 與 GuestShutdown。一次最多同時處理 5 台；有失敗時會列出每台 VM 與原因。送出後清單會立即、10 秒、30 秒各自動更新一次（VM 實際改變狀態需要一點時間）。

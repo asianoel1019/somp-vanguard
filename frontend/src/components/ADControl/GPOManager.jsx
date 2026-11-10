@@ -1,341 +1,251 @@
-import { useToast } from '../../contexts/ToastContext';
-import { useConfirm } from '../../contexts/ConfirmContext';
-import React, { useState, useEffect } from 'react';
+// Group Policy page laid out like the Group Policy Management Console: the domain / OU tree with linked GPOs and the
+// Group Policy Objects / WMI Filters containers on the left, the selected item's tabs on the right, a toolbar and a
+// right-click menu for the actions.
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { FiRefreshCw, FiSave, FiEdit2, FiCheck } from 'react-icons/fi';
 import api from '../../api';
-import { STATUS_BADGE, ActionBtn } from './Shared';
+import { useConfirm } from '../../contexts/ConfirmContext';
+import { buildGpmcTree, GPO_STATUS_LABELS, GPO_STATUSES } from './gpmcModel';
+import { C } from './gpmcStyle';
+import GpmcTree from './GpmcTree';
+import GpoPane from './GpoPane';
+import ContainerPane from './ContainerPane';
+import RegistryEditModal from './RegistryEditModal';
+
+const RSAT_HINT = 'RSAT-GPMC is missing on the domain controller. Install the Group Policy Management Console (Install-WindowsFeature RSAT-GPMC).';
+const errorText = (e, fallback) => {
+    const t = e?.response?.data?.error || fallback;
+    return /RSAT_GPMC_MISSING/.test(t) ? RSAT_HINT : t;
+};
+
+const btn = { display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '5px 12px', borderRadius: '8px', border: C.border, background: 'transparent', color: 'var(--text-primary)', fontSize: '12.5px', fontWeight: 600, cursor: 'pointer' };
+
+function MenuItem({ children, onClick, checked, disabled }) {
+    return (
+        <button role="menuitem" disabled={disabled} onClick={onClick}
+            style={{ display: 'flex', alignItems: 'center', gap: '8px', width: '100%', textAlign: 'left', padding: '6px 12px', border: 'none', background: 'transparent', color: disabled ? C.muted : 'var(--text-primary)', fontSize: '12.5px', cursor: disabled ? 'default' : 'pointer' }}
+            onMouseEnter={e => { if (!disabled) e.currentTarget.style.background = 'rgba(59,130,246,0.15)'; }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}>
+            <span style={{ width: 14, display: 'inline-flex' }}>{checked ? <FiCheck /> : null}</span>{children}
+        </button>
+    );
+}
+const MenuSeparator = () => <div style={{ borderTop: C.border, margin: '4px 0' }} />;
 
 export default function GPOManager() {
-    const { showToast } = useToast();
     const { showConfirm } = useConfirm();
-  const user = JSON.parse(localStorage.getItem('user') || '{}');
-  const role = user.role || 'Viewer';
-  
-  const [gpos, setGpos] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState(null);
-  
-  const [nasPath, setNasPath] = useState('');
-  const [actionLoading, setActionLoading] = useState(false);
-  const [editingGpo, setEditingGpo] = useState(null);
-  const [showEditModal, setShowEditModal] = useState(false);
-  const [confirmModal, setConfirmModal] = useState({ show: false, message: '', action: null });
+    const role = (JSON.parse(localStorage.getItem('user') || '{}').role) || 'Viewer';
+    const canEdit = role !== 'Viewer';
+    const canReport = role === 'SuperAdmin' || role === 'Operator';
 
-  // Security Policy Edit States
-  const [regKey, setRegKey] = useState('HKCU\\Software\\Policies\\Microsoft');
-  const [regValueName, setRegValueName] = useState('');
-  const [regType, setRegType] = useState('String');
-  const [regValue, setRegValue] = useState('');
-  const [existingSettings, setExistingSettings] = useState([]);
-  const [loadingSettings, setLoadingSettings] = useState(false);
+    const [data, setData] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [loadError, setLoadError] = useState(null);
+    const [wmi, setWmi] = useState({ list: [], error: null });
+    const [selection, setSelection] = useState(null);
+    const [expanded, setExpanded] = useState(() => new Set());
+    const [menu, setMenu] = useState(null);
+    const [message, setMessage] = useState(null);
+    const [busy, setBusy] = useState(false);
+    const [backup, setBackup] = useState(null); // { guid, name, path }
+    const [registryGpo, setRegistryGpo] = useState(null);
+    const [refreshKey, setRefreshKey] = useState(0);
 
-  const loadGPOs = async () => {
-    setLoading(true);
-    setMessage(null);
-    try {
-      const res = await api.get('/gpo/list');
-      setGpos(res.data.gpos || []);
-    } catch (e) {
-      const errText = e.response?.data?.error || 'Failed to load GPOs.';
-      if (errText.includes('RSAT_GPMC_MISSING') || errText.includes('GroupPolicy') || errText.includes('RSAT') || errText.includes('Get-GPO')) {
-        setMessage({ type: 'error', text: 'RSAT-GPMC missing on remote AD Server. Please install Group Policy Management Console (Install-WindowsFeature RSAT-GPMC).' });
-      } else {
-        setMessage({ type: 'error', text: errText });
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
+    const tree = useMemo(() => (data ? buildGpmcTree(data) : null), [data]);
 
-  useEffect(() => {
-    loadGPOs();
-  }, []);
+    // fetching and applying are separate so the first load runs from an effect without a synchronous setState
+    const fetchAll = () => Promise.allSettled([api.get('/gpo/tree'), api.get('/gpo/wmi-filters')]);
+    const apply = useCallback(([t, w]) => {
+        if (t.status === 'fulfilled') {
+            setData(t.value.data);
+            setLoadError(null);
+            const rootKey = `c:${t.value.data.domain.dn}`;
+            setExpanded(prev => (prev.size ? prev : new Set([rootKey])));
+            setSelection(prev => prev || { type: 'domain', key: rootKey, dn: t.value.data.domain.dn });
+        } else {
+            setLoadError(errorText(t.reason, 'Could not read Group Policy from the domain controller.'));
+        }
+        setWmi(w.status === 'fulfilled' ? { list: w.value.data.filters || [], error: null } : { list: [], error: errorText(w.reason, 'Could not read the WMI filters.') });
+        setRefreshKey(k => k + 1);
+        setLoading(false);
+    }, []);
+    const load = async () => {
+        setLoading(true);
+        apply(await fetchAll());
+    };
 
-  const promptConfirm = (message, action) => {
-    setConfirmModal({ show: true, message, action });
-  };
+    useEffect(() => { fetchAll().then(apply); }, [apply]);
 
-  const executeConfirm = () => {
-    if (confirmModal.action) confirmModal.action();
-    setConfirmModal({ show: false, message: '', action: null });
-  };
+    useEffect(() => {
+        if (!menu) return undefined;
+        const close = () => setMenu(null);
+        const onKey = (e) => { if (e.key === 'Escape') close(); };
+        window.addEventListener('click', close);
+        window.addEventListener('keydown', onKey);
+        window.addEventListener('scroll', close, true);
+        return () => { window.removeEventListener('click', close); window.removeEventListener('keydown', onKey); window.removeEventListener('scroll', close, true); };
+    }, [menu]);
 
-  const handleBackup = async (guid, name) => {
-    promptConfirm(`Backup GPO '${name}'?`, async () => {
-      setActionLoading(guid);
-    setMessage(null);
-    try {
-      const payload = { guid, name };
-      if (nasPath.trim()) payload.nasPath = nasPath.trim();
-      const res = await api.post('/gpo/backup', payload);
-      setMessage({ type: 'success', text: res.data.message });
-    } catch (e) {
-      const errText = e.response?.data?.error || 'Backup failed.';
-      if (errText.includes('RSAT_GPMC_MISSING')) {
-        setMessage({ type: 'error', text: 'RSAT-GPMC missing on remote AD Server. Please install Group Policy Management Console.' });
-      } else {
-        setMessage({ type: 'error', text: errText });
-      }
-    } finally {
-      setActionLoading(false);
-    }
-    });
-  };
+    const toggle = (key) => setExpanded(prev => { const next = new Set(prev); if (next.has(key)) next.delete(key); else next.add(key); return next; });
 
-  const handleStatusChange = async (guid, name, newStatus) => {
-    promptConfirm(`Change status of '${name}' to ${newStatus}?`, async () => {
-      setActionLoading(guid);
-    setMessage(null);
-    try {
-      await api.post('/gpo/status', { guid, name, status: newStatus });
-      setMessage({ type: 'success', text: `Status updated successfully.` });
-      loadGPOs();
-    } catch (e) {
-      const errText = e.response?.data?.error || 'Failed to change status.';
-      if (errText.includes('RSAT_GPMC_MISSING')) {
-        setMessage({ type: 'error', text: 'RSAT-GPMC missing on remote AD Server. Please install Group Policy Management Console.' });
-      } else {
-        setMessage({ type: 'error', text: errText });
-      }
-    } finally {
-      setActionLoading(false);
-    }
-    });
-  };
+    const openGpo = (guid) => {
+        setExpanded(prev => new Set([...prev, 'gpos']));
+        setSelection({ type: 'gpo', key: `g:${guid}`, guid });
+    };
+    const openContainer = (dn) => {
+        const node = tree && tree.byDn.get(String(dn).toLowerCase());
+        if (!node) return;
+        setExpanded(prev => { const next = new Set(prev); for (let n = node.parent; n; n = n.parent) next.add(`c:${n.dn}`); return next; });
+        setSelection({ type: node.kind, key: `c:${node.dn}`, dn: node.dn });
+    };
 
-  const openEditModal = async (gpo) => {
-    setEditingGpo(gpo);
-    setShowEditModal(true);
-    setExistingSettings([]);
-    setLoadingSettings(true);
-    setRegKey('HKCU\\Software\\Policies\\Microsoft');
-    setRegValueName('');
-    setRegType('String');
-    setRegValue('');
-    try {
-      const res = await api.get(`/gpo/registry-list?guid=${gpo.Id}`);
-      setExistingSettings(res.data.settings || []);
-    } catch (e) {
-      console.error('Failed to load GPO registry settings:', e);
-    } finally {
-      setLoadingSettings(false);
-    }
-  };
+    const gpoName = (guid) => (tree && tree.gpoById.get(guid) ? tree.gpoById.get(guid).name : guid);
+    const selectedGuid = selection && (selection.type === 'gpo' || selection.type === 'link') ? selection.guid : null;
 
-  const saveSecurityPolicy = async (action = 'Set') => {
-    if (!regKey) return showToast('Registry Key is required');
-    setActionLoading('security');
-    setMessage(null);
-    try {
-      await api.post('/gpo/security', {
-        guid: editingGpo.Id,
-        name: editingGpo.DisplayName,
-        key: regKey,
-        valueName: regValueName,
-        type: regType,
-        value: regValue,
-        action
-      });
-      setMessage({ type: 'success', text: `Security policy ${action.toLowerCase()} successfully.` });
-      setShowEditModal(false);
-    } catch (e) {
-      const errText = e.response?.data?.error || 'Policy edit failed.';
-      if (errText.includes('RSAT_GPMC_MISSING')) {
-        setMessage({ type: 'error', text: 'RSAT-GPMC missing on remote AD Server. Please install Group Policy Management Console.' });
-      } else {
-        setMessage({ type: 'error', text: errText });
-      }
-    } finally {
-      setActionLoading(false);
-    }
-  };
+    const setStatus = async (guid, name, status) => {
+        const ok = await showConfirm(`Change the status of '${name}' to "${GPO_STATUS_LABELS[status]}"?`, 'GPO Status');
+        if (!ok) return;
+        setBusy(true);
+        try {
+            await api.post('/gpo/status', { guid, name, status });
+            setMessage({ type: 'success', text: `'${name}': ${GPO_STATUS_LABELS[status]}.` });
+            await load();
+        } catch (e) {
+            setMessage({ type: 'error', text: errorText(e, 'Could not change the GPO status.') });
+        } finally {
+            setBusy(false);
+        }
+    };
 
-  return (
-    <div className="glass-panel animate-fade-in" style={{ padding: '24px', borderRadius: '16px', border: '1px solid var(--border-color)' }}>
-      {/* Header & NAS Settings */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.5rem' }}>
-        <div>
-          <h3 style={{ fontSize: '16px', fontWeight: 900, margin: '0 0 8px 0', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            🛡️ Group Policy (GPO) Manager
-          </h3>
-          <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-secondary)' }}>Manage, edit, and backup Active Directory Group Policies securely.</p>
-        </div>
-        
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'rgba(0,0,0,0.2)', padding: '10px 16px', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
-          <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 700 }}>💾 Backup Path:</span>
-          <input 
-            type="text" 
-            placeholder="Default: Local System (C:\GPO_Backups)" 
-            value={nasPath} 
-            onChange={e => setNasPath(e.target.value)} 
-            style={{ background: 'transparent', border: 'none', borderBottom: '1px solid var(--accent-primary)', color: 'var(--text-primary)', width: '250px', outline: 'none', fontSize: '12px' }}
-          />
-          <button 
-            onClick={() => handleBackup('ALL', 'ALL GPOs')} 
-            disabled={actionLoading === 'ALL'}
-            style={{ padding: '4px 12px', borderRadius: '6px', background: 'var(--accent-primary)', color: 'white', border: 'none', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer' }}
-          >
-            {actionLoading === 'ALL' ? '⏳' : 'Backup ALL'}
-          </button>
-        </div>
-      </div>
+    const runBackup = async () => {
+        const { guid, name, path } = backup;
+        setBackup(null);
+        setBusy(true);
+        try {
+            const payload = { guid, name };
+            if (path.trim()) payload.nasPath = path.trim();
+            const res = await api.post('/gpo/backup', payload);
+            setMessage({ type: 'success', text: res.data.message || 'Backup finished.' });
+        } catch (e) {
+            setMessage({ type: 'error', text: errorText(e, 'Backup failed.') });
+        } finally {
+            setBusy(false);
+        }
+    };
 
-      {message && (
-        <div style={{ padding: '0.85rem 1.2rem', borderRadius: '10px', marginBottom: '1.2rem', fontSize: '0.9rem', fontWeight: 500, background: message.type === 'success' ? 'rgba(16,185,129,0.15)' : message.type === 'error' ? 'rgba(239,68,68,0.15)' : 'rgba(59,130,246,0.12)', border: `1px solid ${message.type === 'success' ? '#10b98144' : message.type === 'error' ? '#ef444444' : 'var(--border-color)'}`, color: message.type === 'success' ? '#10b981' : message.type === 'error' ? '#ef4444' : 'var(--text-primary)' }}>
-          {message.type === 'success' ? '✅ ' : message.type === 'error' ? '❌ ' : 'ℹ️ '}{message.text}
-        </div>
-      )}
+    const openMenu = (e, target) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setMenu({ x: Math.min(e.clientX, window.innerWidth - 270), y: Math.min(e.clientY, window.innerHeight - 260), target });
+    };
 
-      {loading ? (
-        <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-secondary)' }}>
-          <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>⏳</div>Loading GPOs from Domain Controller...
-        </div>
-      ) : (
-        <div style={{ background: 'var(--bg-secondary)', borderRadius: '14px', border: '1px solid var(--border-color)', overflow: 'hidden', boxShadow: 'var(--shadow-md)' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1.5fr', padding: '1rem 1.2rem', background: 'rgba(59,130,246,0.05)', borderBottom: '1px solid var(--border-color)', fontSize: '0.78rem', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-            <span>GPO Name</span><span>Status</span><span>Last Modified</span><span>Actions</span>
-          </div>
-          
-          {gpos.length === 0 && <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>No GPOs found.</div>}
-          
-          {gpos.map((gpo, idx) => (
-            <div key={gpo.Id} style={{ borderBottom: idx < gpos.length - 1 ? '1px solid var(--border-color)' : 'none', padding: '1rem 1.2rem', display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1.5fr', alignItems: 'center' }}>
-              <div>
-                <div style={{ color: 'var(--text-primary)', fontWeight: 600, fontSize: '0.88rem' }}>{gpo.DisplayName}</div>
-                <div style={{ color: 'var(--text-muted)', fontFamily: 'monospace', fontSize: '0.75rem', marginTop: '4px' }}>{gpo.Id}</div>
-              </div>
-              
-              <div>
-                <STATUS_BADGE 
-                  ok={gpo.GpoStatus === 'AllSettingsEnabled'} 
-                  trueLabel="Enabled" 
-                  falseLabel={gpo.GpoStatus === 'AllSettingsDisabled' ? 'Disabled' : gpo.GpoStatus} 
-                />
-              </div>
-              
-              <div style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
-                {new Date(parseInt(gpo.ModificationTime.replace('/Date(', '').replace(')/', ''))).toLocaleString()}
-              </div>
-              
-              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                {role !== 'Viewer' ? (
-                  <>
-                    <ActionBtn icon="✏️" label="Edit Security" color="blue" disabled={actionLoading} onClick={() => openEditModal(gpo)} />
-                    <ActionBtn icon="💾" label="Backup" color="green" loading={actionLoading === gpo.Id} onClick={() => handleBackup(gpo.Id, gpo.DisplayName)} />
-                    <select 
-                      value={gpo.GpoStatus} 
-                      onChange={e => handleStatusChange(gpo.Id, gpo.DisplayName, e.target.value)}
-                      disabled={actionLoading === gpo.Id}
-                      style={{ background: 'var(--bg-primary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '11px', outline: 'none', cursor: 'pointer' }}
-                    >
-                      <option value="AllSettingsEnabled">Enable All</option>
-                      <option value="AllSettingsDisabled">Disable All</option>
-                      <option value="ComputerSettingsDisabled">Disable Computer Settings</option>
-                      <option value="UserSettingsDisabled">Disable User Settings</option>
-                    </select>
-                  </>
-                ) : (
-                  <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Read Only</span>
+    const gpoMenuItems = (guid, linkDn) => {
+        const g = tree && tree.gpoById.get(guid);
+        const name = gpoName(guid);
+        return (
+            <>
+                {linkDn && <MenuItem onClick={() => openGpo(guid)}>Go to GPO</MenuItem>}
+                {canEdit && <MenuItem onClick={() => setRegistryGpo({ guid, name })}>Edit registry settings…</MenuItem>}
+                {canEdit && (
+                    <>
+                        <MenuSeparator />
+                        <div style={{ padding: '4px 12px', fontSize: '11px', color: C.muted }}>GPO Status</div>
+                        {GPO_STATUSES.map(s => (
+                            <MenuItem key={s} checked={g && g.status === s} disabled={busy || (g && g.status === s)} onClick={() => setStatus(guid, name, s)}>{GPO_STATUS_LABELS[s]}</MenuItem>
+                        ))}
+                        <MenuSeparator />
+                        <MenuItem disabled={busy} onClick={() => setBackup({ guid, name, path: '' })}>Back Up…</MenuItem>
+                    </>
                 )}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+            </>
+        );
+    };
 
-      {/* Confirm Modal */}
-      {confirmModal.show && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 1000, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '2rem', maxWidth: '400px', width: '90%', boxShadow: 'var(--shadow-lg)', textAlign: 'center' }}>
-            <h3 style={{ marginTop: 0, marginBottom: '1rem', color: 'var(--text-primary)' }}>Confirmation</h3>
-            <p style={{ color: 'var(--text-secondary)', marginBottom: '1.5rem' }}>{confirmModal.message}</p>
-            <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
-              <button onClick={() => setConfirmModal({ show: false, message: '', action: null })} style={{ padding: '0.5rem 1.5rem', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer' }}>Cancel</button>
-              <button onClick={executeConfirm} style={{ padding: '0.5rem 1.5rem', borderRadius: '8px', border: 'none', background: 'var(--accent-primary)', color: 'white', cursor: 'pointer', fontWeight: 700 }}>Confirm</button>
+    const renderMenu = () => {
+        const t = menu.target;
+        return (
+            <div role="menu" onClick={e => e.stopPropagation()}
+                style={{ position: 'fixed', left: menu.x, top: menu.y, zIndex: 1100, minWidth: '250px', padding: '4px 0', background: 'var(--bg-secondary)', border: C.border, borderRadius: '10px', boxShadow: 'var(--shadow-lg)' }}
+                onClickCapture={() => setTimeout(() => setMenu(null), 0)}>
+                {(t.type === 'gpo' || t.type === 'link') && gpoMenuItems(t.guid, t.type === 'link' ? t.dn : null)}
+                {t.type === 'gpos' && canEdit && <MenuItem disabled={busy} onClick={() => setBackup({ guid: 'ALL', name: 'all GPOs', path: '' })}>Back Up All…</MenuItem>}
+                {(t.type === 'gpo' || t.type === 'link' || (t.type === 'gpos' && canEdit)) && <MenuSeparator />}
+                <MenuItem onClick={load}>Refresh</MenuItem>
             </div>
-          </div>
-        </div>
-      )}
+        );
+    };
 
-      {/* Edit Security Modal */}
-      {showEditModal && editingGpo && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 999, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '2rem', maxWidth: '500px', width: '90%', boxShadow: 'var(--shadow-lg)' }}>
-            <h3 style={{ marginTop: 0, marginBottom: '0.5rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              ✏️ Edit Security Policy
-            </h3>
-            <p style={{ color: 'var(--accent-primary)', fontSize: '13px', marginBottom: '1.5rem', fontWeight: 600 }}>Target: {editingGpo.DisplayName}</p>
-            
-            {/* Existing Registry Settings */}
-            <div style={{ marginBottom: '1rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '1rem' }}>
-              <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '8px', textAlign: 'left' }}>
-                ⚙️ Configured Registry Settings in GPO:
-              </label>
-              {loadingSettings ? (
-                <div style={{ fontSize: '12px', color: 'var(--text-secondary)', textAlign: 'left' }}>⏳ Reading GPO settings from Domain Controller...</div>
-              ) : existingSettings.length === 0 ? (
-                <div style={{ fontSize: '12px', color: 'var(--text-muted)', textAlign: 'left' }}>No registry settings configured.</div>
-              ) : (
-                <div style={{ maxHeight: '120px', overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '6px', background: 'rgba(0,0,0,0.1)' }}>
-                  {existingSettings.map((s, sIdx) => {
-                    const fullPath = `${s.hive}\\${s.key}`;
-                    return (
-                      <div 
-                        key={sIdx} 
-                        onClick={async () => {
-                          setRegKey(fullPath);
-                          setRegValueName(s.valueName || '');
-                          setRegType(s.type || 'String');
-                          setRegValue(s.value || '');
-                        }}
-                        style={{ padding: '6px', borderRadius: '4px', cursor: 'pointer', borderBottom: sIdx < existingSettings.length - 1 ? '1px solid var(--border-color)' : 'none', fontSize: '11px', transition: 'background 0.2s', textAlign: 'left' }}
-                        onMouseEnter={e => e.currentTarget.style.background = 'var(--border-color)'}
-                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                      >
-                        <strong style={{ color: 'var(--accent-primary)' }}>[{s.hive}]</strong> {s.key} <br />
-                        <span style={{ color: 'var(--text-secondary)' }}>Name: <code>{s.valueName || '(Default)'}</code> | Val: <code>{s.value}</code> ({s.type})</span>
-                      </div>
-                    );
-                  })}
+    return (
+        <div className="glass-panel animate-fade-in" style={{ padding: '16px', borderRadius: '16px', border: C.border }}>
+            {/* Toolbar */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '12px' }}>
+                <div style={{ fontSize: '15px', fontWeight: 900, color: 'var(--text-primary)', marginRight: '8px' }}>Group Policy Management</div>
+                <button style={btn} onClick={load} disabled={loading}><FiRefreshCw /> {loading ? 'Loading…' : 'Refresh'}</button>
+                {canEdit && selectedGuid && (
+                    <>
+                        <button style={btn} disabled={busy} onClick={() => setRegistryGpo({ guid: selectedGuid, name: gpoName(selectedGuid) })}><FiEdit2 /> Edit registry settings</button>
+                        <button style={btn} disabled={busy} onClick={() => setBackup({ guid: selectedGuid, name: gpoName(selectedGuid), path: '' })}><FiSave /> Back up</button>
+                    </>
+                )}
+                {canEdit && selection && selection.type === 'gpos' && (
+                    <button style={btn} disabled={busy} onClick={() => setBackup({ guid: 'ALL', name: 'all GPOs', path: '' })}><FiSave /> Back up all</button>
+                )}
+                {tree && <span style={{ marginLeft: 'auto', fontSize: '12px', color: C.muted }}>Forest: {tree.root.name} · right-click an item for its actions</span>}
+            </div>
+
+            {message && (
+                <div onClick={() => setMessage(null)} style={{ cursor: 'pointer', padding: '0.7rem 1rem', borderRadius: '10px', marginBottom: '12px', fontSize: '0.88rem',
+                    background: message.type === 'success' ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)', color: message.type === 'success' ? '#10b981' : '#ef4444',
+                    border: `1px solid ${message.type === 'success' ? '#10b98144' : '#ef444444'}` }}>
+                    {message.text}
                 </div>
-              )}
-            </div>
+            )}
+            {data && data.truncated && (
+                <div style={{ fontSize: '12.5px', color: '#f59e0b', marginBottom: '10px' }}>This domain has more OUs than the page reads; some OUs are not shown.</div>
+            )}
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '1.5rem' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Registry Key (e.g. HKLM\\Software\\...)</label>
-                <input type="text" value={regKey} onChange={e=>setRegKey(e.target.value)} style={{ width: '100%', padding: '8px 12px', background: 'rgba(0,0,0,0.05)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', borderRadius: '6px' }} />
-              </div>
-              <div>
-                <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Value Name (Optional)</label>
-                <input type="text" value={regValueName} onChange={e=>setRegValueName(e.target.value)} style={{ width: '100%', padding: '8px 12px', background: 'rgba(0,0,0,0.05)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', borderRadius: '6px' }} />
-              </div>
-              <div style={{ display: 'flex', gap: '1rem' }}>
-                <div style={{ flex: 1 }}>
-                  <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Type</label>
-                  <select value={regType} onChange={e=>setRegType(e.target.value)} style={{ width: '100%', padding: '8px 12px', background: 'rgba(0,0,0,0.05)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', borderRadius: '6px' }}>
-                    <option value="String">String (REG_SZ)</option>
-                    <option value="ExpandString">ExpandString (REG_EXPAND_SZ)</option>
-                    <option value="Binary">Binary (REG_BINARY)</option>
-                    <option value="DWord">DWord (REG_DWORD)</option>
-                    <option value="MultiString">MultiString (REG_MULTI_SZ)</option>
-                    <option value="QWord">QWord (REG_QWORD)</option>
-                  </select>
+            {loadError && !tree ? (
+                <div style={{ padding: '2rem', textAlign: 'center', color: '#ef4444' }}>{loadError}</div>
+            ) : !tree ? (
+                <div style={{ padding: '3rem', textAlign: 'center', color: C.secondary }}>Reading Group Policy from the domain controller…</div>
+            ) : (
+                <div style={{ display: 'flex', flexWrap: 'wrap', border: C.border, borderRadius: '12px', overflow: 'hidden', background: 'var(--bg-secondary)', minHeight: '60vh' }}>
+                    <div style={{ flex: '0 1 300px', minWidth: '240px', maxHeight: '75vh', overflow: 'auto', padding: '8px 4px', borderRight: C.border, background: 'rgba(127,127,127,0.04)' }}>
+                        <GpmcTree tree={tree} wmiFilters={wmi.list} selection={selection} expanded={expanded} onToggle={toggle} onSelect={setSelection} onContextMenu={openMenu} />
+                    </div>
+                    <div style={{ flex: '1 1 480px', minWidth: 0 }}>
+                        {selectedGuid ? (
+                            <GpoPane key={selectedGuid} guid={selectedGuid} tree={tree} canEdit={canEdit} canReport={canReport} refreshKey={refreshKey}
+                                onSetStatus={setStatus} onOpenContainer={openContainer} />
+                        ) : selection ? (
+                            <ContainerPane selection={selection} tree={tree} wmiFilters={wmi.list} wmiError={wmi.error} onOpenGpo={openGpo}
+                                onGpoContextMenu={(e, guid, dn) => openMenu(e, dn ? { type: 'link', guid, dn } : { type: 'gpo', guid })} />
+                        ) : null}
+                    </div>
                 </div>
-                <div style={{ flex: 2 }}>
-                  <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Value Data</label>
-                  <input type="text" value={regValue} onChange={e=>setRegValue(e.target.value)} style={{ width: '100%', padding: '8px 12px', background: 'rgba(0,0,0,0.05)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', borderRadius: '6px' }} />
-                </div>
-              </div>
-            </div>
+            )}
 
-            <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end' }}>
-              <button onClick={() => setShowEditModal(false)} style={{ padding: '0.5rem 1.5rem', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer' }}>Cancel</button>
-              <button disabled={actionLoading === 'security'} onClick={() => saveSecurityPolicy('Remove')} style={{ padding: '0.5rem 1.5rem', borderRadius: '8px', border: 'none', background: '#ef4444', color: 'white', cursor: 'pointer', fontWeight: 700 }}>{actionLoading==='security'?'...':'Remove Policy'}</button>
-              <button disabled={actionLoading === 'security'} onClick={() => saveSecurityPolicy('Set')} style={{ padding: '0.5rem 1.5rem', borderRadius: '8px', border: 'none', background: 'var(--accent-primary)', color: 'white', cursor: 'pointer', fontWeight: 700 }}>{actionLoading==='security'?'...':'Set Policy'}</button>
-            </div>
-          </div>
+            {menu && renderMenu()}
+
+            {backup && (
+                <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <div role="dialog" aria-label="Back up GPO" style={{ background: 'var(--bg-secondary)', border: C.border, borderRadius: '16px', padding: '1.6rem', maxWidth: '460px', width: '92%', boxShadow: 'var(--shadow-lg)' }}>
+                        <h3 style={{ marginTop: 0, color: 'var(--text-primary)' }}>Back up {backup.guid === 'ALL' ? 'all GPOs' : `'${backup.name}'`}</h3>
+                        <label style={{ display: 'block', fontSize: '12px', color: C.secondary, marginBottom: '6px' }}>Location on the domain controller or a share</label>
+                        <input type="text" value={backup.path} placeholder="C:\GPO_Backups (default) or \\server\share\GPO" onChange={e => setBackup({ ...backup, path: e.target.value })}
+                            style={{ width: '100%', padding: '8px 12px', background: 'rgba(0,0,0,0.05)', border: C.border, color: 'var(--text-primary)', borderRadius: '6px', marginBottom: '1.2rem' }} />
+                        <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+                            <button style={btn} onClick={() => setBackup(null)}>Cancel</button>
+                            <button style={{ ...btn, background: 'var(--accent-primary)', color: 'white', border: 'none' }} onClick={runBackup}>Back Up</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {registryGpo && (
+                <RegistryEditModal gpo={registryGpo} onClose={() => setRegistryGpo(null)}
+                    onDone={(msg) => { setMessage(msg); if (msg.type === 'success') setRegistryGpo(null); }} />
+            )}
         </div>
-      )}
-    </div>
-  );
+    );
 }

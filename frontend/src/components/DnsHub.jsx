@@ -3,6 +3,7 @@ import { useSync } from '../contexts/WebSocketContext';
 import { useToast } from '../contexts/ToastContext';
 import api from '../api';
 import * as XLSX from 'xlsx';
+import { deleteKey, defaultDeleteSelection, deleteItems } from './dnsDelete.js';
 
 const ADServerList = () => {
     const { showToast } = useToast();
@@ -615,7 +616,9 @@ const RecordManager = () => {
     const [openImportDropdown, setOpenImportDropdown] = useState(false);
 
     const [showConfirm, setShowConfirm] = useState(false);
-    const [deleteLines, setDeleteLines] = useState([]);
+    // Delete preview: what each name holds on its DNS server, and the records ticked for deletion
+    const [deletePreview, setDeletePreview] = useState([]);
+    const [deleteSelected, setDeleteSelected] = useState(() => new Set());
     const [validationError, setValidationError] = useState('');
     const [cachedZones, setCachedZones] = useState([]);
 
@@ -822,9 +825,19 @@ const RecordManager = () => {
             }
         }
 
-        if (endpoint === 'delete' && !linesToProcess) {
-            setDeleteLines(lines);
-            setShowConfirm(true);
+        if (endpoint === 'delete') {
+            // Read what each name holds first; only the records ticked in the preview are deleted
+            setLoading(true);
+            try {
+                const res = await api.post('/records/delete-preview', { records: lines });
+                const found = res.data.results || [];
+                setDeletePreview(found);
+                setDeleteSelected(new Set(defaultDeleteSelection(found)));
+                setShowConfirm(true);
+            } catch (err) {
+                showToast(err?.response?.data?.error || 'Failed to read the records to delete.', "error");
+            }
+            setLoading(false);
             return;
         }
 
@@ -835,12 +848,25 @@ const RecordManager = () => {
                 [endpoint === 'query' ? 'queries' : 'records']: lines
             });
             setResults(res.data.results || []);
-            if (endpoint === 'delete') {
-                setShowConfirm(false);
-            }
         } catch (err) {
             console.error(err);
-            showToast('Action failed.', "error");
+            showToast(err?.response?.data?.error || 'Action failed.', "error");
+        }
+        setLoading(false);
+    };
+
+    const handleConfirmDelete = async () => {
+        const items = deleteItems(deletePreview, deleteSelected);
+        if (items.length === 0) return;
+        setLoading(true);
+        setResults([]);
+        try {
+            const res = await api.post('/records/delete', { records: items });
+            setResults(res.data.results || []);
+            setShowConfirm(false);
+        } catch (err) {
+            console.error(err);
+            showToast(err?.response?.data?.error || 'Delete failed.', "error");
         }
         setLoading(false);
     };
@@ -931,6 +957,7 @@ const RecordManager = () => {
                                                 (r.ip && r.ip !== 'N/A' && r.ip !== 'Error') || r.status === 'Success' || r.status === 'Deleted' ? 'text-success' : ''}>
                                                 {r.status || r.ip}
                                             </span>
+                                            {r.detail && <div className="text-secondary text-sm font-mono">{r.detail}</div>}
                                         </td>
                                         <td className="py-2 text-secondary text-sm">{r.lastUpdate || '-'}</td>
                                         <td className="py-2 text-right">
@@ -950,36 +977,53 @@ const RecordManager = () => {
                 )}
             </div>
 
-            {/* Delete Confirm Modal */}
+            {/* Delete Confirm Modal: every record of each name, only the ticked ones are deleted */}
             {showConfirm && (
                 <div className="modal-overlay">
-                    <div className="glass-panel modal-content" style={{ maxWidth: '500px', width: '95%', padding: '2rem', height: 'auto' }}>
+                    <div className="glass-panel modal-content" style={{ maxWidth: '760px', width: '95%', padding: '2rem', height: 'auto' }}>
                         <div className="flex items-center mb-4 text-danger">
                             <svg style={{ width: '24px', height: '24px', marginRight: '8px', flexShrink: 0 }} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
                             <h3 className="text-xl font-bold">Confirm Deletion</h3>
                         </div>
-                        <p className="mb-4 text-gray-300">You are about to permanently delete the following records from the DNS servers. This action cannot be undone.</p>
-                        <div className="bg-black/30 p-3 rounded-lg max-h-48 overflow-y-auto mb-6">
-                            <ul className="list-disc pl-5 text-red-400 space-y-1 font-mono text-sm">
-                                {deleteLines.map((line, idx) => (
-                                    <li key={idx}>{line}</li>
-                                ))}
-                            </ul>
+                        <p className="mb-4 text-gray-300">These records exist on the DNS servers now. Only the ticked records are deleted (A / AAAA / CNAME are ticked by default; TXT, MX and PTR only when you tick them). This cannot be undone.</p>
+                        <div className="bg-black/30 p-3 rounded-lg mb-6" style={{ maxHeight: '22rem', overflowY: 'auto' }}>
+                            {deletePreview.map((p, i) => (
+                                <div key={i} className="mb-3">
+                                    <div className="flex justify-between text-sm">
+                                        <span className="font-mono font-bold">{p.fqdn}</span>
+                                        <span className="text-secondary">{p.serverName}</span>
+                                    </div>
+                                    {p.records && p.records.length > 0 ? (
+                                        <table className="w-full text-left text-sm font-mono mt-1">
+                                            <tbody>
+                                                {p.records.map((rec, j) => {
+                                                    const key = deleteKey(i, j);
+                                                    return (
+                                                        <tr key={j} className="border-t border-white/5" style={{ opacity: rec.deletable ? 1 : 0.5 }}>
+                                                            <td style={{ width: '2rem' }}>
+                                                                <input type="checkbox" disabled={!rec.deletable || loading} checked={deleteSelected.has(key)}
+                                                                    title={rec.deletable ? '' : 'This record type cannot be deleted here'}
+                                                                    onChange={() => setDeleteSelected(prev => { const next = new Set(prev); if (next.has(key)) next.delete(key); else next.add(key); return next; })} />
+                                                            </td>
+                                                            <td style={{ width: '4.5rem' }} className="text-accent-primary">{rec.type}</td>
+                                                            <td style={{ wordBreak: 'break-all' }}>{rec.data}</td>
+                                                            <td className="text-secondary text-right" style={{ width: '5rem' }}>{rec.ttl ? `TTL ${rec.ttl}` : ''}</td>
+                                                        </tr>
+                                                    );
+                                                })}
+                                            </tbody>
+                                        </table>
+                                    ) : (
+                                        <div className={`text-sm ${p.status === 'Not found' ? 'text-secondary' : 'text-danger'}`}>{p.status}</div>
+                                    )}
+                                </div>
+                            ))}
                         </div>
-                        <div className="flex justify-end gap-3">
-                            <button
-                                className="btn btn-outline"
-                                onClick={() => setShowConfirm(false)}
-                                disabled={loading}
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                className="btn btn-danger"
-                                onClick={() => handleAction('delete', deleteLines)}
-                                disabled={loading}
-                            >
-                                {loading ? 'Deleting...' : 'Confirm Delete'}
+                        <div className="flex justify-end gap-3 items-center">
+                            <span className="text-secondary text-sm mr-auto">{deleteSelected.size} record(s) selected</span>
+                            <button className="btn btn-outline" onClick={() => setShowConfirm(false)} disabled={loading}>Cancel</button>
+                            <button className="btn btn-danger" onClick={handleConfirmDelete} disabled={loading || deleteSelected.size === 0}>
+                                {loading ? 'Deleting...' : `Delete ${deleteSelected.size} Record(s)`}
                             </button>
                         </div>
                     </div>

@@ -321,7 +321,11 @@ Server List 是 SOMP Vanguard 的核心伺服器資產資料庫 (CMDB)，自動�
 ## 6. 服務管理
 
 ### 🌐 DNS Hub
-*   **AD DNS 管理**：查詢與編輯 AD DNS 伺服器上的 Zone 與 Record (A/CNAME/MX/TXT)。
+*   **AD DNS 管理**：查詢 AD DNS 伺服器上的 Zone 與 Record；新增 / 修改 A 紀錄；刪除 A、AAAA、CNAME、TXT、MX、PTR 紀錄。
+*   **新增 / 修改（Add / Modify）**：名稱沒有 A 紀錄時新增；只有一筆時改成新 IP（結果顯示「Updated 舊 IP -> 新 IP」），IP 相同時顯示 Unchanged、不寫變更紀錄；同名已有**多筆** A 紀錄（輪詢）時不會更動，結果列出現有的 IP，請先用 Delete 刪掉不要的再新增。IP 格式不正確的行不會送出。
+*   **刪除（Delete）**：按下後先讀取每個名稱在 DNS 伺服器上**實際存在的紀錄**（類型、資料、TTL）並列出，只刪除勾選的紀錄。A、AAAA、CNAME 預設勾選，TXT、MX、PTR 需自行勾選；NS、SOA 等 Zone 設定紀錄與 Zone 根（`@`）不能在這裡刪。透過 API 只送名稱時，只會刪該名稱的 A 紀錄，不會連帶刪掉同名的 TXT、MX 等紀錄。
+*   **變更紀錄**：新增記為 `Add: 名稱 -> IP`，修改記為 `Modify: 名稱: 舊 IP -> 新 IP`，刪除每筆紀錄各記一行 `Delete: 名稱 類型 資料`，事後可查到原本的值。
+*   **一次處理上限**：新增、刪除每次最多 500 筆。整批失敗時顯示錯誤原因的第一行（例如 WinRM 連不到伺服器），不會顯示帳密。
 *   **在線存活探測**：卡片即時顯示在線健康狀態，支援快速啟用/停用切換。
 
 ### 🏢 Nutanix Prism 虛擬化管理

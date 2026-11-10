@@ -5,7 +5,11 @@ const path = require('path');
 const { requireAuth, checkFeature, checkRole } = require('../middleware/auth');
 const { readDB, readDataSync } = require('../lib/db');
 const dnsDataStore = require('../lib/dnsDataStore');
-const { runPowerShell, getADCredentialHeader, getCimSessionHeader, getCimSessionCleanup, sanitizePsString } = require('../lib/powershell');
+const powershell = require('../lib/powershell');
+const { getADCredentialHeader, getCimSessionHeader, getCimSessionCleanup, sanitizePsString } = powershell;
+const { psSq } = require('../lib/psQuote');
+const dnsRecords = require('../lib/dnsRecords');
+const { parseDnsRecordLine, findTargetServer } = dnsRecords;
 const { auditLog, batchAuditLog } = require('../lib/logger');
 const { encryptText, decryptText } = require('../lib/crypto');
 
@@ -175,80 +179,6 @@ function appendDnsChangeLog(user, actions) {
 router.use(requireAuth);
 router.use(checkFeature('dnsHub'));
 
-// Universal DNS Record Line Parser
-// Supports: Tabs, single/multiple spaces, hyphens (-), slashes (/), commas (,), colons (:), pipes (|), equals (=), arrows (->), and /etc/hosts format
-function parseDnsRecordLine(rawLine) {
-    if (!rawLine || typeof rawLine !== 'string' || !rawLine.trim()) return null;
-    const line = rawLine.trim();
-
-    // Match IPv4 address
-    const ipRegex = /\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b/;
-    const ipMatch = line.match(ipRegex);
-
-    if (ipMatch) {
-        const ip = ipMatch[0];
-        // Remove the IP from the line and strip surrounding delimiters
-        let remaining = line.replace(ip, '').trim();
-        remaining = remaining.replace(/^[\s\t\/,;:|=><]+|[\s\t\/,;:|=><]+$/g, '').trim();
-        remaining = remaining.replace(/^-\s*|\s*-$/g, '').trim();
-        if (remaining) {
-            return { fqdn: remaining, ip };
-        }
-    }
-
-    // Delimiter fallback: tabs, multiple spaces, or delimiters surrounded by whitespace
-    const delimiterRegex = /[\t,;|/=]+|\s+[-/|:=,>]+\s*|\s+/;
-    const parts = line.split(delimiterRegex).filter(p => p.trim().length > 0);
-    if (parts.length >= 2 && (ipRegex.test(parts[0]) || ipRegex.test(parts[1]))) {
-        let fqdn = parts[0].trim();
-        let ip = parts[1].trim();
-        if (ipRegex.test(fqdn) && !ipRegex.test(ip)) {
-            const temp = fqdn;
-            fqdn = ip;
-            ip = temp;
-        }
-        return { fqdn, ip };
-    }
-
-    return { fqdn: line.replace(/^[\s\t\/,;:|=><]+|[\s\t\/,;:|=><]+$/g, '').replace(/^-\s*|\s*-$/g, '').trim(), ip: null };
-}
-
-function parseFqdn(fqdn, cachedDomains) {
-    if (!cachedDomains || cachedDomains.length === 0) return null;
-    const lowerFqdn = fqdn.toLowerCase();
-    let longestMatch = '';
-    for (const domain of cachedDomains) {
-        const lowerDomain = domain.toLowerCase();
-        // Domain must match exactly or as a sub-domain with a '.' boundary
-        if ((lowerFqdn === lowerDomain || lowerFqdn.endsWith('.' + lowerDomain)) && domain.length > longestMatch.length) {
-            longestMatch = domain;
-        }
-    }
-    if (!longestMatch) return null;
-    let host = fqdn.substring(0, fqdn.length - longestMatch.length);
-    if (host.endsWith('.')) host = host.slice(0, -1);
-    if (!host) host = '@'; 
-    return { host, zone: longestMatch };
-}
-
-function findTargetServer(fqdn, servers) {
-    let bestServer = null;
-    let longestMatchLen = -1;
-    let parsedData = null;
-
-    for (const server of servers) {
-        if (server.disabled) continue;
-        if (!server.cachedDomains) continue;
-        const parsed = parseFqdn(fqdn, server.cachedDomains);
-        if (parsed && parsed.zone.length > longestMatchLen) {
-            longestMatchLen = parsed.zone.length;
-            bestServer = server;
-            parsedData = parsed;
-        }
-    }
-    return { server: bestServer, parsed: parsedData };
-}
-
 router.post('/query', async (req, res) => {
     const { queries } = req.body;
     const db = await readDB();
@@ -358,7 +288,7 @@ router.post('/query', async (req, res) => {
                 }
             `;
 
-            const stdout = await runPowerShell(psCmd);
+            const stdout = await powershell.runPowerShell(psCmd);
             if (stdout.trim()) {
                 let data = JSON.parse(stdout);
                 if (!Array.isArray(data)) data = [data];
@@ -426,8 +356,81 @@ router.post('/preview', checkRole(['SuperAdmin', 'Operator']), async (req, res) 
     res.json({ results });
 });
 
+/**
+ * PowerShell credential header for a DNS change: the signed-in user's AD credential, or the service account
+ * (AD_ADMIN_USER / AD_ADMIN_PWD) when the session carries no password.
+ */
+function dnsCredentialHeader(user) {
+    let username = user.username;
+    const password = user.password;
+    let domain = user.domain;
+    if (!password && process.env.AD_ADMIN_USER) {
+        username = process.env.AD_ADMIN_USER;
+        if (username.includes('\\')) {
+            const parts = username.split('\\');
+            domain = parts[0];
+            username = parts[1];
+        } else {
+            domain = (process.env.ALLOWED_AD_DOMAIN || '').replace(/['"]/g, '').trim() || domain;
+        }
+    }
+    return getADCredentialHeader(username, domain, password || resolveAdminPassword(process.env.AD_ADMIN_PWD));
+}
+
+// PowerShell: the data of a record as one string (the same values the query and export show)
+const PS_RECORD_DATA = `
+$dataOf = {
+    param($r)
+    $t = [string]$r.RecordType
+    try {
+        if ($t -eq 'A')         { return $r.RecordData.IPv4Address.IPAddressToString }
+        elseif ($t -eq 'AAAA')  { return $r.RecordData.IPv6Address.IPAddressToString }
+        elseif ($t -eq 'CNAME') { return $r.RecordData.HostNameAlias }
+        elseif ($t -eq 'PTR')   { return $r.RecordData.PtrDomainName }
+        elseif ($t -eq 'MX')    { return $r.RecordData.MailExchange }
+        elseif ($t -eq 'TXT')   { return $r.RecordData.DescriptiveText }
+        elseif ($t -eq 'NS')    { return $r.RecordData.NameServer }
+        else                    { return $r.RecordData.ToString() }
+    } catch { return '' }
+}`;
+
+/** Runs one batch script on a DNS server: $batch is the JSON list, the script body adds to $out. Returns the list. */
+async function runBatch(user, server, items, body) {
+    const psCmd = `
+$ErrorActionPreference = "Stop";
+${dnsCredentialHeader(user)}
+${getCimSessionHeader(server.hostname)}
+${PS_RECORD_DATA}
+try {
+    $batch = '${psSq(JSON.stringify(items))}' | ConvertFrom-Json
+    $out = @()
+${body}
+    ConvertTo-Json -InputObject @($out) -Depth 5 -Compress
+} finally {
+    ${getCimSessionCleanup()}
+}
+`;
+    const stdout = await powershell.runPowerShell(psCmd);
+    return stdout && stdout.trim() ? dnsRecords.toArray(JSON.parse(stdout)) : [];
+}
+
+// Why a whole batch failed: the first line of the error, never the script (it carries the credential)
+function batchError(err) {
+    const msg = String((err && (err.stderr || err.message)) || err || '').split(/\r?\n/).map(l => l.trim()).find(Boolean) || 'Unknown error';
+    return /ConvertTo-SecureString|PSCredential/i.test(msg) ? 'Error: Failed to process DNS record' : `Error: ${msg.slice(0, 300)}`;
+}
+
+function badBatch(res, list) {
+    if (!Array.isArray(list) || list.length === 0) { res.status(400).json({ error: 'records must be a non-empty list' }); return true; }
+    if (list.length > dnsRecords.MAX_BATCH) { res.status(400).json({ error: `At most ${dnsRecords.MAX_BATCH} records per request` }); return true; }
+    return false;
+}
+
+const IPV4_ONLY_RE = new RegExp(`^${dnsRecords.IPV4_RE.source}$`);
+
 router.post('/add', checkRole(['SuperAdmin', 'Operator']), async (req, res) => {
-    const { records } = req.body;
+    const { records } = req.body || {};
+    if (badBatch(res, records)) return;
     const db = await readDB();
     const servers = db.servers;
     const results = [];
@@ -438,7 +441,6 @@ router.post('/add', checkRole(['SuperAdmin', 'Operator']), async (req, res) => {
     for (const line of records) {
         let fqdn = '';
         let ip = '';
-
         if (typeof line === 'object' && line !== null && line.fqdn && line.ip) {
             fqdn = String(line.fqdn).trim();
             ip = String(line.ip).trim();
@@ -449,94 +451,61 @@ router.post('/add', checkRole(['SuperAdmin', 'Operator']), async (req, res) => {
                 ip = parsed.ip;
             }
         }
-
         if (!fqdn || !ip) {
             results.push({ record: typeof line === 'string' ? line : JSON.stringify(line), status: 'Invalid format (needs Domain & IP)', serverName: 'None' });
             continue;
         }
-
+        if (!IPV4_ONLY_RE.test(ip)) {
+            results.push({ record: fqdn, status: `Error: Invalid IPv4 address ${ip}`, serverName: 'None' });
+            continue;
+        }
         const { server, parsed } = findTargetServer(fqdn, servers);
         if (!server) {
             results.push({ record: fqdn, status: 'Failed: Zone not found in any cache', serverName: 'None' });
             continue;
         }
-        if (!groups.has(server.id)) {
-            groups.set(server.id, { server, items: [] });
-        }
-        groups.get(server.id).items.push({ fqdn, ip, parsed });
+        if (!groups.has(server.id)) groups.set(server.id, { server, items: [] });
+        groups.get(server.id).items.push({ fqdn, ip, zone: parsed.zone, host: parsed.host });
     }
 
-    // Process each server group
-    for (const [serverId, group] of groups) {
-        const { server, items } = group;
+    // One script per server. A name with one A record is updated in place; a name with several is left alone
+    // (which one to replace is the user's call). The previous address goes into the change log.
+    const body = `
+    foreach ($item in $batch) {
         try {
-            // Prioritize login user's credentials for performance
-            let username = req.user.username;
-            const password = req.user.password;
-            let domain = req.user.domain;
-
-            if (!password && process.env.AD_ADMIN_USER) {
-                username = process.env.AD_ADMIN_USER;
-                if (username.includes('\\')) {
-                    const parts = username.split('\\');
-                    domain = parts[0];
-                    username = parts[1];
-                } else {
-                    domain = (process.env.ALLOWED_AD_DOMAIN || '').replace(/['"]/g, '').trim() || domain;
-                }
+            $existing = @(Get-DnsServerResourceRecord -ZoneName $item.zone -Name $item.host -RRType A -CimSession $global:CIM_SESS -ErrorAction SilentlyContinue)
+            $old = @($existing | ForEach-Object { [string](& $dataOf $_) })
+            if ($existing.Count -eq 0) {
+                Add-DnsServerResourceRecordA -ZoneName $item.zone -Name $item.host -IPv4Address $item.ip -CimSession $global:CIM_SESS
+                $status = 'Added'
+            } elseif ($existing.Count -gt 1) {
+                $status = 'Multiple'
+            } elseif ($old[0] -eq $item.ip) {
+                $status = 'Unchanged'
+            } else {
+                $newObj = $existing[0].Clone()
+                $newObj.RecordData.IPv4Address = [System.Net.IPAddress]::Parse($item.ip)
+                Set-DnsServerResourceRecord -ZoneName $item.zone -OldInputObject $existing[0] -NewInputObject $newObj -CimSession $global:CIM_SESS
+                $status = 'Updated'
             }
+            $out += [PSCustomObject]@{ fqdn = $item.fqdn; ip = $item.ip; status = $status; oldIps = $old }
+        } catch {
+            $out += [PSCustomObject]@{ fqdn = $item.fqdn; ip = $item.ip; status = "Error: $($_.Exception.Message)"; oldIps = @() }
+        }
+    }`;
 
-            const credHdr = getADCredentialHeader(username, domain, password || process.env.AD_ADMIN_PWD);
-            const sessHdr = getCimSessionHeader(server.hostname);
-            const cleanup = getCimSessionCleanup();
-
-            const batchJson = JSON.stringify(items.map(it => ({ zone: it.parsed.zone, host: it.parsed.host, ip: it.ip, fqdn: it.fqdn })));
-            const safeBatchJson = sanitizePsString(batchJson);
-            const psCmd = `
-                $ErrorActionPreference = "Stop";
-                ${credHdr}
-                ${sessHdr}
-                try {
-                    $batch = '${safeBatchJson}' | ConvertFrom-Json
-                    $batchResults = @()
-                    foreach ($item in $batch) {
-                        try {
-                            $existing = Get-DnsServerResourceRecord -ZoneName $item.zone -Name $item.host -RRType A -CimSession $global:CIM_SESS -ErrorAction SilentlyContinue;
-                            if ($existing) {
-                                $newObj = $existing.Clone();
-                                $newObj.RecordData.IPv4Address = [System.Net.IPAddress]::Parse($item.ip);
-                                Set-DnsServerResourceRecord -ZoneName $item.zone -OldInputObject $existing -NewInputObject $newObj -CimSession $global:CIM_SESS;
-                            } else {
-                                Add-DnsServerResourceRecordA -ZoneName $item.zone -Name $item.host -IPv4Address $item.ip -CimSession $global:CIM_SESS;
-                            }
-                            $batchResults += [PSCustomObject]@{ fqdn = $item.fqdn; status = "Success" }
-                        } catch {
-                            $batchResults += [PSCustomObject]@{ fqdn = $item.fqdn; status = "Error: $($_.Exception.Message)" }
-                        }
-                    }
-                    $batchResults | ConvertTo-Json -Compress
-                } finally {
-                    ${cleanup}
-                }
-            `;
-
-            const stdout = await runPowerShell(psCmd);
-            if (stdout.trim()) {
-                let data = JSON.parse(stdout);
-                if (!Array.isArray(data)) data = [data];
-                data.forEach(r => {
-                    results.push({ record: r.fqdn, status: r.status, serverName: server.name });
-                    if (r.status === "Success") {
-                        const item = items.find(it => it.fqdn === r.fqdn);
-                        actionsPerformed.push(`Add/Mod: ${r.fqdn} -> ${item.ip} (Server: ${server.name})`);
-                    }
-                });
+    for (const { server, items } of groups.values()) {
+        try {
+            const answers = await runBatch(req.user, server, items, body);
+            for (const a of answers) {
+                const { log, ...row } = dnsRecords.addOutcome(a, server.name);
+                results.push(row);
+                if (log) actionsPerformed.push(log);
             }
         } catch (err) {
             console.error('[DNS] DNS Add Error:', err.stderr || err.message || String(err));
-            items.forEach(it => {
-                results.push({ record: it.fqdn, status: `Error: Failed to process DNS record`, serverName: server.name });
-            });
+            const status = batchError(err);
+            items.forEach(it => results.push({ record: it.fqdn, status, serverName: server.name }));
         }
     }
 
@@ -547,92 +516,87 @@ router.post('/add', checkRole(['SuperAdmin', 'Operator']), async (req, res) => {
     res.json({ results });
 });
 
-router.post('/delete', checkRole(['SuperAdmin', 'Operator']), async (req, res) => {
-    const { records } = req.body;
+// What a delete would remove: every record under each name, read from its DNS server. Nothing is changed.
+router.post('/delete-preview', checkRole(['SuperAdmin', 'Operator']), async (req, res) => {
+    const { records } = req.body || {};
+    if (badBatch(res, records)) return;
     const db = await readDB();
-    const servers = db.servers;
-    const results = [];
+    // Plain names: zone roots and unknown zones are refused here already
+    const { groups, rejected } = dnsRecords.groupByServer(records.map(r => dnsRecords.nameOf(r)), db.servers);
+    const results = rejected.map(r => ({ fqdn: r.record, serverName: r.serverName, status: r.status, records: [] }));
+
+    const body = `
+    foreach ($item in $batch) {
+        try {
+            $recs = @(Get-DnsServerResourceRecord -ZoneName $item.zone -Name $item.host -CimSession $global:CIM_SESS -ErrorAction Stop)
+            $list = @($recs | ForEach-Object { [PSCustomObject]@{ type = [string]$_.RecordType; data = [string](& $dataOf $_); ttl = $_.TimeToLive.TotalSeconds } })
+            $out += [PSCustomObject]@{ fqdn = $item.fqdn; status = 'Ready'; records = $list }
+        } catch {
+            $st = if ($_.CategoryInfo.Category -eq 'ObjectNotFound') { 'Not found' } else { "Error: $($_.Exception.Message)" }
+            $out += [PSCustomObject]@{ fqdn = $item.fqdn; status = $st; records = @() }
+        }
+    }`;
+
+    for (const { server, items } of groups.values()) {
+        try {
+            const answers = await runBatch(req.user, server, items.map(({ fqdn, zone, host }) => ({ fqdn, zone, host })), body);
+            for (const a of answers) {
+                const list = dnsRecords.lookupRecords(a.records);
+                const status = a.status === 'Ready' && list.length === 0 ? 'Not found' : String(a.status || 'Error: No answer');
+                results.push({ fqdn: a.fqdn, serverName: server.name, status, records: list });
+            }
+        } catch (err) {
+            console.error('[DNS] DNS Delete Preview Error:', err.stderr || err.message || String(err));
+            const status = batchError(err);
+            items.forEach(it => results.push({ fqdn: it.fqdn, serverName: server.name, status, records: [] }));
+        }
+    }
+    res.json({ results });
+});
+
+// Deletes exactly the records named: { fqdn, type, data } removes that one record; a plain name removes the A
+// records of the name only (never its CNAME, TXT, MX ... records). Every removed record goes into the change log.
+router.post('/delete', checkRole(['SuperAdmin', 'Operator']), async (req, res) => {
+    const { records } = req.body || {};
+    if (badBatch(res, records)) return;
+    const db = await readDB();
+    const { groups, rejected } = dnsRecords.groupByServer(records, db.servers);
+    const results = [...rejected];
     const actionsPerformed = [];
 
-    // Group items by server
-    const groups = new Map();
-    for (const raw of records) {
-        const parsedLine = parseDnsRecordLine(String(raw));
-        const fqdn = parsedLine && parsedLine.fqdn ? parsedLine.fqdn : String(raw).trim();
-        const { server, parsed } = findTargetServer(fqdn, servers);
-        if (!server) {
-            results.push({ record: fqdn, status: 'Failed: Zone not found in any cache', serverName: 'None' });
-            continue;
-        }
-        if (!groups.has(server.id)) {
-            groups.set(server.id, { server, items: [] });
-        }
-        groups.get(server.id).items.push({ fqdn, parsed });
-    }
-
-    // Process each server group
-    for (const [serverId, group] of groups) {
-        const { server, items } = group;
+    const body = `
+    foreach ($item in $batch) {
+        $removed = @()
         try {
-            // Prioritize login user's credentials for performance
-            let username = req.user.username;
-            const password = req.user.password;
-            let domain = req.user.domain;
-
-            if (!password && process.env.AD_ADMIN_USER) {
-                username = process.env.AD_ADMIN_USER;
-                if (username.includes('\\')) {
-                    const parts = username.split('\\');
-                    domain = parts[0];
-                    username = parts[1];
-                } else {
-                    domain = (process.env.ALLOWED_AD_DOMAIN || '').replace(/['"]/g, '').trim() || domain;
-                }
+            $recs = @(Get-DnsServerResourceRecord -ZoneName $item.zone -Name $item.host -RRType $item.type -CimSession $global:CIM_SESS -ErrorAction Stop)
+            $targets = @($recs | Where-Object { $null -eq $item.data -or [string](& $dataOf $_) -eq $item.data })
+            if ($targets.Count -eq 0) {
+                $out += [PSCustomObject]@{ fqdn = $item.fqdn; status = 'Not found'; removed = @() }
+                continue
             }
+            foreach ($t in $targets) {
+                Remove-DnsServerResourceRecord -ZoneName $item.zone -InputObject $t -CimSession $global:CIM_SESS -Force -ErrorAction Stop
+                $removed += [PSCustomObject]@{ type = [string]$t.RecordType; data = [string](& $dataOf $t) }
+            }
+            $out += [PSCustomObject]@{ fqdn = $item.fqdn; status = 'Deleted'; removed = $removed }
+        } catch {
+            $st = if ($_.CategoryInfo.Category -eq 'ObjectNotFound') { 'Not found' } elseif ($removed.Count -gt 0) { "Partly deleted: $($_.Exception.Message)" } else { "Error: $($_.Exception.Message)" }
+            $out += [PSCustomObject]@{ fqdn = $item.fqdn; status = $st; removed = $removed }
+        }
+    }`;
 
-            const credHdr = getADCredentialHeader(username, domain, password || process.env.AD_ADMIN_PWD);
-            const sessHdr = getCimSessionHeader(server.hostname);
-            const cleanup = getCimSessionCleanup();
-
-            const batchJson = JSON.stringify(items.map(it => ({ zone: it.parsed.zone, host: it.parsed.host, fqdn: it.fqdn })));
-            const safeBatchJson = sanitizePsString(batchJson);
-            const psCmd = `
-                $ErrorActionPreference = "Stop";
-                ${credHdr}
-                ${sessHdr}
-                try {
-                    $batch = '${safeBatchJson}' | ConvertFrom-Json
-                    $batchResults = @()
-                    foreach ($item in $batch) {
-                        try {
-                            Get-DnsServerResourceRecord -ZoneName $item.zone -Name $item.host -CimSession $global:CIM_SESS -ErrorAction Stop | Remove-DnsServerResourceRecord -ZoneName $item.zone -CimSession $global:CIM_SESS -Force -ErrorAction Stop
-                            $batchResults += [PSCustomObject]@{ fqdn = $item.fqdn; status = "Deleted" }
-                        } catch {
-                            $batchResults += [PSCustomObject]@{ fqdn = $item.fqdn; status = "Error: $($_.Exception.Message)" }
-                        }
-                    }
-                    $batchResults | ConvertTo-Json -Compress
-                } finally {
-                    ${cleanup}
-                }
-            `;
-
-            const stdout = await runPowerShell(psCmd);
-            if (stdout.trim()) {
-                let data = JSON.parse(stdout);
-                if (!Array.isArray(data)) data = [data];
-                data.forEach(r => {
-                    results.push({ record: r.fqdn, status: r.status, serverName: server.name });
-                    if (r.status === "Deleted") {
-                        actionsPerformed.push(`Delete: ${r.fqdn} (Server: ${server.name})`);
-                    }
-                });
+    for (const { server, items } of groups.values()) {
+        try {
+            const answers = await runBatch(req.user, server, items, body);
+            for (const a of answers) {
+                const { logs, ...row } = dnsRecords.deleteOutcome(a, server.name);
+                results.push(row);
+                actionsPerformed.push(...logs);
             }
         } catch (err) {
             console.error('[DNS] DNS Delete Error:', err.stderr || err.message || String(err));
-            items.forEach(it => {
-                results.push({ record: it.fqdn, status: `Error: Failed to process DNS record`, serverName: server.name });
-            });
+            const status = batchError(err);
+            items.forEach(it => results.push({ record: it.fqdn, status, serverName: server.name }));
         }
     }
 
@@ -686,7 +650,7 @@ router.get('/export-all', async (req, res) => {
             const psCmd = buildDnsQueryPs(cleanHost, zonesJson, credHdr, sessHdr, cleanup);
 
             try {
-                const stdout = await runPowerShell(psCmd, 120000);
+                const stdout = await powershell.runPowerShell(psCmd, 120000);
                 if (stdout.trim()) {
                     let parsed;
                     try { parsed = JSON.parse(stdout); } catch { parsed = null; }
@@ -752,7 +716,7 @@ router.get('/export-server/:id', async (req, res) => {
             const psCmd = buildDnsQueryPs(cleanHost, zonesJson, credHdr, sessHdr, cleanup);
 
             try {
-                const stdout = await runPowerShell(psCmd, 120000);
+                const stdout = await powershell.runPowerShell(psCmd, 120000);
                 if (stdout.trim()) {
                     let parsed;
                     try { parsed = JSON.parse(stdout); } catch { parsed = null; }

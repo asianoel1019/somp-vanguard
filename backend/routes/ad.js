@@ -299,6 +299,8 @@ if ($user) {
 
 // OU tree mode, reports, batch actions and the exact last logon
 router.use(require('./adDirectory'));
+// Password expiry notifications (status, preview, run now)
+router.use(require('./adPwdNotify'));
 
 // Test hooks
 router._test = { generatePassword, isSam };

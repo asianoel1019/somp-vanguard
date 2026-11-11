@@ -124,6 +124,7 @@ async function startWorker() {
 
         // Network device configuration backups (NETDEVICE_BACKUP_SCHEDULE=HH:MM, off when unset)
         try { require('./services/netDeviceBackupScheduler').initNetDeviceBackupScheduler(); } catch (e) { console.error('[Worker] Network device backup scheduler skipped:', e.message); }
+        try { require('./services/pwdExpiryNotifier').initPwdExpiryNotifier(); } catch (e) { console.error('[Worker] Password expiry notifier skipped:', e.message); }
 
         console.log('[Worker] All background schedulers & pollers successfully initialized.');
 

@@ -28,6 +28,7 @@
    - [DNS Hub 網域紀錄管理](#-dns-hub)
    - [AD Control：帳號管理](#-ad-control帳號管理)
    - [AD Control：Group Policy 管理](#-ad-controlgroup-policy-管理)
+   - [AD 密碼到期通知](#-ad-密碼到期通知)
    - [Nutanix Prism 虛擬化與克隆](#-nutanix-prism-虛擬化管理)
    - [SSL Certificate 憑證生命週期中心](#-ssl-certificate-ssl-憑證管理中心)
    - [Proxy、Mail Relay、Prometheus 與 Redis](#-其他服務管理)
@@ -359,6 +360,24 @@ AD Control 上方有五個分頁：「Browse BU Hierarchy」、「OU Tree」、�
     *   **受保護帳號一律不能改**：`adminCount = 1` 的帳號（Domain Admins 等受 AdminSDHolder 保護群組的成員，或曾經是成員）、`krbtgt`，以及 Vanguard 使用的 AD 服務帳號本身。清單中這類帳號會標示「Protected」，不顯示操作按鈕，批次預覽也會自動排除。
     *   **只能改受管 OU 底下的帳號**：在 Settings > System Settings > AD 設定 `AD_MANAGE_OUS`（多個 OU 的 DN 以 `;` 分隔，含其下所有子 OU）。沒有設定時，以所有 `AD_OU_*` 設定的 OU（含 `AD_OU_SEARCH`）為範圍；這些也都沒設定時才是整個網域（仍排除受保護帳號）。`AD_MANAGE_OUS` 格式錯誤時，所有帳號操作都會被拒絕並顯示原因。
     *   檢查在網域控制站上、變更前一刻依帳號目前的 DN 與 `adminCount` 進行，並直接對檢查過的那個帳號變更。被拒絕時單筆操作顯示原因；批次結果標示「Refused」並列出原因。查詢與報表不受範圍限制。
+
+### 📧 AD 密碼到期通知
+每天定時檢查 AD 帳號，密碼即將到期的使用者會收到 email 提醒，管理者另外收到一封彙整。
+*   **設定位置**：Settings > System Settings > AD Hierarchy & SearchBase 的「Password expiry notifications」卡片（按 Save Changes 後生效，不需重啟）。這頁現在分成「Search and scope」、「BU hierarchy」與通知三張卡片。
+    *   `PWD_NOTIFY_ENABLED`：每天執行的開關，預設關閉。
+    *   `PWD_NOTIFY_TEST_MODE`：測試模式，**預設開啟**：給使用者的信全部改寄到彙整收件人（主旨標示原本的收件人），使用者不會收到。確認內容無誤後再關閉。
+    *   `PWD_NOTIFY_TIME`：每天執行時間，預設 09:00。服務在設定時間後一小時內啟動仍會補跑，超過就略過當天。
+    *   `PWD_NOTIFY_DAYS`：剩餘幾天時寄信，預設 `14,7,3,2,1`（1–90 的整數，以逗號分隔）。剩餘天數以伺服器時區的日曆天計算，到期當天為 0。
+    *   `PWD_NOTIFY_OUS`：要檢查的 OU（以 `;` 分隔，含子 OU）。空白時用 `AD_OU_SEARCH`；也沒設定時為整個網域。只檢查啟用中、密碼會過期的帳號，到期時間依 `msDS-UserPasswordExpiryTimeComputed`（細緻密碼原則也會正確計算）。
+    *   `PWD_NOTIFY_ADMIN_TO`：彙整收件人（可多個，以 `;` 或 `,` 分隔）；空白時用 Mail Relay 的 `MAIL_RELAY_RECIPIENT`。
+    *   `PWD_NOTIFY_CHANGE_URL`：選填，自助變更密碼頁面的網址，會放進信中。
+    *   需要先設定 Mail Relay（`MAIL_RELAY_SERVER`、`MAIL_RELAY_SENDER`），否則卡片會顯示警告；欄位格式錯誤時會標示原因，且無法儲存。
+*   **給使用者的信**：中英雙語，包含帳號、到期時間、剩餘天數與變更方式（Ctrl+Alt+Del →「變更密碼」，或上述網址），並提醒 IT 不會以 email 索取密碼。沒有 email 的帳號不寄，列入彙整。
+*   **給管理者的彙整**：每次執行一封，列出已寄送、寄送失敗（含原因）、沒有 email、超過上限的帳號；讀取 AD 失敗時也會寄出並附上錯誤。每次最多寄 500 封，其餘列入彙整、隔天再依天數判斷。
+*   **AD Control > Reports**：最上方的「Password expiry notifications」區塊顯示目前生效的設定與最近的執行結果（可展開每位使用者的結果）。
+    *   「Preview today」（Operator 以上）：列出今天會通知誰，不寄信、不記錄。
+    *   「Run now」（只限 SuperAdmin）：立即執行一次，遵守測試模式。測試模式關閉時，手動執行會算作當天的執行，當天排程不會重複寄信；當天已寄過則無法再手動執行。
+*   每次執行都會寫一筆稽核紀錄（模組「AD Password Notify」，含各項人數），並保留最近 30 次的執行明細。
 
 ### 🛡️ AD Control：Group Policy 管理
 AD Control 的「Group Policy」分頁仿照微軟的群組原則管理主控台（GPMC）排版：可以檢視網域、OU 與 GPO，管理 GPO 連結與繼承封鎖，新增、複製、重新命名、刪除 GPO，編輯安全性篩選、WMI 篩選與委派，以及切換狀態、備份、還原與編輯登錄值。尚未提供：群組原則結果 / 模型、新增 WMI 篩選、系統管理範本的完整編輯器。

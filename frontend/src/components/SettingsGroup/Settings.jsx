@@ -5,6 +5,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import api from '../../api';
 import EnvironmentsSettings from './EnvironmentsSettings';
 import FileServicesSettings from './FileServicesSettings';
+import PwdNotifySettings from './PwdNotifySettings';
+import { pwdNotifyProblems } from './pwdNotifySettingsUtils';
 import { FILE_SERVICES_CATEGORY, resolveCategoryLink } from './fileServicesUtils';
 import {
     BUILTIN_NOTE, LOCKED_FEATURE_TOOLTIP, isBuiltinMapping, getEditorCategories, isFeatureLocked,
@@ -162,7 +164,7 @@ const Settings = ({ mode = 'system' }) => {
         { id: FILE_SERVICES_CATEGORY, label: 'File Services', desc: 'SFTP servers & NAS devices', icon: '📁', title: 'File Services', subtitle: 'Manage SFTP servers (Web API, keys, remote service control) and NAS storage devices' },
         { id: 'rbac', label: 'RBAC & Groups', desc: 'Role and group management', icon: '👥', title: 'RBAC & Group Mappings', subtitle: 'Manage custom user roles and AD group OU configurations for feature access' },
         { id: 'integration', label: 'Integration Hub', desc: 'Webhook & Telegram settings', icon: '🔌', title: 'Webhook & API Integration Hub', subtitle: 'Configure webhooks, Telegram bot alerts, and API settings' },
-        { id: 'ad', label: 'AD Hierarchy', desc: 'Active Directory mapping', icon: '👤', title: 'AD Hierarchy & SearchBase', subtitle: 'Configure Active Directory search base, business units, and organizational unit mapping' },
+        { id: 'ad', label: 'AD Hierarchy', desc: 'Active Directory mapping', icon: '👤', title: 'AD Hierarchy & SearchBase', subtitle: 'Configure Active Directory search base, business units, organizational unit mapping, and password expiry notifications' },
         { id: 'forti', label: 'FortiProxy', desc: 'Firewall configurations', icon: '🛡️', title: 'FortiProxy Integration', subtitle: 'Manage FortiProxy host connection parameters and security tokens by environment' },
         { id: 'squid', label: 'Squid Proxy', desc: 'Squid proxy server list', icon: '🦑', title: 'Squid Proxy Servers', subtitle: 'Configure Squid proxy server IP targets across environments' },
         { id: 'netsearch', label: 'NetSearch', desc: 'Backup directories & devices', icon: '🔍', title: 'NetSearch Configuration', subtitle: 'Configure backup root folder, FQDN lookup path, cron schedule, and target device list' },
@@ -482,6 +484,11 @@ const Settings = ({ mode = 'system' }) => {
         setSuccess(null);
         if (settingsLoadFailed) {
             setError('設定沒有成功載入，無法儲存。請重新整理頁面。');
+            return;
+        }
+        const pwdProblems = pwdNotifyProblems(sysConfig);
+        if (Object.keys(pwdProblems).length) {
+            setError(`Password expiry notifications: ${Object.entries(pwdProblems).map(([k, v]) => `${k}: ${v}`).join(' ')}`);
             return;
         }
         setSavingSettings(true);
@@ -2641,7 +2648,10 @@ curl -H "Authorization: Bearer <YOUR_API_KEY>" "${window.location.origin}/api/v1
                         )}
 
                         {activeCategory === 'ad' && (
+                            <>
                             <div style={S.card}>
+                                <h3 style={{ ...S.tblTitle, margin: '0 0 4px' }}>Search and scope</h3>
+                                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 16 }}>Where AD Control searches, and which accounts it may change.</div>
                                 <div style={S.fieldBlock}>
                                     <label style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-muted)' }}>AD_OU_SEARCH</label>
                                     <input type="text" style={S.input} value={sysConfig.AD_OU_SEARCH || ''} onChange={e => handleConfigChange('AD_OU_SEARCH', e.target.value)} />
@@ -2650,9 +2660,13 @@ curl -H "Authorization: Bearer <YOUR_API_KEY>" "${window.location.origin}/api/v1
                                     <label style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-muted)' }}>AD_MANAGE_OUS <span style={{ color: 'var(--text-muted)', fontWeight: 'normal' }}>(OU DNs separated by ;)</span></label>
                                     <input type="text" style={S.input} value={sysConfig.AD_MANAGE_OUS || ''} placeholder="OU=Staff,DC=example,DC=test;OU=Contractors,DC=example,DC=test" onChange={e => handleConfigChange('AD_MANAGE_OUS', e.target.value)} />
                                     <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
-                                        AD Control only changes accounts inside these OUs (and below). Empty: every AD_OU_* OU above; with none set, the whole domain. Administrator accounts, krbtgt and the service account are never changed.
+                                        AD Control only changes accounts inside these OUs (and below). Empty: every AD_OU_* OU below; with none set, the whole domain. Administrator accounts, krbtgt and the service account are never changed.
                                     </div>
                                 </div>
+                            </div>
+                            <div style={S.card}>
+                                <h3 style={{ ...S.tblTitle, margin: '0 0 4px' }}>BU hierarchy</h3>
+                                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 16 }}>Companies, their business units and the OU of each, for Browse BU Hierarchy and Grant.</div>
                                 <div style={S.fieldBlock}>
                                     <label style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-muted)' }}>AD_COMPANIES <span style={{ color: 'var(--text-muted)', fontWeight: 'normal' }}>(comma separated)</span></label>
                                     <input type="text" style={S.input} value={sysConfig.AD_COMPANIES || ''} onChange={e => handleConfigChange('AD_COMPANIES', e.target.value)} />
@@ -2689,6 +2703,8 @@ curl -H "Authorization: Bearer <YOUR_API_KEY>" "${window.location.origin}/api/v1
                                     );
                                 })}
                             </div>
+                            <PwdNotifySettings sysConfig={sysConfig} onChange={handleConfigChange} S={S} onOpenMailRelay={() => setActiveCategory('mail')} />
+                            </>
                         )}
 
                         {activeCategory === 'rbac' && (

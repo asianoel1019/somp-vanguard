@@ -7,6 +7,7 @@ import { dateColumn, formatAdDate } from './adModel';
 import { fieldStyle } from './adStyle';
 import { Btn, Banner, Pill } from './Shared';
 import UserList from './UserList';
+import PwdNotifyPanel from './PwdNotifyPanel';
 
 const REPORTS = [
     { id: 'locked', label: 'Locked accounts', days: null, help: 'Accounts locked out now.' },
@@ -49,6 +50,7 @@ export default function ADReports() {
 
     return (
         <div className="glass-panel animate-fade-in" style={{ padding: '16px', borderRadius: '16px', border: '1px solid var(--border-color)' }}>
+            <PwdNotifyPanel />
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '6px' }}>
                 <select aria-label="Report" value={type} onChange={e => { setType(e.target.value); setResult(null); }} style={{ ...fieldStyle, minWidth: '200px' }}>
                     {REPORTS.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}

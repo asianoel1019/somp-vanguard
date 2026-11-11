@@ -25,11 +25,18 @@ function onDc(block, args = [], timeoutMs = 60000) {
         throw err;
     }
     serviceAccount(); // throws the readable "not configured" error before any PowerShell starts
+    // Inside the DC session the AD cmdlets get the service account explicitly: the session's own logon cannot be
+    // passed on to AD Web Services (the second hop), which fails with "A local error has occurred". The AD: drive
+    // is not created for the same reason. The block runs as a nested script block so its param() stays first.
     return runAsService(`
 $session = New-PSSession -ComputerName $dc -Credential $global:AD_CRED -ErrorAction Stop
 try {
     Invoke-Command -Session $session -ScriptBlock {
+        $env:ADPS_LoadDefaultDrive = 0
+        $PSDefaultParameterValues = @{ '*-AD*:Credential' = $using:AD_CRED }
+        & {
 ${block}
+        } @args
     }${args.length ? ` -ArgumentList ${args.map(psLit).join(', ')}` : ''}
 } finally {
     Remove-PSSession -Session $session

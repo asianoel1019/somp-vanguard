@@ -72,14 +72,12 @@ async function runMaintenance() {
         console.log('\n[4/4] Creating optimized indexes...');
         try {
             dstDb.exec(`
-                CREATE INDEX IF NOT EXISTS idx_metrics_monitorId ON metrics(monitorId);
-                CREATE INDEX IF NOT EXISTS idx_metrics_timestamp ON metrics(timestamp);
-                CREATE INDEX IF NOT EXISTS idx_metrics_monitor_id_desc ON metrics(monitorId, id DESC);
+                -- the same names the service creates at startup (services/db), so no index exists twice
+                CREATE INDEX IF NOT EXISTS idx_metrics_monId ON metrics(monitorId);
+                CREATE INDEX IF NOT EXISTS idx_metrics_ts ON metrics(timestamp);
                 CREATE INDEX IF NOT EXISTS idx_metrics_monitor_ts ON metrics(monitorId, timestamp DESC);
-                CREATE INDEX IF NOT EXISTS idx_windows_events_timestamp ON windows_events(timestamp);
-                CREATE INDEX IF NOT EXISTS idx_win_events_ts ON windows_events(timestamp DESC);
-                CREATE INDEX IF NOT EXISTS idx_linux_logs_timestamp ON linux_logs(timestamp);
-                CREATE INDEX IF NOT EXISTS idx_lin_logs_ts ON linux_logs(timestamp DESC);
+                CREATE INDEX IF NOT EXISTS idx_win_events_ts ON windows_events(timestamp);
+                CREATE INDEX IF NOT EXISTS idx_lin_logs_ts ON linux_logs(timestamp);
                 CREATE INDEX IF NOT EXISTS idx_alerts_ts ON alerts(monitorId, resolved, triggeredAt DESC);
             `);
             console.log('   - Indexes created successfully.');

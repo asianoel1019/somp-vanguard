@@ -525,6 +525,8 @@ initDB().then(async () => {
 
     server = app.listen(PORT, () => {
         console.log(`[Startup] Web API Server is running on port ${PORT}`);
+        // logs every stall of this process (with the slowest database call during it) to find what slows pages down
+        require('./lib/perfWatch').startEventLoopMonitor('web');
     
         // Initialize WebSocket Server
         initWebSocketServer(server);

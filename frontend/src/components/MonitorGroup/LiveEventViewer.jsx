@@ -74,7 +74,7 @@ function parseEventData(rawStr) {
             }
         }
         return fields;
-    } catch (e) {
+    } catch {
         return {};
     }
 }
@@ -87,40 +87,56 @@ export default function LiveEventViewer() {
     const [selectedEvent, setSelectedEvent] = useState(null);
     const [filterText, setFilterText] = useState('');
 
+    // the server is searched only after typing stops (every keystroke used to start a search of the whole table)
+    const [searchText, setSearchText] = useState('');
+    const [includeArchives, setIncludeArchives] = useState(false);
+    const [searchComplete, setSearchComplete] = useState(true);
     useEffect(() => {
+        const t = setTimeout(() => setSearchText(filterText.trim()), 600);
+        return () => clearTimeout(t);
+    }, [filterText]);
+
+    useEffect(() => {
+        if (activeTab !== 'windows' && activeTab !== 'linux') return undefined; // SIEM / forensics tabs need no stream
         let interval;
-        const fetchEvents = () => {
-            const searchParam = filterText && filterText.trim() ? `?search=${encodeURIComponent(filterText.trim())}` : '';
-            const endpoint = activeTab === 'windows' 
-                ? `/api/monitor/winevent/live${searchParam}` 
-                : `/api/monitor/linuxlog/live${searchParam}`;
-                
+        let alive = true;
+        const fetchEvents = (background) => {
+            if (background && document.hidden) return; // no polling while the browser tab is in the background
+            const params = new URLSearchParams();
+            if (searchText) params.set('search', searchText);
+            if (includeArchives) params.set('archives', '1');
+            const query = params.toString() ? `?${params.toString()}` : '';
+            const endpoint = activeTab === 'windows' ? `/api/monitor/winevent/live${query}` : `/api/monitor/linuxlog/live${query}`;
+
             fetch(endpoint, {
                 headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
             })
-            .then(res => res.json())
+            .then(res => {
+                if (alive) setSearchComplete(res.headers.get('X-Search-Complete') !== 'false');
+                return res.json();
+            })
             .then(data => {
-                if (Array.isArray(data)) {
-                    const cappedData = data.slice(0, 500);
-                    if (activeTab === 'windows') {
-                        setWinEvents(cappedData);
-                    } else {
-                        setNixEvents(cappedData);
-                    }
+                if (!alive || !Array.isArray(data)) return;
+                const cappedData = data.slice(0, 500);
+                if (activeTab === 'windows') {
+                    setWinEvents(cappedData);
+                } else {
+                    setNixEvents(cappedData);
                 }
             })
             .catch(err => console.error('Failed to fetch live logs:', err));
         };
 
-        fetchEvents();
+        fetchEvents(false);
         if (liveTail) {
-            interval = setInterval(fetchEvents, 5000);
+            interval = setInterval(() => fetchEvents(true), 5000);
         }
 
         return () => {
+            alive = false;
             if (interval) clearInterval(interval);
         };
-    }, [activeTab, liveTail, filterText]);
+    }, [activeTab, liveTail, searchText, includeArchives]);
 
     const getLevelBadge = (level) => {
         switch(level) {
@@ -161,6 +177,10 @@ export default function LiveEventViewer() {
                         <input type="checkbox" checked={liveTail} onChange={e => setLiveTail(e.target.checked)} style={{ cursor: 'pointer' }} />
                         Live Tail (5s)
                     </label>
+                    <label title="Also read the compressed archives of older events (slower)" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer', userSelect: 'none', color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>
+                        <input type="checkbox" checked={includeArchives} onChange={e => setIncludeArchives(e.target.checked)} style={{ cursor: 'pointer' }} />
+                        Include archives
+                    </label>
                 </div>
             </div>
 
@@ -197,6 +217,12 @@ export default function LiveEventViewer() {
 
             {activeTab === 'forensics' && (
                 <OnDemandForensics />
+            )}
+
+            {searchText && !searchComplete && (activeTab === 'windows' || activeTab === 'linux') && (
+                <div style={{ margin: '0 0 12px', padding: '8px 12px', borderRadius: 8, fontSize: 13, color: '#b45309', background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.35)' }}>
+                    The search covered the newest events only (it stops after a few seconds so the service stays responsive). Use a more specific term to reach older events.
+                </div>
             )}
 
             {activeTab !== 'siem_analytics' && activeTab !== 'forensics' && (

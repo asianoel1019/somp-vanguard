@@ -139,7 +139,14 @@ test('bad settings stop a run with the reason', async (t) => {
 
 test('API: status and preview for Operators, run now for SuperAdmins only', async (t) => {
     process.env.PWD_NOTIFY_TEST_MODE = 'true';
-    fakes(t);
+    // the API uses the real clock: expiry dates relative to today
+    const today = new Date();
+    const fromToday = (d) => new Date(today.getFullYear(), today.getMonth(), today.getDate() + d, 12).toISOString();
+    fakes(t, { accounts: [
+        { sam: 'amy', name: 'Amy', mail: 'amy@example.test', expires: fromToday(7) },
+        { sam: 'bob', name: 'Bob', mail: 'bob@example.test', expires: fromToday(3) },
+        { sam: 'cat', name: 'Cat', mail: 'cat@example.test', expires: fromToday(5) },
+    ] });
     const tok = (role) => `Bearer ${signToken({ username: `${role}1`, domain: 'corp', role, groups: ['g'] })}`;
     await request(app).get('/api/ad/pwd-notify/status').set('Authorization', tok('Viewer')).expect(403);
     const st = await request(app).get('/api/ad/pwd-notify/status').set('Authorization', tok('Operator')).expect(200);

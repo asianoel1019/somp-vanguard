@@ -11,6 +11,9 @@ const { auditLog } = require('../lib/logger');
 const { broadcastEvent } = require('../lib/websocket');
 const { WS_EVENTS } = require('../constants/wsEvents');
 const db = require('../services/scoutDb');
+const logRotation = require('../services/logRotation');
+// Largest SQLite file the Log Settings "Vacuum" button compacts in place (VACUUM blocks the service while it runs)
+const VACUUM_MAX_BYTES = 2 * 1024 ** 3;
 const { invalidateRuleCache } = require('../services/scoutAlertEngine');
 
 // Helper to parse JSON arrays/objects from SQLite
@@ -1491,186 +1494,81 @@ router.post('/linuxlog/push_policy', logSettingsFeature, checkRole(['Operator', 
     }
 });
 
-// Helper: Calculate Two-Tier Dynamic Retention Days
-// Default: Hot Tier max 14 days. If maxRetentionDays < 28, hotDays = Math.floor(maxRetentionDays / 2).
-function calculateDynamicTiers(maxRetentionDays) {
-    const totalDays = Math.max(1, Number(maxRetentionDays) || 30);
-    let hotDays = 14;
-    if (totalDays < 28) {
-        hotDays = Math.max(1, Math.floor(totalDays / 2));
-    } else {
-        hotDays = 14;
+// ---- Live Event Viewer ----
+// The default view is the newest rows of the hot table (a rowid scan from the end: instant on any size). Archives
+// are read only when asked for (archives=1). A search scans the hot table backwards in rowid windows, releasing the
+// event loop between windows, until it has SEARCH_LIMIT matches, reaches the oldest row or runs out of its time
+// budget; X-Search-Complete says whether the whole hot table was searched.
+const LIVE_LIMIT = 100;
+const SEARCH_LIMIT = 200;
+const SEARCH_WINDOW_ROWS = 50000;
+const SEARCH_BUDGET_MS = 8000;
+
+async function searchHotTable(table, where, params, { limit = SEARCH_LIMIT, windowRows = SEARCH_WINDOW_ROWS, budgetMs = SEARCH_BUDGET_MS } = {}) {
+    const range = db.get(`SELECT MIN(rowid) AS lo, MAX(rowid) AS hi FROM ${table}`);
+    const rows = [];
+    if (!range || range.hi === null || range.hi === undefined) return { rows, complete: true };
+    const started = Date.now();
+    let top = range.hi;
+    while (top >= range.lo && rows.length < limit) {
+        const bottom = Math.max(range.lo, top - windowRows + 1);
+        rows.push(...db.all(`SELECT * FROM ${table} WHERE rowid BETWEEN ? AND ? AND (${where}) ORDER BY rowid DESC LIMIT ?`, [bottom, top, ...params, limit - rows.length]));
+        top = bottom - 1;
+        if (Date.now() - started > budgetMs) break;
+        await new Promise(r => setImmediate(r));
     }
-    const coldDays = Math.max(0, totalDays - hotDays);
-    return { totalDays, hotDays, coldDays };
+    return { rows, complete: top < range.lo || rows.length >= limit };
 }
 
-// Native local-time wheel/interval engine for Log Rotation (Rule 6)
-const zlib = require('zlib');
-
-function readColdArchives(tableName, filterFn, maxLimit = 100) {
-    const results = [];
-    try {
-        const archiveDir = path.join(process.env.DB_DATA_DIR || 'C:\\ProgramData\\somp-vanguard', 'archives');
-        if (!fs.existsSync(archiveDir)) return results;
-        const prefix = `archive_${tableName}_`;
-        const files = fs.readdirSync(archiveDir).filter(f => f.startsWith(prefix) && f.endsWith('.json.gz')).sort().reverse();
-        for (const file of files) {
-            if (results.length >= maxLimit) break;
-            try {
-                const filePath = path.join(archiveDir, file);
-                const gzBuf = fs.readFileSync(filePath);
-                const jsonStr = zlib.gunzipSync(gzBuf).toString('utf8');
-                const items = JSON.parse(jsonStr);
-                if (Array.isArray(items)) {
-                    for (const item of items) {
-                        if (!filterFn || filterFn(item)) {
-                            results.push(item);
-                            if (results.length >= maxLimit) break;
-                        }
-                    }
-                }
-            } catch (e) {}
-        }
-    } catch (err) {}
-    return results;
-}
-
-function archiveLogsBeforePurge(tableName, rowsToPurge) {
-    if (!rowsToPurge || rowsToPurge.length === 0) return;
-    try {
-        const archiveDir = path.join(process.env.DB_DATA_DIR || 'C:\\ProgramData\\somp-vanguard', 'archives');
-        if (!fs.existsSync(archiveDir)) {
-            fs.mkdirSync(archiveDir, { recursive: true });
-        }
-        const todayStr = new Date().toISOString().slice(0, 10);
-        const fileName = `archive_${tableName}_${todayStr}_${Date.now()}.json.gz`;
-        const filePath = path.join(archiveDir, fileName);
-
-        const compressedData = zlib.gzipSync(JSON.stringify(rowsToPurge));
-        fs.writeFileSync(filePath, compressedData);
-        console.log(`[Log Rotation Archiver] Successfully archived ${rowsToPurge.length} records to ${filePath}`);
-    } catch (err) {
-        console.error(`[Log Rotation Archiver] Failed to archive logs for ${tableName}:`, err);
-    }
-}
-
-function cleanupExpiredArchives(tableName, totalDays) {
-    try {
-        const archiveDir = path.join(process.env.DB_DATA_DIR || 'C:\\ProgramData\\somp-vanguard', 'archives');
-        if (!fs.existsSync(archiveDir)) return;
-        const prefix = `archive_${tableName}_`;
-        const files = fs.readdirSync(archiveDir);
-
-        // If totalDays is 0 or not provided, remove all archives for this table (e.g. legacy metrics archives)
-        if (!totalDays || totalDays <= 0) {
-            for (const file of files) {
-                if (file.startsWith(prefix) && file.endsWith('.json.gz')) {
-                    const filePath = path.join(archiveDir, file);
-                    try {
-                        fs.unlinkSync(filePath);
-                        console.log(`[Log Rotation Archiver] Cleaned up legacy archive: ${file}`);
-                    } catch (e) {}
-                }
-            }
-            return;
-        }
-
-        const cutoffMs = Date.now() - totalDays * 24 * 60 * 60 * 1000;
-        for (const file of files) {
-            if (file.startsWith(prefix) && file.endsWith('.json.gz')) {
-                const filePath = path.join(archiveDir, file);
-                try {
-                    const stats = fs.statSync(filePath);
-                    if (stats.mtimeMs < cutoffMs) {
-                        fs.unlinkSync(filePath);
-                        console.log(`[Log Rotation Archiver] Purged expired archive (> ${totalDays} days): ${file}`);
-                    }
-                } catch (e) {}
-            }
-        }
-    } catch (err) {
-        console.error(`[Log Rotation Archiver] Failed to cleanup expired archives for ${tableName}:`, err);
-    }
-}
-
-// GET Live Windows Events (Seamless Hot SQLite + Cold Archive tiering)
-router.get('/winevent/live', liveViewerFeature, checkRole(['Viewer', 'Operator', 'SuperAdmin']), (req, res) => {
+async function liveEvents(req, res, table, where, paramsFor, archiveMatch) {
     try {
         if (db.flushWriteBuffer) db.flushWriteBuffer();
-        const search = (req.query.search || '').trim();
+        const search = String(req.query.search || '').trim().slice(0, 200);
+        const withArchives = req.query.archives === '1';
         let events;
+        let complete = true;
         if (search) {
-            const searchLike = `%${search}%`;
-            const searchNum = parseInt(search, 10);
-            events = db.all(
-                "SELECT * FROM windows_events WHERE host LIKE ? OR eventID = ? OR message LIKE ? OR raw LIKE ? ORDER BY rowid DESC LIMIT 200",
-                [searchLike, isNaN(searchNum) ? -1 : searchNum, searchLike, searchLike]
-            );
-            if (events.length < 200) {
-                const searchLower = search.toLowerCase();
-                const coldEvents = readColdArchives('windows_events', item => {
-                    return (item.host && item.host.toLowerCase().includes(searchLower)) ||
-                           (String(item.eventID) === search) ||
-                           (item.message && item.message.toLowerCase().includes(searchLower)) ||
-                           (item.raw && item.raw.toLowerCase().includes(searchLower));
-                }, 200 - events.length);
-                events = events.concat(coldEvents);
+            const r = await searchHotTable(table, where, paramsFor(search));
+            events = r.rows;
+            complete = r.complete;
+            if (withArchives && events.length < SEARCH_LIMIT) {
+                events = events.concat(await logRotation.readColdArchives(table, archiveMatch(search.toLowerCase(), search), SEARCH_LIMIT - events.length));
             }
         } else {
-            events = db.all("SELECT * FROM windows_events ORDER BY rowid DESC LIMIT 100");
-            if (events.length < 100) {
-                const coldEvents = readColdArchives('windows_events', null, 100 - events.length);
-                events = events.concat(coldEvents);
+            events = db.all(`SELECT * FROM ${table} ORDER BY rowid DESC LIMIT ${LIVE_LIMIT}`);
+            if (withArchives && events.length < LIVE_LIMIT) {
+                events = events.concat(await logRotation.readColdArchives(table, null, LIVE_LIMIT - events.length));
             }
         }
+        res.set('X-Search-Complete', complete ? 'true' : 'false');
         res.json(events);
     } catch (e) {
         res.status(500).json({ error: 'Failed to fetch events' });
     }
-});
+}
 
-// GET Live Linux Logs (Seamless Hot SQLite + Cold Archive tiering)
-router.get('/linuxlog/live', liveViewerFeature, checkRole(['Viewer', 'Operator', 'SuperAdmin']), (req, res) => {
-    try {
-        if (db.flushWriteBuffer) db.flushWriteBuffer();
-        const search = (req.query.search || '').trim();
-        let events;
-        if (search) {
-            const searchLike = `%${search}%`;
-            events = db.all(
-                "SELECT * FROM linux_logs WHERE host LIKE ? OR message LIKE ? OR tags LIKE ? OR filePath LIKE ? ORDER BY rowid DESC LIMIT 200",
-                [searchLike, searchLike, searchLike, searchLike]
-            );
-            if (events.length < 200) {
-                const searchLower = search.toLowerCase();
-                const coldEvents = readColdArchives('linux_logs', item => {
-                    return (item.host && item.host.toLowerCase().includes(searchLower)) ||
-                           (item.message && item.message.toLowerCase().includes(searchLower)) ||
-                           (item.tags && item.tags.toLowerCase().includes(searchLower)) ||
-                           (item.filePath && item.filePath.toLowerCase().includes(searchLower));
-                }, 200 - events.length);
-                events = events.concat(coldEvents);
-            }
-        } else {
-            events = db.all("SELECT * FROM linux_logs ORDER BY rowid DESC LIMIT 100");
-            if (events.length < 100) {
-                const coldEvents = readColdArchives('linux_logs', null, 100 - events.length);
-                events = events.concat(coldEvents);
-            }
-        }
-        res.json(events);
-    } catch (e) {
-        res.status(500).json({ error: 'Failed to fetch linux logs' });
-    }
-});
+// GET Live Windows Events
+router.get('/winevent/live', liveViewerFeature, checkRole(['Viewer', 'Operator', 'SuperAdmin']), (req, res) => liveEvents(req, res,
+    'windows_events',
+    'host LIKE ? OR eventID = ? OR message LIKE ? OR raw LIKE ?',
+    (s) => { const like = `%${s}%`; const n = parseInt(s, 10); return [like, isNaN(n) ? -1 : n, like, like]; },
+    (lower, s) => (item) => (item.host && item.host.toLowerCase().includes(lower)) || String(item.eventID) === s
+        || (item.message && item.message.toLowerCase().includes(lower)) || (item.raw && item.raw.toLowerCase().includes(lower))));
+
+// GET Live Linux Logs
+router.get('/linuxlog/live', liveViewerFeature, checkRole(['Viewer', 'Operator', 'SuperAdmin']), (req, res) => liveEvents(req, res,
+    'linux_logs',
+    'host LIKE ? OR message LIKE ? OR tags LIKE ? OR filePath LIKE ?',
+    (s) => { const like = `%${s}%`; return [like, like, like, like]; },
+    (lower) => (item) => (item.host && item.host.toLowerCase().includes(lower)) || (item.message && item.message.toLowerCase().includes(lower))
+        || (item.tags && item.tags.toLowerCase().includes(lower)) || (item.filePath && item.filePath.toLowerCase().includes(lower))));
 
 // GET Log Rotation Settings (Includes computed hot/cold days)
 router.get('/logrotation', logSettingsFeature, checkRole(['Viewer', 'Operator', 'SuperAdmin']), (req, res) => {
     try {
         const settings = db.all("SELECT * FROM log_rotation_settings");
         const enriched = settings.map(s => {
-            const { hotDays, coldDays, totalDays } = calculateDynamicTiers(s.maxRetentionDays);
+            const { hotDays, coldDays, totalDays } = logRotation.calculateDynamicTiers(s.maxRetentionDays);
             return { ...s, hotDays, coldDays, totalDays };
         });
         res.json(enriched);
@@ -1708,9 +1606,10 @@ router.post('/logrotation', logSettingsFeature, checkRole(['Operator', 'SuperAdm
 // POST Run Log Rotation Now (Manual trigger)
 router.post('/logrotation/run', logSettingsFeature, checkRole(['Operator', 'SuperAdmin']), (req, res) => {
     try {
-        runLogRotation();
-        auditLog(req.user.username, 'Scout Monitor', 'Manually executed Two-Tier Log Rotation');
-        res.json({ success: true, message: 'Two-Tier Log Rotation completed successfully' });
+        // runs in the background worker in small batches; the page does not wait for it
+        const where = logRotation.requestLogRotation();
+        auditLog(req.user.username, 'Scout Monitor', 'Manually started Two-Tier Log Rotation');
+        res.json({ success: true, started: where, message: 'Log rotation started in the background. Progress and results are written to the service log ([Log Rotation]).' });
     } catch (e) {
         console.error('[Scout] Manual Log Rotation error:', e);
         res.status(500).json({ error: 'Failed to run log rotation: ' + e.message });
@@ -1736,6 +1635,16 @@ router.post('/vacuum', logSettingsFeature, checkRole(['Operator', 'SuperAdmin'])
             auditLog(req.user.username, 'Scout Monitor', 'Executed MSSQL index reorganization');
             res.json({ success: true, engine: 'MSSQL', message: 'MSSQL index reorganization completed successfully.' });
         } else {
+            // VACUUM rewrites the whole file and blocks every request until it ends: only for small databases here;
+            // large ones are compacted with scripts\scoutDbOptimize.bat during a maintenance window.
+            const driver = dbManager.getDriver();
+            let size = 0;
+            try { size = fs.statSync(driver.dbFile).size; } catch { /* unknown size: treated as small */ }
+            if (size > VACUUM_MAX_BYTES) {
+                return res.status(409).json({
+                    error: `The database is ${(size / 1024 ** 3).toFixed(1)} GB: VACUUM here would stop the whole service for a long time. Stop the service and run backend\\scripts\\scoutDbOptimize.bat during a maintenance window instead.`,
+                });
+            }
             await dbManager.exec("VACUUM;");
             auditLog(req.user.username, 'Scout Monitor', 'Executed SQLite VACUUM to reclaim disk space');
             res.json({ success: true, engine: 'SQLite', message: 'SQLite database compacted and space reclaimed successfully.' });
@@ -1746,65 +1655,8 @@ router.post('/vacuum', logSettingsFeature, checkRole(['Operator', 'SuperAdmin'])
     }
 });
 
-function runLogRotation() {
-    try {
-        const settings = db.all("SELECT * FROM log_rotation_settings");
-        for (const s of settings) {
-            if (s.enabled === 1) {
-                let tableName = s.id; // 'windows_events' or 'linux_logs'
-                if (tableName === 'agent_metrics') tableName = 'metrics';
+// Log rotation runs in the background worker (services/logRotation.scheduleLogRotation).
 
-                if (tableName === 'metrics') {
-                    // Host Performance Metrics: Direct retention purge from SQLite (no gz archive files created)
-                    const retentionDays = Number(s.maxRetentionDays) || 7;
-                    if (retentionDays > 0) {
-                        const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000).toISOString();
-                        db.run("DELETE FROM metrics WHERE timestamp < ?", [cutoff]);
-                        console.log(`[Metrics Retention] Purged performance metrics older than ${retentionDays} days (before ${cutoff})`);
-                    }
-                    // Clean up any legacy archive_metrics_*.json.gz files in archives directory
-                    cleanupExpiredArchives('metrics', 0);
-                } else {
-                    // Windows Events & Linux Logs: Full Two-Tier Dynamic Rotation
-                    const { totalDays, hotDays } = calculateDynamicTiers(s.maxRetentionDays);
-
-                    // 1. Two-Tier Dynamic Rotation: Archive and purge hot data older than hotDays (Complete batch processing)
-                    if (hotDays > 0) {
-                        const hotCutoff = new Date(Date.now() - hotDays * 24 * 60 * 60 * 1000).toISOString();
-                        while (true) {
-                            const expiredHotRows = db.all(`SELECT * FROM ${tableName} WHERE timestamp < ? LIMIT 20000`, [hotCutoff]);
-                            if (!expiredHotRows || expiredHotRows.length === 0) break;
-                            archiveLogsBeforePurge(tableName, expiredHotRows);
-                            db.run(`DELETE FROM ${tableName} WHERE timestamp < ?`, [hotCutoff]);
-                            if (expiredHotRows.length < 20000) break;
-                        }
-                    }
-
-                    // 2. Enforce maxRecords limit if configured (Complete batch processing)
-                    if (s.maxRecords > 0) {
-                        while (true) {
-                            const cutoffRow = db.get(`SELECT timestamp FROM ${tableName} ORDER BY timestamp DESC LIMIT 1 OFFSET ?`, [s.maxRecords]);
-                            if (!cutoffRow || !cutoffRow.timestamp) break;
-                            const overflowRows = db.all(`SELECT * FROM ${tableName} WHERE timestamp < ? LIMIT 20000`, [cutoffRow.timestamp]);
-                            if (!overflowRows || overflowRows.length === 0) break;
-                            archiveLogsBeforePurge(tableName, overflowRows);
-                            db.run(`DELETE FROM ${tableName} WHERE timestamp < ?`, [cutoffRow.timestamp]);
-                            if (overflowRows.length < 20000) break;
-                        }
-                    }
-
-                    // 3. Purge cold archive files older than total retention days
-                    cleanupExpiredArchives(tableName, totalDays);
-                }
-            }
-        }
-    } catch (e) {
-        console.error('[Scheduler] Log rotation execution error:', e);
-    }
-}
-
-// Run log rotation periodically in the background (Rule 6)
-setInterval(runLogRotation, 30 * 60 * 1000).unref();
 
 // GET Agent TLS Settings
 router.get('/tls_settings', logSettingsFeature, checkRole(['Viewer', 'Operator', 'SuperAdmin']), (req, res) => {
@@ -1834,3 +1686,4 @@ router.post('/tls_settings', logSettingsFeature, checkRole(['Operator', 'SuperAd
 });
 
 module.exports = router;
+module.exports._test = { searchHotTable };

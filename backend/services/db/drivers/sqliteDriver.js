@@ -5,6 +5,7 @@
 const fs = require('fs');
 const path = require('path');
 
+const { timed } = require('../../../lib/perfWatch');
 let sqlite;
 let isNodeSqlite = false;
 
@@ -89,7 +90,7 @@ class SqliteDriver {
         this.ensureDb();
         try {
             const stmt = this.db.prepare(sql);
-            return stmt.get(...params) || null;
+            return timed('get', sql, () => stmt.get(...params)) || null;
         } catch (err) {
             console.error(`[SQLite Error] get() failed: "${sql}":`, err.message);
             return null;
@@ -100,7 +101,7 @@ class SqliteDriver {
         this.ensureDb();
         try {
             const stmt = this.db.prepare(sql);
-            return stmt.all(...params) || [];
+            return timed('all', sql, () => stmt.all(...params)) || [];
         } catch (err) {
             console.error(`[SQLite Error] all() failed: "${sql}":`, err.message);
             return [];
@@ -125,7 +126,7 @@ class SqliteDriver {
         for (let attempt = 0; attempt < maxAttempts; attempt++) {
             try {
                 const stmt = this.db.prepare(sql);
-                const result = stmt.run(...params);
+                const result = timed('run', sql, () => stmt.run(...params));
                 return {
                     changes: result?.changes || 0,
                     lastInsertRowid: result?.lastInsertRowid
@@ -148,7 +149,7 @@ class SqliteDriver {
         const maxAttempts = 5;
         for (let attempt = 0; attempt < maxAttempts; attempt++) {
             try {
-                return this.db.exec(sql);
+                return timed('exec', sql, () => this.db.exec(sql));
             } catch (err) {
                 const isLocked = err.code === 'SQLITE_BUSY' || err.message?.includes('locked') || err.message?.includes('busy');
                 if (isLocked && attempt < maxAttempts - 1) {

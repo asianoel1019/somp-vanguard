@@ -112,7 +112,7 @@ export default function LogSettings() {
         .then(data => {
             setIsRotating(false);
             if (data.success) {
-                showToast('Two-Tier Log Rotation completed! Hot data purged & cold archived.', 'success');
+                showToast(data.message || 'Log rotation started in the background.', 'success');
             } else {
                 showToast(data.error || 'Failed to run rotation', 'error');
             }

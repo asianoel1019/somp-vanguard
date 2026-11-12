@@ -53,6 +53,10 @@ async function startWorker() {
         startLogRotation();
         console.log('[Worker] Log Rotation initialized.');
 
+        // Scout log tables (windows_events / linux_logs) and metrics retention, in small batches
+        require('./services/logRotation').scheduleLogRotation();
+        require('./lib/perfWatch').startEventLoopMonitor('worker');
+
         // idx_alerts_monId (Server List delete preview) is built in the background, never at web startup
         try { require('./services/serverDeletion').scheduleAlertsMonitorIndex(); } catch (e) { console.warn('[Worker] alerts index scheduling skipped:', e.message); }
 
@@ -173,6 +177,9 @@ process.on('message', (msg) => {
     if (!msg) return;
     if (msg.type === 'SHUTDOWN') {
         shutdown('PARENT_IPC_SHUTDOWN');
+    } else if (msg.type === 'RUN_LOG_ROTATION') {
+        console.log('[Worker] Log rotation requested from Log Settings.');
+        require('./services/logRotation').runLogRotation().catch(e => console.error('[Worker] Log rotation failed:', e.message));
     } else if (msg.type === 'INVALIDATE_DOC_CACHE') {
         try {
             const { invalidateCache } = require('./lib/db');

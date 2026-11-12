@@ -187,6 +187,26 @@ Server List 是 SOMP Vanguard 的核心伺服器資產資料庫 (CMDB)，自動�
 *   **即時遙測看板**：提供 CPU、Memory、Disk、Network、TCP Ping 延遲、Windows Services / Linux 守護程序與 Top 10 處理程序之實時監控。
 *   **狀態與環境過濾**：支援依據 Environment（環境）、狀態 (Online/Alerting/Offline/Outdated) 及關鍵字搜尋，切換條件時自動重置頁碼並具備邊界保護。
 
+### ⚡ Live Event Viewer / Log Settings 效能與 scout.sqlite 維護
+*   **Live Event Viewer**：
+    *   預設只讀最新的 100 筆事件，**不再自動讀取壓縮歸檔**；需要時勾選「Include archives」（只讀最新的 14 個歸檔檔）。
+    *   搜尋在停止輸入約 0.6 秒後才送出（以前每打一個字就搜尋一次）。伺服器由新到舊分段搜尋，找到 200 筆、搜完全表或約 8 秒後停止，期間不會讓整個網站停住；沒搜完全表時頁面會提示「只涵蓋最新的事件」。
+    *   瀏覽器分頁在背景時暫停每 5 秒的自動更新；SIEM Analytics / On-Demand Forensics 分頁不再在背景輪詢事件。
+*   **日誌輪替（Log Settings > Rotation）**：
+    *   改由背景 worker 每 30 分鐘執行（服務啟動 5 分鐘後第一次），每批只處理約 1,000 筆、批次之間讓出執行緒，不再在網頁程序中一次刪除大量資料而讓網站停住。歸檔檔每個最多 20,000 筆。
+    *   「Run now」只會請背景 worker 開始執行並立即回應；進度與結果寫在服務日誌（`[Log Rotation]`）。
+    *   `maxRecords` 依寫入順序保留最新的筆數。
+*   **Vacuum 按鈕**：SQLite 資料庫超過 2 GB 時會拒絕執行（VACUUM 會讓整個服務停住很久），請改用下方的維護腳本在停機時段處理。
+*   **效能紀錄**：服務日誌會記錄
+    *   `[DB Slow] <毫秒> <類型>: <SQL>`：單次資料庫操作超過 500 毫秒（`DB_SLOW_QUERY_MS` 可調整；只記錄 SQL 語句，不含參數值）。
+    *   `[Event Loop] web|worker blocked ~<毫秒>`：程序被卡住超過 1 秒（`EVENT_LOOP_BLOCK_MS` 可調整），並附上這段時間最慢的資料庫操作。用來找出頁面變慢的原因。
+*   **維護腳本 `backend\scripts\scoutDbOptimize.bat`**（在 Vanguard 主機上執行）：
+    *   不加參數：只產生報告，不做任何變更。內容包括檔案與 WAL 大小、空頁比例、`metrics` / `windows_events` / `linux_logs` 的筆數範圍與索引、重複的索引，以及 VACUUM 需要的磁碟空間。
+    *   `--drop-duplicates`：刪除重複的索引（同一張表、相同欄位的索引；保留服務自己建立的那個，唯一索引與主鍵一律不動）。舊版維護流程會建立重複索引，每筆寫入都要多更新一份。
+    *   `--vacuum`：重寫資料庫以回收空頁並縮小檔案。需要約「已使用空間 × 1.1」的可用磁碟空間，大型資料庫可能需要一小時以上，執行中不可中斷。
+    *   會先確認：`somp-vanguard` 服務已停止，且沒有其他程序正在使用資料庫，否則不做任何變更；執行前會詢問確認（`--yes` 可略過），`--db <路徑>` 可指定其他檔案。
+    *   建議流程：先執行一次不加參數看報告 → 停止服務 → `scoutDbOptimize.bat --drop-duplicates --vacuum` → 啟動服務。
+
 ### 🚀 Scout Agent 跨平台自動化部署
 支援三大平台發行版原生適配：
 *   **Linux (Ubuntu / Debian)**：自動下載並使用原生 **`.deb`** (`scout-*-amd64.deb`) 套件透過 `dpkg -i` 安裝。

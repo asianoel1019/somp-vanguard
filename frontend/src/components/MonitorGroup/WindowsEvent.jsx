@@ -299,7 +299,8 @@ export default function WindowsEvent({ configOnly = false }) {
         if (activeTab === 'live') {
             fetchEvents(); // Initial fetch
             if (liveTail) {
-                interval = setInterval(fetchEvents, 5000);
+                // no polling while the browser tab is in the background
+                interval = setInterval(() => { if (!document.hidden) fetchEvents(); }, 5000);
             }
         }
         return () => {

@@ -373,3 +373,28 @@ test('import file: Windows uses PerfCounter / Memory WMI / DriveSpace, Linux kee
     // generateHostMonitorImportText still returns the text only
     assert.equal(typeof svc.generateHostMonitorImportText([{ ...base, ip: '10.0.0.1', hostname: 'WIN01', osFamily: 'windows' }], ['cpu']), 'string');
 });
+
+test('overwrite retries a rename that Windows refuses while the target is briefly held open; other errors fail at once', async (t) => {
+    const name = 'hostmonitor-item-backup-held.txt';
+    const dest = path.join(svc.getUploadDir(), name);
+    await svc.saveUploadedBackup({ filename: name, content: 'one' });
+    const realRename = fs.promises.rename;
+    let calls = 0;
+    t.mock.method(fs.promises, 'rename', async (...a) => {
+        calls++;
+        if (calls <= 2) throw Object.assign(new Error('EPERM: operation not permitted, rename'), { code: 'EPERM' });
+        return realRename.apply(fs.promises, a);
+    });
+    const r = await svc.saveUploadedBackup({ filename: name, content: 'two', overwrite: true });
+    assert.equal(r.overwritten, true);
+    assert.equal(calls, 3);
+    assert.equal(fs.readFileSync(dest, 'utf8'), 'two');
+
+    calls = 0;
+    fs.promises.rename.mock.mockImplementation(async () => { calls++; throw Object.assign(new Error('ENOSPC'), { code: 'ENOSPC' }); });
+    await assert.rejects(svc.saveUploadedBackup({ filename: name, content: 'three', overwrite: true }), /ENOSPC/);
+    assert.equal(calls, 1);
+    assert.equal(fs.readFileSync(dest, 'utf8'), 'two');
+    assert.deepEqual(fs.readdirSync(svc.getUploadDir()).filter(f => f.endsWith('.tmp')), [], 'no temp file left behind');
+    fs.rmSync(dest, { force: true });
+});

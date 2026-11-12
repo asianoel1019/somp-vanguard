@@ -328,6 +328,20 @@ function sanitizeUploadFilename(name) {
  * `overwrite` is true; links are never followed (exclusive create, or temp file + rename after an lstat check).
  * The name must match the configured filePattern, otherwise the file would never be picked up.
  */
+// On Windows a rename over a file fails with EPERM / EACCES / EBUSY while another process (antivirus, the search
+// indexer, a reader) briefly holds the target open, which is common right after the file was written or read.
+const RENAME_RETRY_MS = [50, 100, 200, 400, 800];
+async function renameRetrying(from, to) {
+    for (let attempt = 0; ; attempt++) {
+        try {
+            return await fs.promises.rename(from, to);
+        } catch (e) {
+            if (!['EPERM', 'EACCES', 'EBUSY'].includes(e.code) || attempt >= RENAME_RETRY_MS.length) throw e;
+            await new Promise(r => setTimeout(r, RENAME_RETRY_MS[attempt]));
+        }
+    }
+}
+
 async function saveUploadedBackup({ filename, content, overwrite = false } = {}) {
     const s = sanitizeUploadFilename(filename);
     if (!s.ok) throw httpError(400, s.error);
@@ -358,7 +372,7 @@ async function saveUploadedBackup({ filename, content, overwrite = false } = {})
     const tmp = path.join(dir, `.${s.filename}.${process.pid}.${Date.now()}.tmp`);
     try {
         await fs.promises.writeFile(tmp, content, { encoding: 'utf8', flag: 'wx' });
-        await fs.promises.rename(tmp, dest);
+        await renameRetrying(tmp, dest);
     } catch (e) {
         await fs.promises.rm(tmp, { force: true }).catch(() => {});
         throw e;

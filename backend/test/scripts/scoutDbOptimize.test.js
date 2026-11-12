@@ -7,7 +7,7 @@ const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const { DatabaseSync } = require('node:sqlite');
-const { findDuplicateIndexes, keyOf, vacuumSpaceNeeded } = require('../../scripts/lib/indexAnalysis');
+const { findDuplicateIndexes, keyOf, vacuumSpaceNeeded, vacuumSpaceCheck } = require('../../scripts/lib/indexAnalysis');
 
 const SCRIPT = path.join(__dirname, '..', '..', 'scripts', 'scoutDbOptimize.js');
 const col = (name, desc = false) => ({ name, desc });
@@ -39,6 +39,20 @@ test('duplicates: same key (a trailing rowid / INTEGER PRIMARY KEY ignored, a fu
         ['x', 'sqlite_autoindex_x_1', ['idx_x_id']],
     ]);
     assert.equal(vacuumSpaceNeeded({ pageSize: 4096, pageCount: 1000, freePages: 400 }), Math.ceil(600 * 4096 * 1.1));
+});
+
+test('VACUUM space: the database disk and the temp folder each need a copy, both on one disk need two', () => {
+    const GBy = 1024 ** 3;
+    const apart = vacuumSpaceCheck({ need: 17 * GBy, db: { dir: 'D:\\data', free: 33 * GBy, dev: 1 }, temp: { dir: 'C:\\Temp', free: 10 * GBy, dev: 2 } });
+    assert.equal(apart.sameDisk, false);
+    assert.equal(apart.ok, false, 'the temp folder is too small');
+    assert.deepEqual(apart.checks.map(c => [c.label, c.ok]), [['database disk', true], ['temp folder', false]]);
+    const same = vacuumSpaceCheck({ need: 17 * GBy, db: { dir: 'D:\\data', free: 33 * GBy, dev: 1 }, temp: { dir: 'D:\\tmp', free: 33 * GBy, dev: 1 } });
+    assert.equal(same.sameDisk, true);
+    assert.equal(same.ok, false, '34 GB needed on one disk');
+    assert.equal(same.checks[0].need, 34 * GBy);
+    const unknown = vacuumSpaceCheck({ need: GBy, db: { dir: 'x', free: null, dev: null }, temp: { dir: 'y', free: null, dev: null } });
+    assert.equal(unknown.ok, true, 'unknown free space does not block');
 });
 
 function makeDb() {
@@ -76,6 +90,8 @@ test('the report changes nothing; --drop-duplicates --vacuum drops the copies an
     assert.match(report.stdout, /metrics: \(monitorid\) keep idx_metrics_monId, drop idx_metrics_monitor_id_desc, idx_metrics_monitorId/);
     assert.match(report.stdout, /windows_events: \(timestamp\) keep idx_win_events_ts, drop idx_windows_events_timestamp/);
     assert.match(report.stdout, /Report only: nothing was changed/);
+    assert.match(report.stdout, /temp folder|same disk/);
+    assert.doesNotMatch(report.stdout + report.stderr, /\[y\/N\]/, 'the report asks nothing');
     assert.deepEqual(indexNames(file), before);
 
     const fix = run('--db', file, '--drop-duplicates', '--vacuum', '--yes');
@@ -85,6 +101,17 @@ test('the report changes nothing; --drop-duplicates --vacuum drops the copies an
     const db = new DatabaseSync(file, { readOnly: true });
     assert.equal(db.prepare('SELECT COUNT(*) AS n FROM metrics').get().n, 1000, 'data kept');
     db.close();
+});
+
+test('without --yes the question stands out and anything but y skips', (t) => {
+    const { dir, file } = makeDb();
+    t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+    const before = indexNames(file);
+    const r = spawnSync(process.execPath, [SCRIPT, '--db', file, '--drop-duplicates'], { encoding: 'utf8', input: 'n\n' });
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /={78}\nDrop 3 duplicate index\(es\): .*\nWAITING FOR YOUR ANSWER: type y and press Enter/);
+    assert.match(r.stdout, /Skipped\./);
+    assert.deepEqual(indexNames(file), before);
 });
 
 test('no change while another process holds the database', (t) => {

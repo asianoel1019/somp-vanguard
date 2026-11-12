@@ -51,4 +51,20 @@ function vacuumSpaceNeeded({ pageSize, pageCount, freePages }) {
     return Math.ceil((pageCount - freePages) * pageSize * 1.1);
 }
 
-module.exports = { keyOf, findDuplicateIndexes, vacuumSpaceNeeded, SERVICE_INDEXES };
+/**
+ * Where VACUUM needs the space: it first builds the new database in the temp folder (on Windows the TEMP folder of
+ * the account running it, usually on C:), then writes it back through the WAL next to the database. Each place needs
+ * about `need` bytes; both together when they are on the same disk.
+ * db / temp: { dir, free (bytes or null when unknown), dev (volume id or null) }
+ * -> { sameDisk, ok, checks: [{ label, dir, free, need, ok }] }
+ */
+function vacuumSpaceCheck({ need, db, temp }) {
+    const sameDisk = db.dev !== null && db.dev !== undefined && db.dev === temp.dev;
+    const check = (label, place, bytes) => ({ label, dir: place.dir, free: place.free, need: bytes, ok: place.free === null || place.free === undefined || place.free >= bytes });
+    const checks = sameDisk
+        ? [check('database and temp folder (same disk)', db, need * 2)]
+        : [check('database disk', db, need), check('temp folder', temp, need)];
+    return { sameDisk, ok: checks.every(c => c.ok), checks };
+}
+
+module.exports = { keyOf, findDuplicateIndexes, vacuumSpaceNeeded, vacuumSpaceCheck, SERVICE_INDEXES };

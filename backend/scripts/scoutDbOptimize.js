@@ -8,10 +8,11 @@
 //
 // Changes are refused while the service is running or another process holds the database.
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const readline = require('readline');
 const { execFileSync } = require('child_process');
-const { findDuplicateIndexes, vacuumSpaceNeeded } = require('./lib/indexAnalysis');
+const { findDuplicateIndexes, vacuumSpaceNeeded, vacuumSpaceCheck } = require('./lib/indexAnalysis');
 
 const args = process.argv.slice(2);
 const has = (f) => args.includes(f);
@@ -33,11 +34,27 @@ function serviceRunning() {
     }
 }
 
+// The question stands on its own lines so it is not lost among other output (it used to sit unanswered for hours).
 function ask(question) {
     if (has('--yes')) return Promise.resolve(true);
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-    return new Promise(r => rl.question(`${question} [y/N] `, a => { rl.close(); r(/^y(es)?$/i.test(a.trim())); }));
+    console.log(`\n${'='.repeat(78)}\n${question.trim()}\nWAITING FOR YOUR ANSWER: type y and press Enter to continue, anything else skips.\n${'='.repeat(78)}`);
+    return new Promise(r => rl.question('Continue? [y/N] ', a => { rl.close(); r(/^y(es)?$/i.test(a.trim())); }));
 }
+
+function diskInfo(dir) {
+    let free = null;
+    let dev = null;
+    try { const st = fs.statfsSync(dir); free = st.bavail * st.bsize; } catch { /* unknown */ }
+    try { dev = fs.statSync(dir).dev; } catch { /* unknown */ }
+    return { dir, free, dev };
+}
+
+function spaceCheck(dbFile, need) {
+    return vacuumSpaceCheck({ need, db: diskInfo(path.dirname(dbFile)), temp: diskInfo(os.tmpdir()) });
+}
+
+const freeText = (b) => (b === null || b === undefined ? 'unknown' : size(b));
 
 function readSchema(db) {
     const tables = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").all().map(r => r.name);
@@ -59,6 +76,7 @@ async function main() {
     const dbFile = valueOf('--db') || defaultDbFile();
     if (!fs.existsSync(dbFile)) { console.error(`Database not found: ${dbFile}`); process.exit(1); }
     const { DatabaseSync } = require('node:sqlite');
+    await new Promise(r => setImmediate(r)); // let Node's "SQLite is experimental" warning print now, not over a question
     const wantDrop = has('--drop-duplicates');
     const wantVacuum = has('--vacuum');
     const changing = wantDrop || wantVacuum;
@@ -90,9 +108,9 @@ async function main() {
     for (const d of dups) console.log(`  ${d.table}: (${d.columns}) keep ${d.keep}, drop ${d.drop.join(', ')}`);
 
     const need = vacuumSpaceNeeded({ pageSize, pageCount, freePages });
-    let diskFree = null;
-    try { const st = fs.statfsSync(path.dirname(dbFile)); diskFree = st.bavail * st.bsize; } catch { /* unknown */ }
-    console.log(`\nVACUUM would need about ${size(need)} free (disk free: ${diskFree === null ? 'unknown' : size(diskFree)}) and would shrink the file by about ${size(freePages * pageSize)}.`);
+    const space = spaceCheck(dbFile, need);
+    console.log(`\nVACUUM would shrink the file by about ${size(freePages * pageSize)}. Free space it needs while it runs:`);
+    for (const c of space.checks) console.log(`  ${c.label.padEnd(38)} ${c.dir}: needs about ${size(c.need)}, free ${freeText(c.free)}${c.ok ? '' : '  <- NOT ENOUGH'}`);
 
     if (!changing) {
         console.log('\nReport only: nothing was changed. Use --drop-duplicates and / or --vacuum with the service stopped.');
@@ -112,7 +130,7 @@ async function main() {
     if (wantDrop) {
         const names = dups.flatMap(d => d.drop);
         if (!names.length) console.log('\nNo duplicate index to drop.');
-        else if (await ask(`\nDrop ${names.length} duplicate index(es): ${names.join(', ')}?`)) {
+        else if (await ask(`Drop ${names.length} duplicate index(es): ${names.join(', ')}?`)) {
             for (const n of names) {
                 const t0 = Date.now();
                 db.exec(`DROP INDEX IF EXISTS "${n.replace(/"/g, '""')}"`);
@@ -126,11 +144,14 @@ async function main() {
     if (wantVacuum) {
         const nowFree = db.prepare('PRAGMA freelist_count').get().freelist_count;
         const needNow = vacuumSpaceNeeded({ pageSize, pageCount: db.prepare('PRAGMA page_count').get().page_count, freePages: nowFree });
-        if (diskFree !== null && diskFree < needNow) {
-            console.error(`\nNot enough free disk space for VACUUM: needs about ${size(needNow)}, ${size(diskFree)} free.`);
+        const spaceNow = spaceCheck(dbFile, needNow);
+        if (!spaceNow.ok) {
+            console.error('\nNot enough free disk space for VACUUM (nothing more was changed):');
+            for (const c of spaceNow.checks.filter(x => !x.ok)) console.error(`  ${c.label} ${c.dir}: needs about ${size(c.need)}, ${freeText(c.free)} free`);
+            console.error('Free some space, or run it from an account whose TEMP folder is on a disk with enough room.');
             process.exit(3);
         }
-        if (await ask(`\nVACUUM now? It rewrites the whole database (about ${size((db.prepare('PRAGMA page_count').get().page_count - nowFree) * pageSize)}) and can take a long time; do not interrupt it.`)) {
+        if (await ask(`VACUUM now? It rewrites the whole database (about ${size((db.prepare('PRAGMA page_count').get().page_count - nowFree) * pageSize)}) and can take a long time; do not interrupt it.\nIt uses about that much space in the temp folder ${os.tmpdir()} until it ends.`)) {
             const t0 = Date.now();
             db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
             db.exec('VACUUM');

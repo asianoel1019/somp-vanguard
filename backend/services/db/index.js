@@ -227,6 +227,8 @@ async function ensureSchemas(driver) {
     const indexList = [
         `CREATE INDEX IF NOT EXISTS idx_metrics_monId ON metrics(monitorId);`,
         `CREATE INDEX IF NOT EXISTS idx_metrics_ts ON metrics(timestamp);`,
+        // Charts of one monitor (routes/monitor.js /:id/metrics) read only this index to pick their points
+        `CREATE INDEX IF NOT EXISTS idx_metrics_monitor_ts ON metrics(monitorId, timestamp DESC);`,
         `CREATE INDEX IF NOT EXISTS idx_win_events_ts ON windows_events(timestamp);`,
         `CREATE INDEX IF NOT EXISTS idx_lin_logs_ts ON linux_logs(timestamp);`,
         `CREATE INDEX IF NOT EXISTS idx_alerts_active ON alerts(resolved, monitorId, checkId);`,
@@ -297,21 +299,49 @@ function queueRun(sqlStr, params = []) {
     }
 }
 
-async function flushWriteBuffer() {
-    if (writeQueue.length === 0) return;
-    const items = writeQueue;
-    writeQueue = [];
+// Statements per transaction when the queue is written; the event loop is released between transactions, so a large
+// queue (hundreds of agents reporting at once) never holds the process for long.
+const FLUSH_CHUNK = 200;
+let flushing = Promise.resolve();
 
-    const driver = getDriver();
-    try {
-        await driver.transaction(async (trx) => {
-            for (const item of items) {
-                await trx.run(item.sqlStr, item.params);
-            }
-        });
-    } catch (err) {
-        console.error('[DB Manager Batch Error] Failed to flush write queue:', err.message);
+/** Writes everything queued so far. Calls are serialized; the promise settles when the queue has been written. */
+function flushWriteBuffer() {
+    flushing = flushing.then(drainWriteQueue, drainWriteQueue);
+    return flushing;
+}
+
+async function drainWriteQueue() {
+    while (writeQueue.length) {
+        await writeChunk(writeQueue.splice(0, FLUSH_CHUNK));
+        if (writeQueue.length) await new Promise(r => setImmediate(r));
     }
+}
+
+async function writeChunk(items) {
+    const driver = getDriver();
+    let failed = 0;
+    let lastError = null;
+    try {
+        if (driver.dbType === 'sqlite') {
+            // One synchronous transaction: one commit for the whole chunk. A failing statement (a constraint, say) is
+            // skipped without losing the others.
+            driver.transaction(() => {
+                for (const item of items) {
+                    try { driver.run(item.sqlStr, item.params); } catch (e) { failed++; lastError = e; }
+                }
+            })();
+        } else {
+            await driver.transaction(async (trx) => {
+                for (const item of items) {
+                    await trx.run(item.sqlStr, item.params);
+                }
+            });
+        }
+    } catch (err) {
+        console.error(`[DB Manager Batch Error] Failed to write ${items.length} queued statement(s):`, err.message);
+        return;
+    }
+    if (failed) console.error(`[DB Manager Batch Error] ${failed} of ${items.length} queued statement(s) failed:`, lastError.message);
 }
 
 /**

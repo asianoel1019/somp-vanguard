@@ -1000,29 +1000,21 @@ router.get('/:id/metrics', checkRole(['Viewer', 'Operator', 'SuperAdmin']), (req
     const hours = parseFloat(hoursStr);
     const isAll = hoursStr === 'all' || isNaN(hours);
     
-    let query = "SELECT timestamp, metrics FROM metrics WHERE monitorId = ?";
-    let groupBy = "";
-    
-    // Optimize performance by downsampling data points for longer time ranges
-    if (isAll || hours > 24) {
-        // Group by hour (substr up to 'YYYY-MM-DDTHH') -> 1 point per hour
-        query = "SELECT min(timestamp) as timestamp, metrics FROM metrics WHERE monitorId = ?";
-        groupBy = " GROUP BY substr(timestamp, 1, 13)";
-    } else if (hours > 1) {
-        // Group by 10-minute intervals (substr up to 'YYYY-MM-DDTHH:M') -> 1 point per 10 mins
-        query = "SELECT min(timestamp) as timestamp, metrics FROM metrics WHERE monitorId = ?";
-        groupBy = " GROUP BY substr(timestamp, 1, 15)";
+    const params = [req.params.id];
+    let where = "monitorId = ?";
+    if (!isAll && hours > 0) {
+        where += " AND timestamp >= ?";
+        params.push(new Date(Date.now() - hours * 60 * 60 * 1000).toISOString());
     }
 
-    const params = [req.params.id];
-    if (!isAll && hours > 0) {
-        const sinceTime = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
-        query += " AND timestamp >= ?";
-        params.push(sinceTime);
-    }
-    
-    query += groupBy + " ORDER BY timestamp ASC";
-    
+    // Longer ranges are downsampled to the first point of every hour (> 24 h or all) or 10 minutes (> 1 h). The
+    // points are chosen in the (monitorId, timestamp) index alone and only their rows are read: reading every row of
+    // a week (each with its metrics JSON) and grouping afterwards took seconds and held the whole process.
+    const bucket = (isAll || hours > 24) ? 13 : (hours > 1 ? 15 : 0); // substr length: 'YYYY-MM-DDTHH' / 'YYYY-MM-DDTHH:M'
+    const query = bucket
+        ? `SELECT timestamp, metrics FROM metrics WHERE rowid IN (SELECT r FROM (SELECT rowid AS r, min(timestamp) FROM metrics WHERE ${where} GROUP BY substr(timestamp, 1, ${bucket}))) ORDER BY timestamp ASC`
+        : `SELECT timestamp, metrics FROM metrics WHERE ${where} ORDER BY timestamp ASC`;
+
     const metricsRows = db.all(query, params);
     const formatted = metricsRows.map(r => ({
         timestamp: r.timestamp,
@@ -1522,7 +1514,7 @@ async function searchHotTable(table, where, params, { limit = SEARCH_LIMIT, wind
 
 async function liveEvents(req, res, table, where, paramsFor, archiveMatch) {
     try {
-        if (db.flushWriteBuffer) db.flushWriteBuffer();
+        if (db.flushWriteBuffer) await db.flushWriteBuffer();
         const search = String(req.query.search || '').trim().slice(0, 200);
         const withArchives = req.query.archives === '1';
         let events;

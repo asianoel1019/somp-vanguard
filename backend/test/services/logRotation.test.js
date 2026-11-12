@@ -81,6 +81,19 @@ test('one run at a time; cold archives come back newest first, filtered, from at
     assert.equal(oneFile.length, 2);
 });
 
+test('the worker checkpoints the WAL itself after deleting', async (t) => {
+    addEvents(6, 20, 'old');
+    db.run("INSERT INTO log_rotation_settings (id, maxRetentionDays, maxRecords, enabled) VALUES ('windows_events', 30, 0, 1)");
+    for (let i = 0; i < 5; i++) db.run('INSERT INTO metrics (monitorId, timestamp, metrics) VALUES (?, ?, ?)', ['m', daysAgo(40), '{}']);
+    db.run("INSERT INTO log_rotation_settings (id, maxRetentionDays, maxRecords, enabled) VALUES ('agent_metrics', 7, 0, 1)");
+    const pragmas = [];
+    const realGet = db.get;
+    t.mock.method(db, 'get', (sql, params) => { if (/wal_checkpoint/.test(sql)) pragmas.push(sql); return realGet(sql, params); });
+    await rotation.runLogRotation({ now: NOW, batch: 2, archiveRows: 3, pauseMs: 0 });
+    assert.ok(pragmas.length >= 3, `checkpoints: ${pragmas.length}`); // two archive files of windows_events, then metrics
+    assert.ok(pragmas.every(p => p === 'PRAGMA wal_checkpoint(PASSIVE)'));
+});
+
 test('tiers: hot 14 days from 28 days of retention, half below', () => {
     assert.deepEqual(rotation.calculateDynamicTiers(30), { totalDays: 30, hotDays: 14, coldDays: 16 });
     assert.deepEqual(rotation.calculateDynamicTiers(10), { totalDays: 10, hotDays: 5, coldDays: 5 });

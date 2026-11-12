@@ -199,7 +199,7 @@ Server List 是 SOMP Vanguard 的核心伺服器資產資料庫 (CMDB)，自動�
 *   **Vacuum 按鈕**：SQLite 資料庫超過 2 GB 時會拒絕執行（VACUUM 會讓整個服務停住很久），請改用下方的維護腳本在停機時段處理。
 *   **效能紀錄**：服務日誌會記錄
     *   `[DB Slow] <毫秒> <類型>: <SQL>`：單次資料庫操作超過 500 毫秒（`DB_SLOW_QUERY_MS` 可調整；只記錄 SQL 語句，不含參數值）。
-    *   `[Event Loop] web|worker blocked ~<毫秒>`：程序被卡住超過 1 秒（`EVENT_LOOP_BLOCK_MS` 可調整），並附上這段時間最慢的資料庫操作。用來找出頁面變慢的原因。
+    *   `[Event Loop] web|worker blocked ~<毫秒>; DB: <次數> call(s), <毫秒> in total`：程序被卡住超過 1 秒（`EVENT_LOOP_BLOCK_MS` 可調整），附上這段時間的資料庫操作次數、總耗時與最慢的一個。資料庫總耗時很少時，代表卡住的是其他運算（例如 JSON 處理）。用來找出頁面變慢的原因。
 *   **維護腳本 `backend\scripts\scoutDbOptimize.bat`**（在 Vanguard 主機上執行）：
     *   不加參數：只產生報告，不做任何變更。內容包括檔案與 WAL 大小、空頁比例、`metrics` / `windows_events` / `linux_logs` 的筆數範圍與索引、重複的索引，以及 VACUUM 需要的磁碟空間。
     *   `--drop-duplicates`：刪除重複的索引（同一張表、相同欄位的索引；保留服務自己建立的那個，唯一索引與主鍵一律不動）。舊版維護流程會建立重複索引，每筆寫入都要多更新一份。

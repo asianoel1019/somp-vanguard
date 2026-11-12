@@ -171,12 +171,18 @@ class SqliteDriver {
         const txWrapper = function (...args) {
             self.ensureDb();
             self.db.exec('BEGIN TRANSACTION;');
+            const rollback = () => { try { self.db.exec('ROLLBACK;'); } catch (e) {} };
             try {
                 const res = callback(self, ...args);
+                // An async callback returns at its first await: commit when it has finished, not then (it used to
+                // commit after the first statement, so every later statement ran as its own transaction).
+                if (res && typeof res.then === 'function') {
+                    return res.then((v) => { self.db.exec('COMMIT;'); return v; }, (err) => { rollback(); throw err; });
+                }
                 self.db.exec('COMMIT;');
                 return res;
             } catch (err) {
-                try { self.db.exec('ROLLBACK;'); } catch (e) {}
+                rollback();
                 throw err;
             }
         };

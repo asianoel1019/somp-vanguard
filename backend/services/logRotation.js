@@ -13,6 +13,7 @@ const path = require('path');
 const zlib = require('zlib');
 const { promisify } = require('util');
 const db = require('./scoutDb');
+const dbManager = require('./db');
 
 const gzip = promisify(zlib.gzip);
 const gunzip = promisify(zlib.gunzip);
@@ -39,6 +40,16 @@ async function writeArchive(tableName, rows) {
 }
 
 const stripRid = (rows) => rows.map(({ __rid, ...r }) => r); // eslint-disable-line no-unused-vars
+
+/**
+ * Copies the pages the deletions left in the WAL back into the database file now, in this (worker) process. Left to
+ * SQLite's automatic checkpoint, that work could fall to the web process's next write and stall it for seconds.
+ */
+function checkpoint() {
+    try {
+        if (dbManager.getDriver()?.dbType === 'sqlite') db.get('PRAGMA wal_checkpoint(PASSIVE)');
+    } catch { /* best effort */ }
+}
 
 /** Deletes rows by rowid, a few hundred per statement, releasing the event loop in between. */
 async function deleteRowids(table, rowids, pauseMs) {
@@ -69,6 +80,7 @@ async function archiveAndDelete(table, nextPage, { batch, archiveRows, pauseMs }
         if (!collected.length) break;
         const file = await writeArchive(table, stripRid(collected)); // archived before anything is deleted
         await deleteRowids(table, collected.map(r => r.__rid), pauseMs);
+        checkpoint();
         removed += collected.length;
         console.log(`[Log Rotation] ${table}: archived and removed ${collected.length} row(s) -> ${path.basename(file)}`);
         if (collected.length < archiveRows) break;
@@ -117,9 +129,11 @@ async function purgeMetrics(retentionDays, { batch, pauseMs }, now = Date.now())
     for (;;) {
         const r = db.run('DELETE FROM metrics WHERE rowid IN (SELECT rowid FROM metrics WHERE timestamp < ? LIMIT ?)', [cutoff, batch]);
         removed += r.changes || 0;
+        if (removed && removed % (batch * 20) === 0) checkpoint();
         if (!r.changes || r.changes < batch) break;
         await pause(pauseMs);
     }
+    if (removed) checkpoint();
     if (removed) console.log(`[Metrics Retention] Removed ${removed} metric row(s) older than ${retentionDays} day(s)`);
     return removed;
 }

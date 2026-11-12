@@ -22,7 +22,7 @@ test.before(async () => {
     await dbManager.initDB();
     writeRbacConfig({
         roles: ['SuperAdmin', 'Operator', 'Viewer', 'None'], users: {}, defaultRole: 'Viewer',
-        groups: { g: { type: 'group', target: 'g', enabled: true, features: { monitorWinEvent: true, monitorLinuxLog: true } } },
+        groups: { g: { type: 'group', target: 'g', enabled: true, features: { monitorWinEvent: true, monitorLinuxLog: true, monitorScout: true } } },
     });
     monitor = require('../../routes/monitor');
     app = express();
@@ -77,4 +77,26 @@ test('Vacuum refuses a large SQLite file', async (t) => {
     t.mock.method(fs, 'statSync', (p, ...rest) => (p === driver.dbFile ? { size: 24 * 1024 ** 3 } : fs.statSync.call(fs, p, ...rest)));
     const r = await request(app).post('/api/monitor/vacuum').set('Authorization', OP).expect(409);
     assert.match(r.body.error, /24\.0 GB.*scoutDbOptimize\.bat/);
+});
+
+test('charts: one point per hour, chosen in the (monitorId, timestamp) index; only those rows are read', async () => {
+    db.run('DELETE FROM metrics');
+    const base = Date.now() - 5 * 3600 * 1000;
+    const rows = [];
+    for (let i = 0; i < 60; i++) rows.push(['mon-chart', new Date(base + i * 5 * 60 * 1000).toISOString(), JSON.stringify({ cpu: i })]);
+    for (const r of [...rows].reverse()) db.run('INSERT INTO metrics (monitorId, timestamp, metrics) VALUES (?, ?, ?)', r); // inserted newest first
+    db.run('INSERT INTO metrics (monitorId, timestamp, metrics) VALUES (?, ?, ?)', ['other', rows[0][1], '{}']);
+
+    const expected = db.all("SELECT min(timestamp) AS timestamp, metrics FROM metrics WHERE monitorId = ? GROUP BY substr(timestamp, 1, 13) ORDER BY timestamp ASC", ['mon-chart']);
+    for (const hours of ['all', '48']) {
+        const r = await request(app).get('/api/monitor/mon-chart/metrics').query({ hours }).set('Authorization', OP).expect(200);
+        assert.deepEqual(r.body.map(p => [p.timestamp, p.metrics.cpu]), expected.map(e => [e.timestamp, JSON.parse(e.metrics).cpu]), hours);
+    }
+    const tenMin = await request(app).get('/api/monitor/mon-chart/metrics').query({ hours: '6' }).set('Authorization', OP).expect(200);
+    assert.ok(tenMin.body.length > expected.length && tenMin.body.length <= 31, `10-minute points: ${tenMin.body.length}`);
+    const raw = await request(app).get('/api/monitor/mon-chart/metrics').query({ hours: '1' }).set('Authorization', OP).expect(200);
+    assert.ok(raw.body.length >= 11 && raw.body.length <= 13, `every point of the last hour: ${raw.body.length}`);
+
+    const plan = db.all("EXPLAIN QUERY PLAN SELECT rowid AS r, min(timestamp) FROM metrics WHERE monitorId = ? GROUP BY substr(timestamp, 1, 13)", ['mon-chart']).map(p => p.detail).join(' | ');
+    assert.match(plan, /COVERING INDEX idx_metrics_monitor_ts/, plan);
 });

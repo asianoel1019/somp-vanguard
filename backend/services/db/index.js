@@ -7,6 +7,7 @@ const PgDriver = require('./drivers/pgDriver');
 const MysqlDriver = require('./drivers/mysqlDriver');
 const MssqlDriver = require('./drivers/mssqlDriver');
 const { buildUpsertSql, translateSql } = require('./translator');
+const { performance } = require('perf_hooks');
 
 let activeDriver = null;
 let writeQueue = [];
@@ -299,9 +300,11 @@ function queueRun(sqlStr, params = []) {
     }
 }
 
-// Statements per transaction when the queue is written; the event loop is released between transactions, so a large
-// queue (hundreds of agents reporting at once) never holds the process for long.
+// Statements per transaction when the queue is written: at most FLUSH_CHUNK, and on SQLite no more than fit in
+// DB_FLUSH_BUDGET_MS (default 50 ms). The event loop is released between transactions, so a large queue (hundreds of
+// agents reporting at once) never holds the process for long and page requests are served in between.
 const FLUSH_CHUNK = 200;
+const flushBudgetMs = () => Number(process.env.DB_FLUSH_BUDGET_MS) || 50;
 let flushing = Promise.resolve();
 
 /** Writes everything queued so far. Calls are serialized; the promise settles when the queue has been written. */
@@ -312,36 +315,53 @@ function flushWriteBuffer() {
 
 async function drainWriteQueue() {
     while (writeQueue.length) {
-        await writeChunk(writeQueue.splice(0, FLUSH_CHUNK));
+        if (getDriver().dbType === 'sqlite') {
+            if (!writeSqliteSlice()) break; // could not even start: try again at the next flush
+        } else await writeChunk(writeQueue.splice(0, FLUSH_CHUNK));
         if (writeQueue.length) await new Promise(r => setImmediate(r));
     }
 }
 
-async function writeChunk(items) {
+/**
+ * One synchronous transaction (one commit) over the front of the queue: up to FLUSH_CHUNK statements, stopping once
+ * the time budget is used. A failing statement (a constraint, say) is skipped without losing the others.
+ * Returns the number of statements taken from the queue.
+ */
+function writeSqliteSlice() {
     const driver = getDriver();
+    const start = performance.now();
+    const budget = flushBudgetMs();
+    let taken = 0;
     let failed = 0;
     let lastError = null;
     try {
-        if (driver.dbType === 'sqlite') {
-            // One synchronous transaction: one commit for the whole chunk. A failing statement (a constraint, say) is
-            // skipped without losing the others.
-            driver.transaction(() => {
-                for (const item of items) {
-                    try { driver.run(item.sqlStr, item.params); } catch (e) { failed++; lastError = e; }
-                }
-            })();
-        } else {
-            await driver.transaction(async (trx) => {
-                for (const item of items) {
-                    await trx.run(item.sqlStr, item.params);
-                }
-            });
-        }
+        driver.transaction(() => {
+            while (taken < writeQueue.length && taken < FLUSH_CHUNK && (taken === 0 || performance.now() - start < budget)) {
+                const item = writeQueue[taken++];
+                try { driver.run(item.sqlStr, item.params); } catch (e) { failed++; lastError = e; }
+            }
+        })();
+    } catch (err) {
+        console.error(`[DB Manager Batch Error] Failed to write ${taken} queued statement(s):`, err.message);
+        failed = 0;
+    } finally {
+        writeQueue.splice(0, taken);
+    }
+    if (failed) console.error(`[DB Manager Batch Error] ${failed} of ${taken} queued statement(s) failed:`, lastError.message);
+    return taken;
+}
+
+/** Other database engines: one transaction per chunk. */
+async function writeChunk(items) {
+    try {
+        await getDriver().transaction(async (trx) => {
+            for (const item of items) {
+                await trx.run(item.sqlStr, item.params);
+            }
+        });
     } catch (err) {
         console.error(`[DB Manager Batch Error] Failed to write ${items.length} queued statement(s):`, err.message);
-        return;
     }
-    if (failed) console.error(`[DB Manager Batch Error] ${failed} of ${items.length} queued statement(s) failed:`, lastError.message);
 }
 
 /**

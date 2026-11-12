@@ -26,12 +26,14 @@ test('a blocked event loop is logged with the number and total time of the datab
     startEventLoopMonitor('test', { intervalMs: 20, blockMs: 100 });
     await new Promise(r => setTimeout(r, 50));
     const busy = (ms) => { const end = Date.now() + ms; while (Date.now() < end) { /* busy */ } };
-    for (let i = 0; i < 4; i++) timed('run', 'INSERT x', () => busy(40));
+    for (let i = 0; i < 3; i++) timed('run', 'INSERT INTO t (a)\n  VALUES (?)', () => busy(40));
+    timed('get', 'SELECT 1', () => busy(10));
     await new Promise(r => setTimeout(r, 60));
     const line = warnings.find(w => w.startsWith('[Event Loop] test blocked'));
     assert.ok(line, warnings.join(' | '));
-    const m = line.match(/; DB: (\d+) call\(s\), (\d+)ms in total$/);
+    const m = line.match(/; DB: (\d+) call\(s\), (\d+)ms in total; top: (\d+)ms 3x run: INSERT INTO t \(a\) VALUES \(\?\) \| (\d+)ms 1x get: SELECT 1$/);
     assert.ok(m, line);
     assert.equal(Number(m[1]), 4);
-    assert.ok(Number(m[2]) >= 155, line);
+    assert.ok(Number(m[2]) >= 125, line);
+    assert.ok(Number(m[3]) >= 115, line);
 });

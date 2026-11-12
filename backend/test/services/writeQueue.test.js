@@ -41,6 +41,41 @@ test('queued statements are written in transactions of 200, committed after thei
     assert.ok(shape.indexOf('event loop') > 0 && shape.indexOf('event loop') < shape.length - 1, `the event loop ran between chunks: ${shape.join(', ')}`);
 });
 
+test('on SQLite a transaction stops taking statements once its time budget is used', async (t) => {
+    process.env.DB_FLUSH_BUDGET_MS = '25';
+    t.after(() => { delete process.env.DB_FLUSH_BUDGET_MS; });
+    const commits = [];
+    let inTx = 0;
+    const realExec = driver.db.exec.bind(driver.db);
+    t.mock.method(driver.db, 'exec', (sql) => {
+        if (/^COMMIT/i.test(sql)) { commits.push(inTx); inTx = 0; }
+        return realExec(sql);
+    });
+    const realRun = driver.run.bind(driver);
+    t.mock.method(driver, 'run', (sql, params) => {
+        inTx++;
+        const end = Date.now() + 10;
+        while (Date.now() < end) { /* a slow statement */ }
+        return realRun(sql, params);
+    });
+    for (let i = 0; i < 9; i++) dbManager.queueRun('INSERT INTO wq_test (v) VALUES (?)', [`s${i}`]);
+    await dbManager.flushWriteBuffer();
+    assert.equal(count(), 9);
+    assert.ok(commits.length >= 3 && commits.every(n => n >= 1 && n <= 3), `statements per transaction: ${commits}`);
+});
+
+test('a transaction that cannot start keeps the queue for the next flush instead of spinning', async (t) => {
+    const errors = [];
+    t.mock.method(console, 'error', (...a) => errors.push(a.join(' ')));
+    driver.db.exec('BEGIN'); // someone else's transaction is open
+    dbManager.queueRun('INSERT INTO wq_test (v) VALUES (?)', ['kept']);
+    await dbManager.flushWriteBuffer();
+    assert.ok(errors.some(e => /Failed to write 0 queued statement/.test(e)), errors.join('\n'));
+    driver.db.exec('ROLLBACK');
+    await dbManager.flushWriteBuffer();
+    assert.deepEqual(driver.all('SELECT v FROM wq_test').map(r => r.v), ['kept']);
+});
+
 test('a failing statement is skipped; the rest of its chunk is written', async (t) => {
     const errors = [];
     t.mock.method(console, 'error', (...a) => errors.push(a.join(' ')));

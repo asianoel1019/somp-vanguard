@@ -10,6 +10,7 @@ const threshold = () => Number(process.env.DB_SLOW_QUERY_MS) || 500;
 let slowest = null; // { kind, sql, ms, at } since the last event-loop check
 let dbCalls = 0; // database calls and their total time since the last event-loop check
 let dbMs = 0;
+let bySql = new Map(); // statement -> { kind, n, ms } since the last event-loop check
 
 const shortSql = (sql) => String(sql || '').replace(/\s+/g, ' ').trim().slice(0, 200);
 
@@ -22,6 +23,9 @@ function timed(kind, sql, fn) {
         const ms = performance.now() - start;
         dbCalls++;
         dbMs += ms;
+        const key = `${kind}: ${shortSql(sql).slice(0, 90)}`;
+        const agg = bySql.get(key);
+        if (agg) { agg.n++; agg.ms += ms; } else if (bySql.size < 500) bySql.set(key, { n: 1, ms });
         if (ms >= threshold()) {
             const entry = { kind, sql: shortSql(sql), ms: Math.round(ms), at: Date.now() };
             if (!slowest || entry.ms > slowest.ms) slowest = entry;
@@ -50,13 +54,16 @@ function startEventLoopMonitor(processLabel, { intervalMs = 500, blockMs = Numbe
         const now = Date.now();
         const lag = now - expected;
         if (lag >= blockMs) {
-            const total = `; DB: ${dbCalls} call(s), ${Math.round(dbMs)}ms in total`;
+            const top = [...bySql.entries()].sort((a, b) => b[1].ms - a[1].ms).slice(0, 3)
+                .map(([k, v]) => `${Math.round(v.ms)}ms ${v.n}x ${k}`).join(' | ');
+            const total = `; DB: ${dbCalls} call(s), ${Math.round(dbMs)}ms in total${top ? `; top: ${top}` : ''}`;
             const db = slowest ? `; slowest DB call: ${slowest.ms}ms ${slowest.kind}: ${slowest.sql}` : '';
             console.warn(`[Event Loop] ${processLabel} blocked ~${lag}ms${total}${db}`);
         }
         slowest = null;
         dbCalls = 0;
         dbMs = 0;
+        bySql = new Map();
         expected = now + intervalMs;
     }, intervalMs);
     if (monitorTimer.unref) monitorTimer.unref();

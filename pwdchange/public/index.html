@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>變更密碼 / Change password</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main class="card">
+  <h1>變更網域密碼<span class="en">Change your domain password</span></h1>
+
+  <div id="httpWarning" class="banner warn" hidden>
+    此頁面目前未加密（HTTP 試用模式），請勿用於正式密碼。<br>This page is not encrypted (HTTP trial mode). Do not use it for real passwords.
+  </div>
+
+  <form id="form" novalidate autocomplete="off">
+    <label for="account">帳號 <span class="en">Account</span></label>
+    <input id="account" name="account" type="text" autocomplete="username" spellcheck="false" placeholder="alice / CORP\alice / alice@example.test" required>
+
+    <label for="currentPassword">目前密碼 <span class="en">Current password</span></label>
+    <input id="currentPassword" name="currentPassword" type="password" autocomplete="current-password" required>
+
+    <label for="newPassword">新密碼 <span class="en">New password</span></label>
+    <input id="newPassword" name="newPassword" type="password" autocomplete="new-password" required>
+
+    <label for="confirmPassword">再次輸入新密碼 <span class="en">Confirm new password</span></label>
+    <input id="confirmPassword" name="confirmPassword" type="password" autocomplete="new-password" required>
+
+    <label class="check"><input id="showPasswords" type="checkbox"> 顯示密碼 <span class="en">Show passwords</span></label>
+
+    <ul id="policy" class="policy" hidden></ul>
+
+    <div id="result" class="banner" role="status" hidden></div>
+
+    <button id="submit" type="submit">變更密碼 <span class="en">Change password</span></button>
+  </form>
+
+  <div class="help">
+    <strong>忘記密碼、帳號被鎖定或停用？</strong> 這個頁面無法處理，請聯絡管理員<span id="contactZh"></span>。<br>
+    <strong>Forgot your password, or is the account locked or disabled?</strong> This page cannot help; please contact the administrator<span id="contactEn"></span>.
+  </div>
+</main>
+<script src="page.js"></script>
+</body>
+</html>

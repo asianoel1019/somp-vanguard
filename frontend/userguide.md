@@ -370,7 +370,7 @@ AD Control 上方有五個分頁：「Browse BU Hierarchy」、「OU Tree」、�
     *   `PWD_NOTIFY_DAYS`：剩餘幾天時寄信，預設 `14,7,3,2,1`（1–90 的整數，以逗號分隔）。剩餘天數以伺服器時區的日曆天計算，到期當天為 0。
     *   `PWD_NOTIFY_OUS`：要檢查的 OU（以 `;` 分隔，含子 OU）。空白時用 `AD_OU_SEARCH`；也沒設定時為整個網域。只檢查啟用中、密碼會過期的帳號，到期時間依 `msDS-UserPasswordExpiryTimeComputed`（細緻密碼原則也會正確計算）。
     *   `PWD_NOTIFY_ADMIN_TO`：彙整收件人（可多個，以 `;` 或 `,` 分隔）；空白時用 Mail Relay 的 `MAIL_RELAY_RECIPIENT`。
-    *   `PWD_NOTIFY_CHANGE_URL`：選填，自助變更密碼頁面的網址，會放進信中。
+    *   `PWD_NOTIFY_CHANGE_URL`：選填，自助變更密碼頁面的網址，會放進信中。可使用 repo 中獨立的 `pwdchange` 小程式（不需登入、只開放內部網段的 AD 變更密碼頁，安裝與設定見 `pwdchange/README.md`）。
     *   需要先設定 Mail Relay（`MAIL_RELAY_SERVER`、`MAIL_RELAY_SENDER`），否則卡片會顯示警告；欄位格式錯誤時會標示原因，且無法儲存。
 *   **給使用者的信**：中英雙語，包含帳號、到期時間、剩餘天數與變更方式（Ctrl+Alt+Del →「變更密碼」，或上述網址），並提醒 IT 不會以 email 索取密碼。沒有 email 的帳號不寄，列入彙整。
 *   **給管理者的彙整**：每次執行一封，列出已寄送、寄送失敗（含原因）、沒有 email、超過上限的帳號；讀取 AD 失敗時也會寄出並附上錯誤。每次最多寄 500 封，其餘列入彙整、隔天再依天數判斷。

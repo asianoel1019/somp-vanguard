@@ -1,0 +1,23 @@
+:root { --bg: #f3f4f6; --card: #fff; --text: #111827; --muted: #6b7280; --border: #d1d5db; --accent: #2563eb; --ok-bg: #ecfdf5; --ok: #047857; --err-bg: #fef2f2; --err: #b91c1c; --warn-bg: #fffbeb; --warn: #b45309; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #0f172a; --card: #1e293b; --text: #f1f5f9; --muted: #94a3b8; --border: #334155; --accent: #60a5fa; --ok-bg: #064e3b; --ok: #6ee7b7; --err-bg: #450a0a; --err: #fca5a5; --warn-bg: #451a03; --warn: #fcd34d; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100vh; display: flex; align-items: flex-start; justify-content: center; padding: 40px 16px; background: var(--bg); color: var(--text); font: 15px/1.6 "Segoe UI", "Microsoft JhengHei", Arial, sans-serif; }
+.card { width: 100%; max-width: 440px; background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 28px; }
+h1 { font-size: 21px; margin: 0 0 18px; }
+.en { display: block; font-size: 13px; font-weight: 400; color: var(--muted); }
+label { display: block; font-weight: 600; margin: 14px 0 4px; }
+label .en { display: inline; margin-left: 4px; }
+input[type=text], input[type=password] { width: 100%; padding: 10px 12px; font-size: 15px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); }
+input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+label.check { display: flex; align-items: center; gap: 6px; font-weight: 400; margin-top: 10px; }
+button { width: 100%; margin-top: 18px; padding: 11px; font-size: 15px; font-weight: 600; color: #fff; background: var(--accent); border: none; border-radius: 8px; cursor: pointer; }
+button:disabled { opacity: .6; cursor: default; }
+button .en { display: inline; color: #e5e7eb; margin-left: 4px; }
+.policy { margin: 14px 0 0; padding: 10px 12px 10px 28px; font-size: 13px; color: var(--muted); border: 1px dashed var(--border); border-radius: 8px; }
+.banner { margin-top: 14px; padding: 10px 12px; border-radius: 8px; font-size: 14px; white-space: pre-line; }
+.banner.ok { background: var(--ok-bg); color: var(--ok); }
+.banner.err { background: var(--err-bg); color: var(--err); }
+.banner.warn { background: var(--warn-bg); color: var(--warn); margin: 0 0 8px; }
+.help { margin-top: 22px; padding-top: 14px; border-top: 1px solid var(--border); font-size: 13px; color: var(--muted); }

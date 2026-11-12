@@ -7,8 +7,98 @@ const { requireAuth, checkRole, checkFeature } = require('../middleware/auth');
 // Only Live Event Viewer -> SIEM Analytics (SiemLocalDashboard.jsx) calls these endpoints
 router.use(requireAuth, checkFeature('monitorWinEvent'));
 
+// ---------------------------------------------------------------------------
+// Counts of the dashboard (totals, top hosts, top event IDs, trend). They used to be 7 GROUP BY queries, each
+// reading every row of the range again, all synchronous: about 7 s on a day of 300 agents (held the whole process),
+// many times that for 7 / 30 days. Now each table is read once, one time slice per query (the timestamp index picks
+// the rows), counted here, with the event loop released between slices; the result is kept STATS_TTL_MS per range.
+// ---------------------------------------------------------------------------
+const STATS_TTL_MS = 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
+const MAX_SLICES = 720;
+const statsCache = new Map(); // activeHours -> { at, promise }
+
+const tick = () => new Promise(r => setImmediate(r));
+
+function topOf(counts, keyName, limit) {
+    return [...counts.entries()]
+        .sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0])))
+        .slice(0, limit)
+        .map(([key, count]) => ({ [keyName]: key, count }));
+}
+
+/**
+ * One pass over `table` from sinceIso (null: everything): { total, hosts: Map, eventIds: Map | null, buckets: Map }.
+ * Slices are [t, t + slice) up to now; the last one is open-ended, so together they are exactly timestamp >= since.
+ */
+async function countTable(table, { sinceIso, bucketLen, withEventIds, now }) {
+    const cols = `host, ${withEventIds ? 'eventID' : 'NULL'} AS eventID, substr(timestamp, 1, ${bucketLen}) AS bucket`;
+    const out = { total: 0, hosts: new Map(), eventIds: withEventIds ? new Map() : null, buckets: new Map() };
+    const add = (rows) => {
+        for (const r of rows) {
+            out.total++;
+            out.hosts.set(r.host, (out.hosts.get(r.host) || 0) + 1);
+            if (out.eventIds) out.eventIds.set(r.eventID, (out.eventIds.get(r.eventID) || 0) + 1);
+            if (r.bucket !== null && r.bucket !== undefined) out.buckets.set(r.bucket, (out.buckets.get(r.bucket) || 0) + 1);
+        }
+    };
+    let from = sinceIso;
+    if (from === null) {
+        add(db.all(`SELECT ${cols} FROM ${table} WHERE timestamp IS NULL`)); // "all time" counted these too
+        from = db.get(`SELECT min(timestamp) AS t FROM ${table}`)?.t;
+        if (!from) return out;
+    }
+    const startMs = Date.parse(from);
+    const span = Number.isFinite(startMs) ? Math.max(0, now - startMs) : 0;
+    const slice = Math.max(HOUR_MS, Math.ceil(span / MAX_SLICES));
+    let lo = from;
+    let loMs = startMs;
+    while (Number.isFinite(loMs) && loMs + slice < now) {
+        const hi = new Date(loMs + slice).toISOString();
+        add(db.all(`SELECT ${cols} FROM ${table} WHERE timestamp >= ? AND timestamp < ?`, [lo, hi]));
+        lo = hi;
+        loMs += slice;
+        await tick();
+    }
+    add(db.all(`SELECT ${cols} FROM ${table} WHERE timestamp >= ?`, [lo]));
+    return out;
+}
+
+async function computeStats(activeHours, now = Date.now()) {
+    const sinceIso = activeHours > 0 ? new Date(now - activeHours * HOUR_MS).toISOString() : null;
+    const minute = activeHours <= 1 && activeHours > 0;
+    const bucketLen = minute ? 16 : 13;
+    const suffix = minute ? ':00Z' : ':00:00Z';
+    const win = await countTable('windows_events', { sinceIso, bucketLen, withEventIds: true, now });
+    await tick();
+    const lin = await countTable('linux_logs', { sinceIso, bucketLen, withEventIds: false, now });
+
+    const trendMap = {};
+    for (const [b, n] of win.buckets) trendMap[b + suffix] = { time: b + suffix, windows: n, linux: 0 };
+    for (const [b, n] of lin.buckets) {
+        const k = b + suffix;
+        if (!trendMap[k]) trendMap[k] = { time: k, windows: 0, linux: 0 };
+        trendMap[k].linux = n;
+    }
+    return {
+        trendData: Object.values(trendMap).sort((a, b) => a.time.localeCompare(b.time)),
+        windows: { total: win.total, topHosts: topOf(win.hosts, 'host', 5), topEventIds: topOf(win.eventIds, 'eventID', 8) },
+        linux: { total: lin.total, topHosts: topOf(lin.hosts, 'host', 5) },
+    };
+}
+
+/** The counts of a range, at most STATS_TTL_MS old; concurrent requests share one computation. */
+function cachedStats(activeHours) {
+    const hit = statsCache.get(activeHours);
+    if (hit && Date.now() - hit.at < STATS_TTL_MS) return hit.promise;
+    const promise = computeStats(activeHours);
+    statsCache.set(activeHours, { at: Date.now(), promise });
+    promise.catch(() => { if (statsCache.get(activeHours)?.promise === promise) statsCache.delete(activeHours); });
+    return promise;
+}
+
 // GET /api/monitor-siem/local-stats
-router.get('/local-stats', requireAuth, checkRole(['SuperAdmin', 'Operator', 'Viewer']), (req, res) => {
+router.get('/local-stats', requireAuth, checkRole(['SuperAdmin', 'Operator', 'Viewer']), async (req, res) => {
     try {
         const hours = parseInt(req.query.hours);
         const activeHours = isNaN(hours) ? 24 : hours;
@@ -45,58 +135,27 @@ router.get('/local-stats', requireAuth, checkRole(['SuperAdmin', 'Operator', 'Vi
         const winEventFilter = search ? `1=1 ${winSearchClause}` : critFilter;
         const linEventFilter = search ? `1=1 ${linSearchClause}` : `(tags LIKE '%security%' OR tags LIKE '%auth%')`;
 
-        // Stats for Windows
-        const totalWindows = db.get(`SELECT count(*) as count FROM windows_events${whereClause}`, params)?.count || 0;
-        const topWindowsHosts = db.all(`SELECT host, count(*) as count FROM windows_events${whereClause} GROUP BY host ORDER BY count DESC LIMIT 5`, params);
-        const topWindowsEventIds = db.all(`SELECT eventID, count(*) as count FROM windows_events${whereClause} GROUP BY eventID ORDER BY count DESC LIMIT 8`, params);
+        // Latest critical events (or the search results) are read per request: they depend on the search text
         const recentCriticalWindows = db.all(`
-            SELECT * FROM windows_events 
-            ${whereClause ? whereClause + " AND (" + winEventFilter + ")" : " WHERE " + winEventFilter} 
+            SELECT * FROM windows_events
+            ${whereClause ? whereClause + " AND (" + winEventFilter + ")" : " WHERE " + winEventFilter}
             ORDER BY timestamp DESC LIMIT ${search ? 100 : 30}
         `, [...params, ...winSearchParams]);
-
-        // Stats for Linux
-        const totalLinux = db.get(`SELECT count(*) as count FROM linux_logs${whereClause}`, params)?.count || 0;
-        const topLinuxHosts = db.all(`SELECT host, count(*) as count FROM linux_logs${whereClause} GROUP BY host ORDER BY count DESC LIMIT 5`, params);
         const recentCriticalLinux = db.all(`
-            SELECT * FROM linux_logs 
-            ${whereClause ? whereClause + " AND (" + linEventFilter + ")" : " WHERE " + linEventFilter} 
+            SELECT * FROM linux_logs
+            ${whereClause ? whereClause + " AND (" + linEventFilter + ")" : " WHERE " + linEventFilter}
             ORDER BY timestamp DESC LIMIT ${search ? 100 : 30}
         `, [...params, ...linSearchParams]);
 
-        // Trend Data (Time Bucketing)
-        const bucketLen = (activeHours <= 1 && activeHours > 0) ? 16 : 13;
-        const bucketSuffix = (activeHours <= 1 && activeHours > 0) ? ':00Z' : ':00:00Z';
-        
-        const winTrendRaw = db.all(`SELECT substr(timestamp, 1, ${bucketLen}) || '${bucketSuffix}' as timeBucket, count(*) as count FROM windows_events${whereClause} GROUP BY timeBucket ORDER BY timeBucket ASC`, params);
-        const linTrendRaw = db.all(`SELECT substr(timestamp, 1, ${bucketLen}) || '${bucketSuffix}' as timeBucket, count(*) as count FROM linux_logs${whereClause} GROUP BY timeBucket ORDER BY timeBucket ASC`, params);
-        
-        const trendMap = {};
-        winTrendRaw.forEach(row => { if (row.timeBucket) trendMap[row.timeBucket] = { time: row.timeBucket, windows: row.count, linux: 0 }; });
-        linTrendRaw.forEach(row => {
-            if (row.timeBucket) {
-                if (!trendMap[row.timeBucket]) trendMap[row.timeBucket] = { time: row.timeBucket, windows: 0, linux: 0 };
-                trendMap[row.timeBucket].linux = row.count;
-            }
-        });
-        const trendData = Object.values(trendMap).sort((a, b) => a.time.localeCompare(b.time));
+        const counts = await cachedStats(activeHours);
 
         res.json({
             success: true,
             timeRange: activeHours === 0 ? 'All Time' : `${activeHours}h`,
             stats: {
-                trendData,
-                windows: {
-                    total: totalWindows,
-                    topHosts: topWindowsHosts,
-                    topEventIds: topWindowsEventIds,
-                    recentCritical: recentCriticalWindows
-                },
-                linux: {
-                    total: totalLinux,
-                    topHosts: topLinuxHosts,
-                    recentCritical: recentCriticalLinux
-                }
+                trendData: counts.trendData,
+                windows: { ...counts.windows, recentCritical: recentCriticalWindows },
+                linux: { ...counts.linux, recentCritical: recentCriticalLinux }
             }
         });
     } catch (error) {
@@ -106,6 +165,8 @@ router.get('/local-stats', requireAuth, checkRole(['SuperAdmin', 'Operator', 'Vi
 });
 
 // POST /api/monitor-siem/generate-report
+router._test = { computeStats, statsCache };
+
 router.post('/generate-report', requireAuth, checkRole(['SuperAdmin', 'Operator']), (req, res) => {
     try {
         const { startTime, endTime, reportType } = req.body;

@@ -2,11 +2,12 @@
 .SYNOPSIS
     Deploy_to_Prod.ps1 - Deploys files from staging directory (Path A) to production directory (Path B).
 .DESCRIPTION
-    1. Copies and replaces all non-excluded files from Path A (Source) to Path B (Target).
+    1. Copies the non-excluded files of Path A (Source) that differ from Path B (Target).
     2. Supports custom exclusion patterns configured in the variables section.
     3. Automatically detects if any backend files are updated.
-    4. If backend files are updated, safely stops service before copy and restarts it afterwards.
-    5. If only frontend static assets are updated, the service keeps running with zero downtime.
+    4. If backend files (or files the running service holds open: *.exe, *.dll, *.node) are updated, stops the
+       service before the copy, waits for it to exit and restarts it afterwards.
+    5. Only the changed files are copied; if only frontend static assets changed, the service keeps running.
     6. -Backup : before deploying, saves a copy of the current production files (same exclusions as the deploy,
                  plus databases / logs) to $BackupRoot\<yyyyMMdd-HHmmss>. Keeps the newest $BackupKeep copies.
     7. -Recover: lists the copies in $BackupRoot, lets you pick one and restores it to Path B (no deploy).
@@ -124,6 +125,57 @@ function Get-AppVersion {
 function Test-IsBackendPath {
     param([string]$Rel)
     return ($Rel -like "backend\*" -or $Rel -like "backend/*" -or $Rel -eq "package.json")
+}
+
+# Files the running service keeps open (the service executable, native modules): replacing them needs a stop
+function Test-IsLockedByService {
+    param([string]$Rel)
+    $ext = [System.IO.Path]::GetExtension($Rel).ToLower()
+    return ($ext -eq ".exe" -or $ext -eq ".dll" -or $ext -eq ".node")
+}
+
+# A change that needs the service stopped during the copy and restarted afterwards
+function Test-NeedsServiceStop {
+    param([string]$Rel)
+    return ((Test-IsBackendPath $Rel) -or (Test-IsLockedByService $Rel))
+}
+
+# Stops the service and waits (up to $TimeoutSec) until it reports Stopped and no process started from Path B
+# is left, so their files are no longer locked. Returns $true when it stopped in time.
+function Stop-ProdService {
+    param([int]$TimeoutSec = 60)
+    Stop-Service -Name $ServiceName -Force -ErrorAction SilentlyContinue
+    $deadline = (Get-Date).AddSeconds($TimeoutSec)
+    $prodRoot = (Resolve-Path -LiteralPath $PathB -ErrorAction SilentlyContinue)
+    while ((Get-Date) -lt $deadline) {
+        $status = (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue).Status
+        $running = @()
+        if ($prodRoot) {
+            $running = @(Get-Process -ErrorAction SilentlyContinue | Where-Object {
+                try { $_.Path -and $_.Path.StartsWith($prodRoot.Path, [System.StringComparison]::OrdinalIgnoreCase) } catch { $false }
+            })
+        }
+        if ($status -ne "Running" -and $status -ne "StopPending" -and $running.Count -eq 0) { return $true }
+        Start-Sleep -Milliseconds 500
+    }
+    Write-Host "[WARNING] Service '$ServiceName' or its processes did not exit within $TimeoutSec seconds." -ForegroundColor Yellow
+    return $false
+}
+
+# Copies one file, retrying while it is locked (a process may take a moment to release it). Throws on failure.
+function Copy-WithRetry {
+    param([string]$Source, [string]$Dest, [int]$Attempts = 5)
+    $destDir = Split-Path $Dest -Parent
+    if (-not (Test-Path -LiteralPath $destDir)) { New-Item -ItemType Directory -Path $destDir -Force | Out-Null }
+    for ($i = 1; $i -le $Attempts; $i++) {
+        try {
+            Copy-Item -LiteralPath $Source -Destination $Dest -Force -ErrorAction Stop
+            return
+        } catch [System.IO.IOException] {
+            if ($i -eq $Attempts) { throw }
+            Start-Sleep -Seconds $i
+        }
+    }
 }
 
 # Copies the production files (deploy exclusions + backup exclusions) to a new folder in $BackupRoot.
@@ -282,7 +334,7 @@ if ($Recover) {
         }
         if (-not $same) { $toRestore += $f }
     }
-    $backendRestore = @($toRestore | Where-Object { Test-IsBackendPath $_.Rel })
+    $backendRestore = @($toRestore | Where-Object { Test-NeedsServiceStop $_.Rel })
 
     # Files deployed after the backup are left in place (listing only); old code does not load them
     $backupSet = @{}
@@ -324,8 +376,7 @@ if ($Recover) {
     $wasRunning = ($svc -and ($svc.Status -eq "Running"))
     if ($backendRestore.Count -gt 0 -and $wasRunning) {
         Write-Host "[INFO] Stopping service '$ServiceName' to release file locks..." -ForegroundColor Yellow
-        Stop-Service -Name $ServiceName -Force -ErrorAction SilentlyContinue
-        Start-Sleep -Seconds 2
+        Stop-ProdService | Out-Null
     }
 
     $restored = 0
@@ -334,8 +385,7 @@ if ($Recover) {
         $destFile = Join-Path $PathB $f.Rel
         $destDir = Split-Path $destFile -Parent
         try {
-            if (-not (Test-Path $destDir)) { New-Item -ItemType Directory -Path $destDir -Force | Out-Null }
-            Copy-Item -LiteralPath $f.Item.FullName -Destination $destFile -Force -ErrorAction Stop
+            Copy-WithRetry -Source $f.Item.FullName -Dest $destFile
             $restored++
         } catch {
             $failed++
@@ -407,6 +457,8 @@ if ($sourceFiles.Count -eq 0) {
 $backendFilesChanged = @()
 $frontendFilesChanged = @()
 $otherFilesChanged = @()
+$changedFiles = @()       # only these are copied
+$lockedFilesChanged = @() # other files the running service holds open (service executable, native modules)
 
 # Compare files between Path A and Path B
 foreach ($file in $sourceFiles) {
@@ -423,6 +475,8 @@ foreach ($file in $sourceFiles) {
     }
 
     if ($isChanged) {
+        $changedFiles += $file
+        if (Test-IsLockedByService $relPath) { $lockedFilesChanged += $relPath }
         if (Test-IsBackendPath $relPath) {
             $backendFilesChanged += $relPath
         } elseif ($relPath -like "frontend\*" -or $relPath -like "frontend/*") {
@@ -434,6 +488,7 @@ foreach ($file in $sourceFiles) {
 }
 
 $hasBackendChanges = ($backendFilesChanged.Count -gt 0)
+$needsServiceStop = ($hasBackendChanges -or $lockedFilesChanged.Count -gt 0)
 $totalChanged = $backendFilesChanged.Count + $frontendFilesChanged.Count + $otherFilesChanged.Count
 
 Write-Host "[INFO] File Change Analysis Summary:" -ForegroundColor Cyan
@@ -503,54 +558,64 @@ if ($Backup) {
     Write-Host ""
 }
 
-# 4. If backend files are updated and service is running, stop it to prevent file locks
+# 4. If backend files (or files the service holds open) changed and the service is running, stop it and wait for
+#    its processes to exit so no file stays locked
 $svc = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
 $wasRunning = ($svc -and ($svc.Status -eq "Running"))
 
-if ($hasBackendChanges -and $wasRunning) {
+if ($needsServiceStop -and $wasRunning) {
     Write-Host ""
-    Write-Host "[INFO] Backend changes detected. Stopping service '$ServiceName' to release file locks..." -ForegroundColor Yellow
-    Stop-Service -Name $ServiceName -Force -ErrorAction SilentlyContinue
-    Start-Sleep -Seconds 2
+    if ($lockedFilesChanged.Count -gt 0 -and -not $hasBackendChanges) {
+        Write-Host "[INFO] Service files changed ($($lockedFilesChanged -join ', ')). Stopping service '$ServiceName' to release file locks..." -ForegroundColor Yellow
+    } else {
+        Write-Host "[INFO] Backend changes detected. Stopping service '$ServiceName' to release file locks..." -ForegroundColor Yellow
+    }
+    if (Stop-ProdService) {
+        Write-Host "[OK] Service stopped." -ForegroundColor Green
+    }
 }
 
-# 5. Copy and overwrite files from Path A to Path B
+# 5. Copy the changed files from Path A to Path B. Unchanged files are left alone, so the running service's
+#    executable is never touched when only frontend files changed.
 Write-Host ""
-Write-Host "[INFO] Copying and overwriting files from Path A to Path B..." -ForegroundColor Cyan
+Write-Host "[INFO] Copying $($changedFiles.Count) changed file(s) from Path A to Path B..." -ForegroundColor Cyan
 $copiedCount = 0
-foreach ($file in $sourceFiles) {
+$copyFailed = @()
+foreach ($file in $changedFiles) {
     $relPath = $file.FullName.Substring($PathA.Length).TrimStart('\', '/')
     $destFile = Join-Path $PathB $relPath
-    $destDir = Split-Path $destFile -Parent
-
-    if (-not (Test-Path $destDir)) {
-        New-Item -ItemType Directory -Path $destDir -Force | Out-Null
+    try {
+        Copy-WithRetry -Source $file.FullName -Dest $destFile
+        $copiedCount++
+    } catch {
+        $copyFailed += $relPath
+        Write-Host "[ERROR] $relPath : $($_.Exception.Message)" -ForegroundColor Red
     }
-
-    Copy-Item -Path $file.FullName -Destination $destFile -Force
-    $copiedCount++
 }
-Write-Host "[OK] File copy complete. Processed $copiedCount file(s)." -ForegroundColor Green
+if ($copyFailed.Count -gt 0) {
+    Write-Host "[WARNING] Copied $copiedCount file(s), $($copyFailed.Count) failed." -ForegroundColor Yellow
+} else {
+    Write-Host "[OK] File copy complete. Copied $copiedCount file(s)." -ForegroundColor Green
+}
 
-# 6. Service restart determination
-if ($hasBackendChanges) {
-    Write-Host ""
-    Write-Host "[INFO] Restarting Windows Service: $ServiceName (Restart-Service)..." -ForegroundColor Yellow
-    if ($svc) {
-        Restart-Service -Name $ServiceName -Force
-        Start-Sleep -Seconds 3
-        $currentStatus = (Get-Service -Name $ServiceName).Status
-        if ($currentStatus -eq "Running") {
-            Write-Host "[OK] Service '$ServiceName' restarted successfully! (Status: $currentStatus)" -ForegroundColor Green
-        } else {
-            Write-Host "[WARNING] Service status after restart: $currentStatus. Please inspect system logs." -ForegroundColor Yellow
-        }
-    } else {
-        Write-Host "[WARNING] Service '$ServiceName' not found. Please verify service name." -ForegroundColor Yellow
-    }
+# 6. Service restart determination (also after a partial copy, so the service is never left stopped)
+if ($needsServiceStop) {
+    Restart-ProdService -Svc $svc -WasRunning $wasRunning
 } else {
     Write-Host ""
     Write-Host "[INFO] Only frontend static files were updated (no backend changes). Service '$ServiceName' kept running with zero downtime!" -ForegroundColor Green
+}
+
+if ($copyFailed.Count -gt 0) {
+    Write-Host ""
+    Write-Host "========================================================" -ForegroundColor Red
+    Write-Host " Deployment finished with $($copyFailed.Count) file(s) NOT copied:" -ForegroundColor Red
+    foreach ($f in $copyFailed) { Write-Host "   - $f" -ForegroundColor Red }
+    Write-Host " Production may be partly updated. Fix the cause and run the deployment again" -ForegroundColor Red
+    Write-Host " (only the files still different are copied)." -ForegroundColor Red
+    Write-Host "========================================================" -ForegroundColor Red
+    Write-Host ""
+    exit 1
 }
 
 Write-Host ""

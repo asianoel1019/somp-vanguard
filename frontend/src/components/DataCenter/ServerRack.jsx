@@ -1,5 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
 import './ServerRack.css';
+import RackCard from './RackCard';
+import RackBody from './RackBody';
+import RackTooltip from './RackTooltip';
+import { DEVICE_TYPES, generateUs, getSplitLocation } from './rackShared';
 import api from '../../api';
 import * as htmlToImage from 'html-to-image';
 import { useToast } from '../../contexts/ToastContext';
@@ -7,29 +11,6 @@ import { canOpenInNetworkDevice, openInNetworkDevice } from '../../utils/network
 
 
 
-
-const DEVICE_TYPES = [
-  { id: 'Server', label: 'Server', icon: '🖥️', category: 'Compute' },
-  { id: 'Nutanix', label: 'Nutanix', icon: '🏢', category: 'Compute' },
-  { id: 'BladeChassis', label: 'Blade Chassis', icon: '🗄️', category: 'Compute' },
-  { id: 'Switch', label: 'Switch', icon: '🔀', category: 'Network' },
-  { id: 'Router', label: 'Router', icon: '🌐', category: 'Network' },
-  { id: 'Firewall', label: 'Firewall', icon: '🔥', category: 'Network' },
-  { id: 'LoadBalancer', label: 'Load Balancer', icon: '🖧', category: 'Network' },
-  { id: 'Proxy', label: 'Proxy', icon: '🛡️', category: 'Network' },
-  { id: 'ISE', label: 'ISE', icon: '🔑', category: 'Network' },
-  { id: 'Storage', label: 'Storage Array', icon: '💽', category: 'Storage' },
-  { id: 'NAS', label: 'NAS', icon: '💾', category: 'Storage' },
-  { id: 'TapeLibrary', label: 'Tape Library', icon: '📼', category: 'Storage' },
-  { id: 'PatchPanel', label: 'Patch Panel', icon: '🎛️', category: 'Other' },
-  { id: 'PowerBar', label: 'PowerBar / PDU', icon: '🔌', category: 'Other' },
-  { id: 'UPS', label: 'UPS', icon: '🔋', category: 'Other' },
-  { id: 'KVM', label: 'KVM Switch', icon: '⌨️', category: 'Other' },
-  { id: 'CableManagement', label: 'Cable Management (理線架)', icon: '⇄', category: 'Other' },
-  { id: 'Shelf', label: 'Shelf (層板)', icon: '📥', category: 'Other' },
-  { id: 'Reserve', label: 'Reserve (預留)', icon: '🚧', category: 'Other' },
-  { id: 'KuaiKuai', label: 'Kuai Kuai (乖乖)', icon: '💚', category: 'Other' }
-];
 
 const DEFAULT_RACK = {
   id: 'rack-1',
@@ -76,32 +57,6 @@ const defaultRacksFor = (dc) => {
 const revisionFromResponse = (res) => {
   const rev = Number(res?.headers?.['x-rack-revision']);
   return Number.isInteger(rev) && rev >= 0 ? rev : 0;
-};
-
-// Generates an array from max down to 1 (desc) or 1 up to max (asc)
-const generateUs = (max, order = 'desc') => {
-  if (order === 'asc') {
-    return Array.from({ length: max }, (_, i) => i + 1);
-  }
-  return Array.from({ length: max }, (_, i) => max - i);
-};
-
-const getDisplayU = (rack, u) => {
-  if (rack.isSplitDesign && u > rack.lowerU) {
-    return u - rack.lowerU;
-  }
-  return u;
-};
-
-const getSplitLocation = (rack, u) => {
-  if (!rack) return `U${u}`;
-  if (rack.isSplitDesign) {
-    if (u > rack.lowerU) {
-      return `U${u - rack.lowerU}U`;
-    }
-    return `D${u}U`;
-  }
-  return `U${u}`;
 };
 
 /**
@@ -951,7 +906,7 @@ export default function ServerRack({ selectedDCId, initialTargetRackId, editRequ
     });
   };
 
-  const isMatched = (device) => {
+  const isMatched = useCallback((device) => {
     if (!searchQuery) return false;
     const q = searchQuery.toLowerCase();
 
@@ -977,7 +932,43 @@ export default function ServerRack({ selectedDCId, initialTargetRackId, editRequ
     }
 
     return false;
-  };
+  }, [searchQuery]);
+
+  // Racks are memoized (RackCard / RackBody): they get one stable `actions` object whose functions call the latest
+  // handlers through a ref, so a re-render of this screen (typing in a dialog, zoom, toasts) does not redraw them.
+  const tipRef = useRef(null);
+  const handlersRef = useRef({});
+  useLayoutEffect(() => {
+    handlersRef.current = {
+      toggleView: (rackId) => toggleRackView(rackId),
+      exportRack: (rackId) => handleExportSingleRack(rackId),
+      editRack: (rack) => openEditRack(rack),
+      addDevice: (rackId, u) => openAddDevice(rackId, u),
+      deviceClick: (rackId, device) => openActionModal(rackId, device),
+      portClick: (device) => { setPortStatusDevice(device); setShowPortStatusModal(true); },
+    };
+  });
+  const rackActions = useMemo(() => ({
+    toggleView: (...a) => handlersRef.current.toggleView(...a),
+    exportRack: (...a) => handlersRef.current.exportRack(...a),
+    editRack: (...a) => handlersRef.current.editRack(...a),
+    addDevice: (...a) => handlersRef.current.addDevice(...a),
+    deviceClick: (...a) => handlersRef.current.deviceClick(...a),
+    portClick: (...a) => handlersRef.current.portClick(...a),
+    tipShow: (tip) => tipRef.current?.show(tip),
+    tipHide: () => tipRef.current?.hide(),
+  }), []);
+  // Search matches per rack as "|deviceId|...|" text: a rack re-renders only when its own matches change
+  const matchedByRack = useMemo(() => {
+    const out = new Map();
+    if (!searchQuery) return out;
+    for (const r of racks) {
+      const ids = (r.devices || []).filter(isMatched).map(d => d.id);
+      if (ids.length) out.set(r.id, `|${ids.join('|')}|`);
+    }
+    return out;
+  }, [racks, searchQuery, isMatched]);
+  const noop = useCallback(() => {}, []);
 
   const handleNodeChange = (idx, field, val) => {
     const newNodes = [...(currentDevice.nodes || [])];
@@ -1014,7 +1005,7 @@ export default function ServerRack({ selectedDCId, initialTargetRackId, editRequ
     });
 
     return results;
-  }, [searchQuery, racks]);
+  }, [searchQuery, racks, isMatched]);
 
   const handleResultClick = (res) => {
     const rackId = res.rack.id;
@@ -1074,385 +1065,6 @@ export default function ServerRack({ selectedDCId, initialTargetRackId, editRequ
       processNotes: []
     });
     setShowHWFormModal(true);
-  };
-
-  const renderRackBody = (rack) => {
-    const sideDevices = rack.devices || [];
-    const isUOrderAsc = uOrder === 'asc'; // 1U at top, 42U at bottom
-
-    return (
-      <div className="rack-body">
-        {/* Left Rail */}
-        <div className="rack-rail left">
-          {generateUs(rack.height, uOrder).map(u => (
-            <React.Fragment key={u}>
-              <div className="rail-u">
-                <div className="rail-hole"></div>
-                <span className="rail-u-number">{getDisplayU(rack, u)}</span>
-                <div className="rail-hole"></div>
-              </div>
-              {rack.isSplitDesign && u === rack.lowerU + 1 && (
-                <div className="rail-divider" style={{ height: '24px', background: 'linear-gradient(90deg, #1e293b, #334155, #1e293b)', borderTop: '2px solid #0f172a', borderBottom: '2px solid #0f172a' }}></div>
-              )}
-            </React.Fragment>
-          ))}
-        </div>
-
-        {/* Center Slots Area */}
-        <div className="rack-slots" style={{ position: 'relative', height: `${rack.height * 38 + (rack.isSplitDesign ? 24 : 0)}px` }}>
-          {generateUs(rack.height, uOrder).map(u => (
-            <React.Fragment key={u}>
-              <div
-                className={`u-slot ${sideDevices.some(d => u >= d.startU && u < d.startU + d.sizeU) ? 'is-occupied' : ''}`}
-                onClick={() => {
-                  const isOccupied = sideDevices.some(d => u >= d.startU && u < d.startU + d.sizeU);
-                  if (!isOccupied && role !== 'Viewer') openAddDevice(rack.id, u);
-                }}
-              >
-              </div>
-              {rack.isSplitDesign && u === rack.lowerU + 1 && (
-                <div className="slot-divider" style={{ height: '24px', background: 'repeating-linear-gradient(45deg, #0f172a, #0f172a 10px, #1e293b 10px, #1e293b 20px)', borderTop: '2px solid #000', borderBottom: '2px solid #000', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', fontSize: '10px', fontWeight: 'bold', letterSpacing: '2px' }}>
-                  --- SPLIT DIVIDER ---
-                </div>
-              )}
-            </React.Fragment>
-          ))}
-
-          {sideDevices.map(device => {
-            const icon = DEVICE_TYPES.find(t => t.id === device.type)?.icon || '🖥️';
-            
-            // Positioning calculation based on uOrder:
-            const posStyle = isUOrderAsc ? {
-              top: `${(device.startU - 1) * 38 + (rack.isSplitDesign && device.startU > rack.lowerU ? 24 : 0)}px`,
-              bottom: 'auto'
-            } : {
-              bottom: `${(device.startU - 1) * 38 + (rack.isSplitDesign && device.startU > rack.lowerU ? 24 : 0)}px`,
-              top: 'auto'
-            };
-
-            return (
-              <div
-                id={`device-${rack.id}-${device.id}`}
-                key={device.id}
-                className={`device-block ${isMatched(device) ? 'search-highlight' : ''}`}
-                style={{
-                  ...posStyle,
-                  height: `${device.sizeU * 38 + (rack.isSplitDesign && device.startU <= rack.lowerU && (device.startU + device.sizeU - 1) > rack.lowerU ? 24 : 0)}px`,
-                  ...(device.type === 'PowerBar' && device.orientation === 'vertical' ? {
-                    width: device.side === 'both' ? '100%' : '32px',
-                    left: device.side === 'right' ? 'auto' : (device.side === 'both' ? '0' : '-5px'),
-                    right: device.side === 'left' ? 'auto' : (device.side === 'both' ? '0' : '-5px'),
-                    zIndex: 100,
-                    pointerEvents: 'none'
-                  } : {})
-                }}
-                onClick={() => openActionModal(rack.id, device)}
-              >
-                <div className={`device-inner device-type-${device.type}`}>
-                  {/* Kuai Kuai (乖乖) Visual Rendering */}
-                  {device.type === 'KuaiKuai' && (
-                    <div style={{
-                      position: 'absolute',
-                      top: '50%',
-                      left: '50%',
-                      transform: 'translate(-50%, -50%)',
-                      width: '140px',
-                      height: '32px',
-                      background: 'linear-gradient(to right, #15803d, #22c55e, #15803d)',
-                      borderRadius: '6px',
-                      boxShadow: '0 3px 6px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.3)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      padding: '0 8px',
-                      border: '1px solid #166534',
-                      fontFamily: '"Microsoft JhengHei", sans-serif',
-                      zIndex: 5,
-                      gap: '8px'
-                    }}>
-                      {/* Jagged Left Edge */}
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, justifyContent: 'space-around', height: '100%', width: 4 }}>
-                        {Array.from({ length: 6 }).map((_, i) => (
-                          <div key={i} style={{ width: 2, height: 2, background: 'rgba(0,0,0,0.4)', borderRadius: '50%' }} />
-                        ))}
-                      </div>
-
-                      {/* Big Red "乖" Circle */}
-                      <div style={{
-                        width: '18px',
-                        height: '18px',
-                        borderRadius: '50%',
-                        background: '#ef4444',
-                        border: '1.5px solid #fff',
-                        boxShadow: '0 1px 3px rgba(0,0,0,0.5)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        color: '#fff',
-                        fontSize: '11px',
-                        fontWeight: 'bold',
-                        lineHeight: 1,
-                        flexShrink: 0
-                      }}>
-                        乖
-                      </div>
-
-                      {/* Brand & Text */}
-                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', justifyContent: 'center', flex: 1 }}>
-                        <div style={{ fontSize: '9px', fontWeight: 'bold', color: '#fff', textShadow: '1px 1px 1px #000' }}>
-                          乖乖 (造句包)
-                        </div>
-                        <div style={{ fontSize: '9px', fontWeight: 'bold', color: '#fef08a', textShadow: '1px 1px 1px #000', marginTop: -1 }}>
-                          綠色順利 • 不當機
-                        </div>
-                      </div>
-
-                      {/* Jagged Right Edge */}
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, justifyContent: 'space-around', height: '100%', width: 4, marginLeft: 'auto' }}>
-                        {Array.from({ length: 6 }).map((_, i) => (
-                          <div key={i} style={{ width: 2, height: 2, background: 'rgba(0,0,0,0.4)', borderRadius: '50%' }} />
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {device.type !== 'Shelf' && device.type !== 'KuaiKuai' && (
-                    <div className="device-info" style={{
-                      position: 'absolute',
-                      right: '3.5rem',
-                      textAlign: 'right',
-                      zIndex: 10,
-                      ...(device.sizeU >= 2 ? { top: '8px', transform: 'none' } : {})
-                    }}>
-                      <span className="device-name">
-                        {device.type === 'Reserve' ? (device.note || 'Reserved') : (device.hostname || `Unknown ${device.type}`)}
-                      </span>
-                      {device.type === 'PowerBar' ? (
-                        (device.amps || device.volts) ? (
-                          <span className="device-ip" style={{ color: '#f59e0b', fontWeight: 800, fontSize: '11px' }}>
-                            ⚡ {device.amps ? `${device.amps}${String(device.amps).toLowerCase().includes('a') ? '' : 'A'}` : ''}{device.amps && device.volts ? ' / ' : ''}{device.volts ? `${device.volts}${String(device.volts).toLowerCase().includes('v') ? '' : 'V'}` : ''}
-                          </span>
-                        ) : (
-                          device.ip && <span className="device-ip">{device.ip}</span>
-                        )
-                      ) : (
-                        device.type !== 'Reserve' && <span className="device-ip">{['Nutanix', 'BladeChassis'].includes(device.type) ? (device.ip || device.cvmIp) : device.ip}</span>
-                      )}
-                    </div>
-                  )}
-                </div>
-                {device.type === 'PowerBar' && (
-                  <div className={`powerbar-render-area ${device.orientation}`} style={{ width: '100%', height: '100%', position: 'absolute', top: 0, left: 0 }}>
-                    {device.orientation === 'vertical' ? (
-                      <>
-                        {(device.side === 'left' || device.side === 'both') && (
-                          <div
-                            className={`powerbar-realistic vertical rows-${device.rows || 1} side-left`}
-                            style={{ left: device.side === 'both' ? '-5px' : '0', width: (device.rows === 3 ? '52px' : (device.rows === 2 ? '42px' : '32px')), pointerEvents: 'auto', transform: 'none', top: 0 }}
-                          >
-                            <div className="powerbar-outlets">
-                              {Array.from({ length: device.ways || 0 }).map((_, i) => (
-                                <div key={i} className={`powerbar-outlet ${device.wayLinks?.[`L${i}`] || device.wayLinks?.[i] ? 'has-link' : ''}`} title={device.wayLinks?.[`L${i}`] || device.wayLinks?.[i] || `Left Way ${i + 1}`}>
-                                  {(device.wayLinks?.[`L${i}`] || device.wayLinks?.[i]) && <div className="led-indicator-on" />}
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                        {(device.side === 'right' || device.side === 'both') && (
-                          <div
-                            className={`powerbar-realistic vertical rows-${device.rows || 1} side-right`}
-                            style={{ right: device.side === 'both' ? '-5px' : '0', left: 'auto', width: (device.rows === 3 ? '52px' : (device.rows === 2 ? '42px' : '32px')), pointerEvents: 'auto', transform: 'none', top: 0 }}
-                          >
-                            <div className="powerbar-outlets">
-                              {Array.from({ length: device.ways || 0 }).map((_, i) => (
-                                <div key={i} className={`powerbar-outlet ${device.wayLinks?.[`R${i}`] || (device.side === 'right' && device.wayLinks?.[i]) ? 'has-link' : ''}`} title={device.wayLinks?.[`R${i}`] || (device.side === 'right' && device.wayLinks?.[i]) || `Right Way ${i + 1}`}>
-                                  {(device.wayLinks?.[`R${i}`] || (device.side === 'right' && device.wayLinks?.[i])) && <div className="led-indicator-on" />}
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                      </>
-                    ) : (
-                      <div
-                        className={`powerbar-realistic horizontal rows-${device.rows || 1}`}
-                        style={{ pointerEvents: 'auto', transform: 'translateY(-50%)', left: '1%', width: '98%', top: '50%' }}
-                      >
-                        <div className="powerbar-outlets">
-                          {Array.from({ length: device.ways || 0 }).map((_, i) => (
-                            <div key={i} className={`powerbar-outlet ${device.wayLinks?.[i] || device.wayLinks?.[`L${i}`] || device.wayLinks?.[`R${i}`] ? 'has-link' : ''}`} title={device.wayLinks?.[i] || device.wayLinks?.[`L${i}`] || device.wayLinks?.[`R${i}`] || `Outlet ${i + 1}`}>
-                              {(device.wayLinks?.[i] || device.wayLinks?.[`L${i}`] || device.wayLinks?.[`R${i}`]) && <div className="led-indicator-on" />}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {['Switch', 'Firewall', 'Router', 'LoadBalancer', 'Server', 'Storage', 'Proxy', 'ISE', 'NAS', 'TapeLibrary'].includes(device.type) && device.ports > 0 && (() => {
-                  const actualPorts = device.ports || (['PatchPanel', 'CableManagement'].includes(device.type) ? 24 : 8);
-                  const autoRows = actualPorts > 10 ? 2 : (device.rows || 1);
-                  const displayPorts = Math.min(actualPorts, 24);
-                  const hasMore = actualPorts > 24;
-
-                  const handlePortClick = (e) => {
-                    e.stopPropagation();
-                    setPortStatusDevice({ ...device, _actualPorts: actualPorts });
-                    setShowPortStatusModal(true);
-                  };
-
-                  return (
-                    <div className={`${device.type.toLowerCase()}-realistic switch-realistic rows-${autoRows}`} style={{
-                      ...(['PatchPanel', 'CableManagement'].includes(device.type) ? { background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '4px', width: '100%', ...(device.sizeU >= 2 ? { height: 'auto', padding: '10px 0' } : { height: '100%' }) } : {}),
-                      ...(device.sizeU >= 2 ? { top: 'auto', bottom: '8px', transform: 'none' } : {})
-                    }}>
-                      <div className="port-container" onClick={handlePortClick} style={{ cursor: 'pointer' }}>
-                        {Array.from({ length: displayPorts }).map((_, i) => {
-                          let label = `P${i + 1}`;
-                          if (autoRows === 2) {
-                            const isTop = i % 2 === 0;
-                            label = `P${i + 1} (${isTop ? 'Upper' : 'Lower'})`;
-                          }
-                          let liveClass = '';
-                          if (device.livePorts && device.livePorts[i]) {
-                            const isUp = device.livePorts[i].status === 'Up' || device.livePorts[i].value === '1';
-                            liveClass = isUp ? ' snmp-up' : ' snmp-down';
-                            if (device.livePorts[i].name) {
-                              label = `${device.livePorts[i].name} (${label})`;
-                            }
-                          }
-                          return (
-                            <div key={i} className={`port-square ${device.portLinks?.[i] ? 'has-link' : ''}${liveClass}`} title={device.portLinks?.[i] || label}>
-                              {device.portLinks?.[i] && !liveClass && <div className="led-indicator-on" />}
-                            </div>
-                          );
-                        })}
-                        {hasMore && (
-                          <div className="port-square" title="View all ports" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.1)', color: '#fff', fontSize: '10px', fontWeight: 'bold' }}>
-                            ...
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })()}
-
-                {device.type === 'Shelf' && (
-                  <div className="shelf-realistic" />
-                )}
-
-                {/* Always on top: Hardware Icon & Tooltip */}
-                <div className="device-type-icon" style={{
-                  position: 'absolute',
-                  left: (device.type === 'PowerBar' && device.orientation === 'vertical')
-                    ? (device.side === 'both' ? '50%' : (device.side === 'left' ? '45px' : 'auto'))
-                    : (device.type === 'PowerBar' && device.orientation === 'horizontal' ? 'auto' : (device.type === 'PowerBar' ? '50%' : 'auto')),
-                  right: (device.type === 'PowerBar' && device.orientation === 'vertical')
-                    ? (device.side === 'right' ? '45px' : 'auto')
-                    : (device.type === 'PowerBar' && device.orientation === 'horizontal' ? '1rem' : (device.type === 'PowerBar' ? 'auto' : '1rem')),
-                  top: '50%',
-                  transform: 'translate(-50%, -50%)',
-                  zIndex: 2000,
-                  fontSize: '1.5rem',
-                  pointerEvents: 'auto'
-                }}>
-                  {device.type !== 'Shelf' && icon}
-                  <div className="device-tooltip">
-                    <div className="tooltip-header">{DEVICE_TYPES.find(t => t.id === device.type)?.label || device.type} Info</div>
-                    <div className="tooltip-row"><span>Location:</span> {rack.isSplitDesign ? getSplitLocation(rack, device.startU) : `U${device.startU}`}</div>
-
-                    {/* Patch Panel */}
-                    {['PatchPanel', 'CableManagement'].includes(device.type) && (
-                      <div className="tooltip-row"><span>Model:</span> {device.model || 'N/A'}</div>
-                    )}
-
-                    {/* Reserve */}
-                    {device.type === 'Reserve' && (
-                      <div className="tooltip-row"><span>Note:</span> {device.note || 'No note'}</div>
-                    )}
-
-                    {/* Kuai Kuai Expiration */}
-                    {device.type === 'KuaiKuai' && (
-                      <div className="tooltip-row" style={{ color: '#4ade80' }}>
-                        <span>Expiration:</span> {device.expiryDate ? new Date(device.expiryDate).toLocaleDateString() : 'Never'}
-                      </div>
-                    )}
-
-                    {/* Shelf */}
-                    {device.type === 'Shelf' && (
-                      <div className="tooltip-row"><span>Type:</span> Shelf / Tray</div>
-                    )}
-
-                    {/* Server, Storage Array, and Nutanix (non-chassis) */}
-                    {(device.type === 'Server' || device.type === 'Storage' || (['Nutanix', 'BladeChassis'].includes(device.type) && !device.isChassis)) && (
-                      <>
-                        <div className="tooltip-row"><span>Host:</span> {device.hostname || 'N/A'}</div>
-                        <div className="tooltip-row"><span>iLO:</span> {device.iloIp || 'N/A'}</div>
-                        <div className="tooltip-ports">Ports: {device.ports || 0} ({Object.keys(device.portLinks || {}).length} connected)</div>
-                      </>
-                    )}
-
-                    {/* Nutanix Chassis */}
-                    {['Nutanix', 'BladeChassis'].includes(device.type) && device.isChassis && (
-                      <div className="tooltip-nodes" style={{ marginTop: '0.5rem', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '0.5rem' }}>
-                        {(device.nodes || []).map((node, idx) => (
-                          <div key={idx} style={{ marginBottom: idx === (device.nodes.length - 1) ? 0 : '0.5rem', fontSize: '0.75rem' }}>
-                            <div style={{ color: 'var(--accent-primary)', fontWeight: 'bold', fontSize: '0.8rem', marginBottom: '0.2rem' }}>Node {idx + 1}</div>
-                            <div className="tooltip-row"><span>Host:</span> {node.hostname || 'N/A'}</div>
-                            {node.sn && <div className="tooltip-row"><span>SN:</span> {node.sn}</div>}
-                            <div className="tooltip-row"><span>iLO:</span> {node.iloIp || 'N/A'}</div>
-                            <div className="tooltip-ports" style={{ fontSize: '0.7rem', marginTop: '0.2rem' }}>Ports: {node.ports || 0} ({Object.keys(node.portLinks || {}).length} connected)</div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Switch, Firewall, Router, LoadBalancer */}
-                    {(device.type === 'Switch' || device.type === 'Firewall' || device.type === 'Router' || device.type === 'LoadBalancer' || device.type === 'Proxy' || device.type === 'ISE' || device.type === 'NAS' || device.type === 'TapeLibrary') && (
-                      <>
-                        <div className="tooltip-row"><span>Host:</span> {device.hostname}</div>
-                        {device.ip && <div className="tooltip-row"><span>IP:</span> {device.ip}</div>}
-                        <div className="tooltip-ports">Ports: {device.ports} ({Object.keys(device.portLinks || {}).length} connected)</div>
-                      </>
-                    )}
-
-                    {/* PowerBar */}
-                    {device.type === 'PowerBar' && (
-                      <>
-                        <div className="tooltip-row"><span>Label:</span> {device.hostname || 'PDU'}</div>
-                        {(device.amps || device.volts) && (
-                          <div className="tooltip-row">
-                            <span>Rating:</span> {device.amps ? `${device.amps}${String(device.amps).toLowerCase().includes('a') ? '' : 'A'}` : ''}{device.amps && device.volts ? ' / ' : ''}{device.volts ? `${device.volts}${String(device.volts).toLowerCase().includes('v') ? '' : 'V'}` : ''}
-                          </div>
-                        )}
-                        <div className="tooltip-ports">Ways: {device.ways} ({Object.keys(device.wayLinks || {}).length} connected) {device.rows ? `[${device.rows} Rows]` : ''}</div>
-                      </>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )
-          })}
-        </div>
-
-        {/* Right Rail */}
-        <div className="rack-rail right">
-          {generateUs(rack.height, uOrder).map(u => (
-            <React.Fragment key={u}>
-              <div className="rail-u">
-                <div className="rail-hole"></div>
-                <span className="rail-u-number">{getDisplayU(rack, u)}</span>
-                <div className="rail-hole"></div>
-              </div>
-              {rack.isSplitDesign && u === rack.lowerU + 1 && (
-                <div className="rail-divider" style={{ height: '24px', background: 'linear-gradient(-90deg, #1e293b, #334155, #1e293b)', borderTop: '2px solid #0f172a', borderBottom: '2px solid #0f172a' }}></div>
-              )}
-            </React.Fragment>
-          ))}
-        </div>
-      </div>
-    );
   };
 
   const s = {
@@ -1570,6 +1182,7 @@ export default function ServerRack({ selectedDCId, initialTargetRackId, editRequ
         </div>
       </div>
 
+      <RackTooltip ref={tipRef} />
       <div className="rack-container" style={{ display: 'flex', flexDirection: 'column', gap: '3rem', flexWrap: 'nowrap', zoom: zoomLevel / 100 }}>
         {(() => {
           const frontRacks = racks.filter(r => !r.isBack);
@@ -1597,71 +1210,13 @@ export default function ServerRack({ selectedDCId, initialTargetRackId, editRequ
                   ROW {rowNum}
                 </div>
                 <div className="rack-layout-row" style={{ display: 'flex', gap: '3rem', flexWrap: 'nowrap', paddingBottom: '1rem' }}>
-                  {sortedRacksInRow.map((rack) => {
-                    const backRack = racks.find(r => r.id === rack.partnerId) || { ...rack, name: `${rack.name} (Back)`, devices: [], isBack: true };
-
-                  return (
-                    <div key={rack.id} id={`rack-container-${rack.id}`} className="rack-wrapper">
-                      <div className="rack-header">
-                        <div className="rack-header-main">
-                          <div className="rack-title-row">
-                            <span className="rack-type-icon">🖴</span>
-                            <h3 className="rack-name">
-                              {rack.viewMode === 'back' ? (
-                                <>
-                                  {rack.name} <span style={{ color: 'var(--danger)' }}>(Back)</span>
-                                </>
-                              ) : rack.name}
-                            </h3>
-                            <div className="rack-power-badge">
-                              <span className={`lightning-icon ${(rack.amps || rack.volts) ? 'active' : ''}`} title={(rack.amps || rack.volts) ? 'Power configured' : 'No power info'}>⚡</span>
-                              {(rack.amps || rack.volts) && (
-                                <span className="rack-power-text">
-                                  {rack.amps && <span>{rack.amps}A</span>}
-                                  {rack.volts && <span>{rack.volts}V</span>}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-
-                          <div className="rack-info-row">
-                            <span>{rack.height}U</span>
-                            <span className="dot-separator">•</span>
-                            <span>{rack.devices?.length || 0} devices</span>
-                            <span className="dot-separator">•</span>
-                            <span>{rack.devices?.reduce((sum, d) => sum + d.sizeU, 0) || 0}U used</span>
-                          </div>
-                        </div>
-
-                        <div className="rack-header-actions">
-                          <div className="flex gap-2">
-                            <button className="btn-icon" title="Flip View" onClick={() => toggleRackView(rack.id)}>
-                              🔄
-                            </button>
-                            <button className="btn-icon" title="Export to PNG Image" onClick={() => handleExportSingleRack(rack.id)}>
-                              📥
-                            </button>
-                            {role === 'SuperAdmin' && (
-                              <button className="btn-icon" title="Edit Rack" onClick={() => openEditRack(rack.viewMode === 'back' ? backRack : rack)}>
-                                🖊️
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className={`rack-body-container ${rack.viewMode === 'back' ? 'is-back' : ''}`}>
-                        <div className="rack-face front">
-                          {renderRackBody(rack)}
-                        </div>
-                        <div className="rack-face back">
-                          <div className="rack-back-label">BACK VIEW</div>
-                          {renderRackBody(backRack)}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
+                  {sortedRacksInRow.map((rack) => (
+                    <RackCard
+                      key={rack.id} rack={rack} partner={rack.partnerId ? racks.find(r => r.id === rack.partnerId) || null : null}
+                      uOrder={uOrder} role={role} actions={rackActions}
+                      matchedFront={matchedByRack.get(rack.id) || ''} matchedBack={matchedByRack.get(rack.partnerId) || ''}
+                    />
+                  ))}
               </div>
             </div>
           );
@@ -2990,7 +2545,7 @@ export default function ServerRack({ selectedDCId, initialTargetRackId, editRequ
                       </span>
                     </div>
                     <div className="print-rack-scale-wrapper" style={scaleStyle}>
-                      {renderRackBody(activeRack)}
+                      <RackBody rack={activeRack} uOrder={uOrder} canAdd={false} onAddDevice={noop} onDeviceClick={noop} onPortClick={noop} />
                     </div>
                   </div>
                 </div>
@@ -3036,7 +2591,7 @@ export default function ServerRack({ selectedDCId, initialTargetRackId, editRequ
                             </span>
                           </div>
                           <div className="export-rack-body-wrapper">
-                            {renderRackBody(activeRack)}
+                            <RackBody rack={activeRack} uOrder={uOrder} canAdd={false} onAddDevice={noop} onDeviceClick={noop} onPortClick={noop} />
                           </div>
                         </div>
                       );

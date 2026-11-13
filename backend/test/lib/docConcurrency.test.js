@@ -286,7 +286,7 @@ test('contracts: a contract saved by another request during the upload scan is k
     const KEY = 'data_center/contracts.json';
     seedThenExternal(KEY, [{ id: 'c1', name: 'one' }], [{ id: 'c1', name: 'one' }, { id: 'c-ext', name: 'ext' }]);
     const token = `Bearer ${signToken({ username: 'sa', domain: 'corp', role: 'SuperAdmin', groups: [] })}`;
-    const r = await request(app).post('/api/rack/contracts').set('Authorization', token).send({ name: 'new', type: 'license' });
+    const r = await request(app).post('/api/rack/contracts').set('Authorization', token).send({ name: 'new', vendor: 'Vendor', type: 'Software Licenses', startDate: '2026-01-01', endDate: '2026-12-31' });
     assert.equal(r.status, 200, JSON.stringify(r.body));
     assert.deepEqual(row(KEY).map(c => c.id).slice(0, 2), ['c1', 'c-ext']);
     assert.equal(row(KEY).length, 3);

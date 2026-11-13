@@ -1,530 +1,379 @@
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+    TbPlus, TbSearch, TbTable, TbLayoutGrid, TbFileExport, TbShieldCheck, TbHourglassHigh, TbShieldX, TbCalendarDue,
+    TbReceipt2, TbLicense, TbTrash, TbFileText, TbServer2, TbAlertTriangle, TbRestore,
+} from 'react-icons/tb';
+import api from '../../api';
 import { useToast } from '../../contexts/ToastContext';
 import { useConfirm } from '../../contexts/ConfirmContext';
-import React, { useState, useEffect, useRef } from 'react';
-import api from '../../api';
+import {
+    STATUSES, SORTS, contractKpis, moneyText, filterContracts, sortContracts, vendorsOf, contractsCsv, emptyContract,
+    editDraft, renewalDraft, relatedIssues, seatUsage, formatMoney, contractStatus,
+} from './contractUtils';
+import { formatNoteTime } from './hwIssueUtils';
+import { CONTRACT_STATUS_META } from './contractTheme';
+import { ContractStatusBadge, DaysChip, TermBar } from './ContractParts';
+import ContractForm from './ContractForm';
+import ContractDrawer from './ContractDrawer';
+import './hwIssues.css';
+import './contracts.css';
 
-const ContractsWarranties = () => {
-    const user = JSON.parse(localStorage.getItem('user') || '{}');
-    const role = user.role || 'Viewer';
+const TABS = [
+    ['Hardware Warranties', 'Hardware Warranties', TbShieldCheck],
+    ['Software Licenses', 'Software Licenses', TbLicense],
+    ['Trash', 'Trash', TbTrash],
+];
+const VIEW_KEY = 'contracts_view_mode';
+
+function readView() {
+    try { return localStorage.getItem(VIEW_KEY) === 'cards' ? 'cards' : 'table'; } catch { return 'table'; }
+}
+
+function Kpi({ label, value, sub, tone, icon, active, onClick, alert }) {
+    const Icon = icon;
+    return (
+        <div
+            className={`glass-panel hw-kpi${onClick ? ' is-clickable' : ''}`}
+            style={{ '--hw-tone': tone, ...(active ? { outline: `2px solid ${tone}` } : {}) }}
+            onClick={onClick}
+            onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } } : undefined}
+            role={onClick ? 'button' : undefined}
+            tabIndex={onClick ? 0 : undefined}
+            aria-pressed={onClick ? !!active : undefined}
+        >
+            <span className="hw-kpi-icon"><Icon size={20} aria-hidden="true" /></span>
+            <div className="hw-kpi-body">
+                <div className="hw-kpi-label">{label}</div>
+                <div className={`hw-kpi-value${alert ? ' is-alert' : ''}`}>{value}</div>
+                {sub && <div className="hw-kpi-sub" title={sub}>{sub}</div>}
+            </div>
+        </div>
+    );
+}
+
+const ContractsWarranties = ({ onShowInRack }) => {
+    const { showToast } = useToast();
+    const { showConfirm } = useConfirm();
+    const role = useMemo(() => {
+        try { return JSON.parse(localStorage.getItem('user') || '{}').role || 'Viewer'; } catch { return 'Viewer'; }
+    }, []);
+    const canWrite = role === 'SuperAdmin' || role === 'Operator';
+    const isSuperAdmin = role === 'SuperAdmin';
 
     const [contracts, setContracts] = useState([]);
     const [devices, setDevices] = useState([]);
     const [issues, setIssues] = useState([]);
-    const [activeTab, setActiveTab] = useState('Hardware Warranties');
     const [loading, setLoading] = useState(true);
-    const [searchTerm, setSearchTerm] = useState('');
+    const [loadError, setLoadError] = useState('');
+    const [tab, setTab] = useState('Hardware Warranties');
+    const [view, setView] = useState(readView);
+    const [q, setQ] = useState('');
+    const [status, setStatus] = useState('ALL');
+    const [vendor, setVendor] = useState('ALL');
+    const [sort, setSort] = useState('end');
+    const [selectedId, setSelectedId] = useState(null);
+    const [formState, setFormState] = useState(null); // { draft, stored, renewing }
+    const [now, setNow] = useState(() => Date.now()); // refreshed with every load
 
-    const [showModal, setShowModal] = useState(false);
-    const [currentForm, setCurrentForm] = useState(null);
-    const [uploading, setUploading] = useState(false);
-    const fileInputRef = useRef(null);
+    const [reloadKey, setReloadKey] = useState(0);
+    const load = useCallback(() => setReloadKey(k => k + 1), []);
 
     useEffect(() => {
-        fetchData();
-    }, []);
-
-    const fetchData = async () => {
-        setLoading(true);
-        try {
-            const [conRes, rackRes, issuesRes] = await Promise.all([
-                api.get('/rack/contracts'),
-                api.get('/rack'),
-                api.get('/rack/issues')
-            ]);
-            setContracts(conRes.data || []);
-            
-            const racks = rackRes.data || [];
-            const allDevices = racks.flatMap(r => r.servers || []);
-            setDevices(allDevices);
-            
-            setIssues(issuesRes.data || []);
-        } catch (err) {
-            console.error('Failed to load data:', err);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const openAddContract = () => {
-        setCurrentForm({
-            id: '',
-            type: activeTab,
-            name: '',
-            vendor: '',
-            startDate: '',
-            endDate: '',
-            linkedDevices: [],
-            licenseKey: '',
-            serialNumber: '',
-            seats: '',
-            cost: '',
-            currency: 'TWD',
-            fileBase64: null,
-            originalFileName: null,
-            fileType: null
+        let alive = true;
+        Promise.all([
+            api.get('/rack/contracts'),
+            api.get('/rack/contracts/devices').catch(() => ({ data: [] })),
+            api.get('/rack/issues').catch(() => ({ data: [] })),
+        ]).then(([con, dev, iss]) => {
+            if (!alive) return;
+            setContracts(Array.isArray(con.data) ? con.data : []);
+            setDevices(Array.isArray(dev.data) ? dev.data : []);
+            setIssues(Array.isArray(iss.data) ? iss.data : []);
+            setLoadError('');
+            setNow(Date.now());
+        }).catch(err => {
+            if (alive) setLoadError(err.response?.data?.error || 'Failed to load the contracts.');
+        }).finally(() => {
+            if (alive) setLoading(false);
         });
-        if (fileInputRef.current) fileInputRef.current.value = '';
-        setShowModal(true);
+        return () => { alive = false; };
+    }, [reloadKey]);
+
+    const changeView = (v) => {
+        setView(v);
+        try { localStorage.setItem(VIEW_KEY, v); } catch { /* storage unavailable */ }
+    };
+    const changeTab = (t) => { setTab(t); setStatus('ALL'); setVendor('ALL'); };
+
+    const devicesById = useMemo(() => new Map(devices.map(d => [d.id, d])), [devices]);
+    const kpis = useMemo(() => contractKpis(contracts, tab === 'Trash' ? null : tab, now), [contracts, tab, now]);
+    const counts = useMemo(() => ({
+        'Hardware Warranties': contracts.filter(c => !c.deletedAt && c.type === 'Hardware Warranties').length,
+        'Software Licenses': contracts.filter(c => !c.deletedAt && c.type === 'Software Licenses').length,
+        Trash: contracts.filter(c => c.deletedAt).length,
+    }), [contracts]);
+    const tabContracts = useMemo(() => contracts.filter(c => (tab === 'Trash' ? c.deletedAt : !c.deletedAt && c.type === tab)), [contracts, tab]);
+    const vendors = useMemo(() => vendorsOf(tabContracts), [tabContracts]);
+    const shown = useMemo(
+        () => sortContracts(filterContracts(contracts, { tab, q, status, vendor }, now, devicesById), tab === 'Trash' ? 'updated' : sort, now),
+        [contracts, tab, q, status, vendor, sort, now, devicesById],
+    );
+    const selected = selectedId ? contracts.find(c => c.id === selectedId) : null;
+    const covered = useMemo(() => new Set(contracts.filter(c => !c.deletedAt && !c.renewedTo).flatMap(c => c.linkedDevices || [])).size, [contracts]);
+
+    const toggleStatus = (s) => setStatus(prev => (prev === s ? 'ALL' : s));
+
+    // ---- actions ----
+    const openNew = () => setFormState({ draft: emptyContract(tab === 'Trash' ? 'Hardware Warranties' : tab), stored: null, renewing: false });
+    const openEdit = (c) => setFormState({ draft: editDraft(c), stored: c, renewing: false });
+    const openRenew = (c) => setFormState({ draft: renewalDraft(c), stored: c, renewing: true });
+
+    const saved = (c) => {
+        setFormState(null);
+        showToast(formState && formState.renewing ? 'Renewal saved' : 'Contract saved', 'success');
+        setSelectedId(c.id);
+        load();
+    };
+    const conflict = (current) => {
+        setContracts(prev => prev.map(c => (c.id === current.id ? current : c)));
     };
 
-    const openEditContract = (c) => {
-        setCurrentForm({ ...c, fileBase64: null, originalFileName: null, fileType: null }); // Reset file upload state for edit
-        if (fileInputRef.current) fileInputRef.current.value = '';
-        setShowModal(true);
-    };
-
-    const handleFileChange = (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-
-        const reader = new FileReader();
-        reader.onload = (ev) => {
-            setCurrentForm(prev => ({
-                ...prev,
-                fileBase64: ev.target.result,
-                originalFileName: file.name,
-                fileType: file.type || 'application/octet-stream'
-            }));
-        };
-        reader.readAsDataURL(file);
-    };
-
-    const toggleDeviceLink = (deviceId) => {
-        setCurrentForm(prev => {
-            const currentLinks = prev.linkedDevices || [];
-            if (currentLinks.includes(deviceId)) {
-                return { ...prev, linkedDevices: currentLinks.filter(id => id !== deviceId) };
-            } else {
-                return { ...prev, linkedDevices: [...currentLinks, deviceId] };
-            }
-        });
-    };
-
-    const saveContract = async (e) => {
-        e.preventDefault();
+    const trash = async (c) => {
+        if (!await showConfirm(`Move "${c.name}" to the trash? It can be restored from the Trash tab.`)) return;
         try {
-            setUploading(true);
-            const res = await api.post('/rack/contracts', currentForm);
-            if (res.data.success) {
-                setShowModal(false);
-                fetchData();
-            }
+            await api.delete(`/rack/contracts/${c.id}`);
+            showToast('Moved to trash', 'success');
+            setSelectedId(null);
+            load();
         } catch (err) {
-            console.error(err);
-            showToast('Failed to save contract');
-        } finally {
-            setUploading(false);
+            showToast(err.response?.data?.error || 'Failed to move the contract to the trash.', 'error');
         }
     };
-
-    const deleteContract = async (id) => {
-        if (!await showConfirm('Are you sure you want to move this contract to Trash?')) return;
+    const restore = async (c) => {
         try {
-            await api.delete(`/rack/contracts/${id}`);
-            setShowModal(false);
-            fetchData();
+            await api.post(`/rack/contracts/${c.id}/restore`);
+            showToast('Contract restored', 'success');
+            load();
         } catch (err) {
-            showToast('Delete failed');
+            showToast(err.response?.data?.error || 'Restore failed.', 'error');
         }
     };
-
-    const restoreContract = async (id) => {
+    const forceDelete = async (c) => {
+        if (!await showConfirm(`Permanently delete "${c.name}" and its file? This cannot be undone.`)) return;
         try {
-            await api.post(`/rack/contracts/${id}/restore`);
-            fetchData();
-            showToast('Contract restored successfully', 'success');
-        } catch (err) {
-            showToast('Restore failed', 'error');
-        }
-    };
-
-    const forceDeleteContract = async (id) => {
-        if (!await showConfirm('Are you sure you want to permanently delete this contract? This cannot be undone.')) return;
-        try {
-            await api.delete(`/rack/contracts/${id}/force`);
-            fetchData();
+            await api.delete(`/rack/contracts/${c.id}/force`);
             showToast('Contract permanently deleted', 'success');
+            setSelectedId(null);
+            load();
         } catch (err) {
-            showToast('Delete failed', 'error');
+            showToast(err.response?.data?.error || 'Delete failed.', 'error');
         }
     };
-
-    const downloadLicense = async (filename, originalName) => {
+    const download = async (c) => {
         try {
-            const res = await api.get(`/rack/contracts/download/${filename}`, { responseType: 'blob' });
+            const res = await api.get(`/rack/contracts/download/${encodeURIComponent(c.savedFileName)}`, { responseType: 'blob' });
             const url = window.URL.createObjectURL(new Blob([res.data]));
             const link = document.createElement('a');
             link.href = url;
-            link.setAttribute('download', originalName || filename);
+            link.download = c.originalFileName || c.savedFileName;
             document.body.appendChild(link);
             link.click();
-            link.parentNode.removeChild(link);
-        } catch (err) {
-            showToast('Failed to download file');
+            link.remove();
+            setTimeout(() => window.URL.revokeObjectURL(url), 1000);
+        } catch {
+            showToast('Failed to download the file.', 'error');
         }
     };
-
-    // Helpers to render status and progress
-    const getStatus = (startDate, endDate) => {
-        const now = new Date();
-        const end = new Date(endDate);
-        const daysLeft = Math.ceil((end - now) / (1000 * 60 * 60 * 24));
-        
-        if (daysLeft < 0) return { label: 'Expired', color: 'var(--danger)', bg: 'rgba(239, 68, 68, 0.1)', days: daysLeft };
-        if (daysLeft <= 60) return { label: 'Expiring Soon', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.1)', days: daysLeft };
-        return { label: 'Active', color: 'var(--success)', bg: 'rgba(16, 185, 129, 0.1)', days: daysLeft };
+    const copy = async (text) => {
+        try {
+            await navigator.clipboard.writeText(text);
+            showToast('Copied', 'success');
+        } catch {
+            showToast('Copy is not available here.', 'error');
+        }
+    };
+    const exportCsv = () => {
+        const blob = new Blob(['﻿' + contractsCsv(shown, now, devicesById)], { type: 'text/csv;charset=utf-8' });
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `contracts_${tab === 'Trash' ? 'trash' : tab === 'Software Licenses' ? 'licenses' : 'warranties'}_${new Date().toISOString().slice(0, 10)}.csv`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => window.URL.revokeObjectURL(url), 1000);
     };
 
-    const getProgress = (start, end) => {
-        if (!start || !end) return 0;
-        const s = new Date(start).getTime();
-        const e = new Date(end).getTime();
-        const n = Date.now();
-        if (n <= s) return 0;
-        if (n >= e) return 100;
-        return Math.floor(((n - s) / (e - s)) * 100);
-    };
+    if (loading) return <div className="hw-empty-row">Loading contracts...</div>;
 
-    const calcTotalCost = (type) => {
-        return contracts
-            .filter(c => !c.deletedAt && c.type === type && c.cost && getStatus(c.startDate, c.endDate).days >= 0)
-            .reduce((sum, c) => sum + Number(c.cost || 0), 0)
-            .toLocaleString();
-    };
-
-    const filteredContracts = contracts
-        .filter(c => activeTab === 'Trash' ? c.deletedAt : (!c.deletedAt && c.type === activeTab))
-        .filter(c => {
-            if (!searchTerm) return true;
-            const term = searchTerm.toLowerCase();
-            return (c.name || '').toLowerCase().includes(term) || 
-                   (c.vendor || '').toLowerCase().includes(term) || 
-                   (c.serialNumber || '').toLowerCase().includes(term) ||
-                   (c.licenseKey || '').toLowerCase().includes(term);
-        })
-        .sort((a, b) => {
-            const aDays = getStatus(a.startDate, a.endDate).days;
-            const bDays = getStatus(b.startDate, b.endDate).days;
-            return aDays - bDays; // Nearest expiration first
-        });
-    
-    if (loading) return <div style={{ padding: 40, textAlign: 'center' }}>Loading Contracts...</div>;
-
+    const isTrash = tab === 'Trash';
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-                <h1 className="page-title" style={{ margin: 0 }}>Contracts & Warranties</h1>
-                <div style={{ display: 'flex', gap: 12 }}>
-                    <input 
-                        type="text" 
-                        placeholder="🔍 Search vendor, name, key..." 
-                        value={searchTerm} 
-                        onChange={e => setSearchTerm(e.target.value)} 
-                        style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-glass)', color: 'var(--text-primary)', width: 250, outline: 'none' }}
-                    />
-                    {role !== 'Viewer' && (
-                        <button className="btn btn-primary" onClick={openAddContract} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <span>➕</span> Add Contract
+        <div className="hw-page">
+            <div className="hw-header">
+                <div>
+                    <h1 className="page-title">Contracts &amp; Warranties</h1>
+                    <div className="ct-subtitle">{counts['Hardware Warranties']} warranties · {counts['Software Licenses']} licenses · {covered} device(s) covered</div>
+                </div>
+                <div className="hw-actions">
+                    <div className="hw-seg" role="group" aria-label="View">
+                        {[['table', 'Table', TbTable], ['cards', 'Cards', TbLayoutGrid]].map(([mode, text, icon]) => {
+                            const Icon = icon;
+                            return <button key={mode} type="button" className={view === mode ? 'is-active' : ''} onClick={() => changeView(mode)} aria-pressed={view === mode}><Icon size={15} aria-hidden="true" />{text}</button>;
+                        })}
+                    </div>
+                    <button type="button" className="btn btn-outline hw-btn" onClick={exportCsv} disabled={!shown.length}><TbFileExport size={16} aria-hidden="true" /> Export CSV</button>
+                    {canWrite && <button type="button" className="btn btn-primary hw-btn" onClick={openNew}><TbPlus size={16} aria-hidden="true" /> Add contract</button>}
+                </div>
+            </div>
+
+            {loadError && <div className="ct-error" role="alert">{loadError}</div>}
+
+            <div className="hw-seg" role="tablist" aria-label="Contract type" style={{ alignSelf: 'flex-start' }}>
+                {TABS.map(([key, text, icon]) => {
+                    const Icon = icon;
+                    return (
+                        <button key={key} type="button" role="tab" aria-selected={tab === key} className={tab === key ? 'is-active' : ''} onClick={() => changeTab(key)}>
+                            <Icon size={15} aria-hidden="true" />{text}<span className="ct-tab-count">{counts[key]}</span>
                         </button>
-                    )}
-                </div>
+                    );
+                })}
             </div>
 
-            {/* TCO Dashboard */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 24 }}>
-                <div style={{ background: 'var(--bg-glass)', borderRadius: 12, padding: 16, border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: 16 }}>
-                    <div style={{ fontSize: 32 }}>🖥️</div>
-                    <div>
-                        <div style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 600 }}>ACTIVE HARDWARE WARRANTY SPEND</div>
-                        <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--text-primary)' }}>TWD ${calcTotalCost('Hardware Warranties')}</div>
-                    </div>
-                </div>
-                <div style={{ background: 'var(--bg-glass)', borderRadius: 12, padding: 16, border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: 16 }}>
-                    <div style={{ fontSize: 32 }}>💿</div>
-                    <div>
-                        <div style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 600 }}>ACTIVE SOFTWARE LICENSE SPEND</div>
-                        <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--text-primary)' }}>TWD ${calcTotalCost('Software Licenses')}</div>
-                    </div>
-                </div>
-            </div>
-
-            <div style={{ display: 'flex', gap: 16, marginBottom: 24, borderBottom: '1px solid var(--border-color)' }}>
-                {['Hardware Warranties', 'Software Licenses', 'Trash'].map(t => (
-                    <div 
-                        key={t}
-                        onClick={() => setActiveTab(t)}
-                        style={{
-                            padding: '10px 16px',
-                            cursor: 'pointer',
-                            color: activeTab === t ? (t === 'Trash' ? 'var(--danger)' : 'var(--accent-primary)') : 'var(--text-secondary)',
-                            borderBottom: activeTab === t ? `2px solid ${t === 'Trash' ? 'var(--danger)' : 'var(--accent-primary)'}` : '2px solid transparent',
-                            fontWeight: activeTab === t ? 700 : 500,
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 8
-                        }}
-                    >
-                        <span>{t === 'Hardware Warranties' ? '🖥️' : t === 'Trash' ? '🗑️' : '💿'}</span> {t}
-                    </div>
-                ))}
-            </div>
-
-            {/* Contract List */}
-            {filteredContracts.length === 0 ? (
-                <div style={{ padding: 40, textAlign: 'center', background: 'var(--bg-glass)', borderRadius: 12, border: '1px dashed var(--border-color)', color: 'var(--text-muted)' }}>
-                    No {activeTab} contracts found. Click "Add Contract" to create one.
-                </div>
-            ) : (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(400px, 1fr))', gap: 20, overflowY: 'auto' }}>
-                    {filteredContracts.map(c => {
-                        const statusObj = getStatus(c.startDate, c.endDate);
-                        const progress = getProgress(c.startDate, c.endDate);
-                        const relatedIssues = issues.filter(issue => c.linkedDevices?.includes(issue.deviceId));
-                        
-                        return (
-                            <div key={c.id} style={{ background: 'var(--bg-glass)', borderRadius: 12, border: `1px solid ${statusObj.color}`, padding: 20, display: 'flex', flexDirection: 'column', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                                    <h3 style={{ margin: '0 0 8px 0', color: 'var(--text-primary)', fontSize: 16 }}>{c.name}</h3>
-                                    <div style={{ display: 'flex', gap: 8 }}>
-                                        <span style={{ fontSize: 11, padding: '4px 8px', borderRadius: 4, background: statusObj.bg, color: statusObj.color, fontWeight: 600 }}>
-                                            {statusObj.label}
-                                        </span>
-                                        {role !== 'Viewer' && (
-                                            <button onClick={() => openEditContract(c)} style={{ background: 'transparent', border: '1px solid var(--border-color)', borderRadius: 4, color: 'var(--text-secondary)', cursor: 'pointer', padding: '2px 8px', fontSize: 11 }}>Edit</button>
-                                        )}
-                                    </div>
-                                </div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
-                                    <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}><strong>Vendor:</strong> {c.vendor}</div>
-                                    {c.cost && <div style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 600 }}>💰 {c.currency} ${Number(c.cost).toLocaleString()}</div>}
-                                </div>
-                                
-                                <div style={{ marginBottom: 16 }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
-                                        <span style={{ color: 'var(--text-muted)' }}>{c.startDate || 'N/A'}</span>
-                                        <span style={{ color: statusObj.color, fontWeight: 600 }}>{c.endDate || 'N/A'}</span>
-                                    </div>
-                                    <div style={{ width: '100%', height: 6, background: 'rgba(255,255,255,0.1)', borderRadius: 3, overflow: 'hidden' }}>
-                                        <div style={{ width: `${progress}%`, height: '100%', background: statusObj.color, borderRadius: 3, transition: 'width 0.5s ease' }} />
-                                    </div>
-                                    <div style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'right', marginTop: 4 }}>
-                                        {statusObj.days >= 0 ? `${statusObj.days} days remaining` : `${Math.abs(statusObj.days)} days expired`}
-                                    </div>
-                                </div>
-
-                                {/* Linked Devices */}
-                                {c.linkedDevices && c.linkedDevices.length > 0 && (
-                                    <div style={{ marginBottom: 16 }}>
-                                        <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-muted)', marginBottom: 6 }}>LINKED DEVICES</div>
-                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                                            {c.linkedDevices.map(did => {
-                                                const dev = devices.find(d => d.id === did);
-                                                return <span key={did} style={{ fontSize: 11, padding: '4px 8px', background: 'rgba(255,255,255,0.05)', borderRadius: 4, border: '1px solid var(--border-color)', color: 'var(--text-secondary)' }}>
-                                                    {dev ? dev.name : did}
-                                                </span>
-                                            })}
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* Hardware Issues Integration */}
-                                {relatedIssues.length > 0 && (
-                                    <div style={{ marginBottom: 16, padding: 12, background: 'rgba(245, 158, 11, 0.05)', borderRadius: 8, border: '1px solid rgba(245, 158, 11, 0.2)' }}>
-                                        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--warning)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-                                            <span>⚠️</span> Related Hardware Issues
-                                        </div>
-                                        {relatedIssues.map(issue => (
-                                            <div key={issue.id} style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 4, display: 'flex', justifyContent: 'space-between' }}>
-                                                <span>• {issue.issueTitle}</span>
-                                                <span style={{ color: issue.status === 'Closed' ? 'var(--success)' : 'var(--warning)' }}>[{issue.status}]</span>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-
-                                {/* Specific Fields & File */}
-                                <div style={{ marginTop: 'auto', paddingTop: 16, borderTop: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: 12 }}>
-                                    {c.type === 'Hardware Warranties' && c.serialNumber && (
-                                        <div>
-                                            <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-muted)', marginBottom: 4 }}>SERIAL NUMBER / SERVICE TAG:</div>
-                                            <code style={{ display: 'block', fontSize: 12, background: 'rgba(0,0,0,0.2)', padding: '8px', borderRadius: 6, wordBreak: 'break-all', border: '1px solid rgba(255,255,255,0.05)', color: 'var(--accent-primary)' }}>{c.serialNumber}</code>
-                                        </div>
-                                    )}
-                                    {c.type === 'Software Licenses' && (
-                                        <>
-                                            {c.licenseKey && (
-                                                <div>
-                                                    <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-muted)', marginBottom: 4 }}>LICENSE KEY:</div>
-                                                    <code style={{ display: 'block', fontSize: 12, background: 'rgba(0,0,0,0.2)', padding: '8px', borderRadius: 6, wordBreak: 'break-all', border: '1px solid rgba(255,255,255,0.05)' }}>{c.licenseKey}</code>
-                                                </div>
-                                            )}
-                                            {c.seats && (
-                                                <div style={{ marginTop: 8 }}>
-                                                    <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-muted)', marginBottom: 4 }}>SEATS UTILIZATION:</div>
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                                                        <div style={{ flex: 1, height: 8, background: 'rgba(255,255,255,0.1)', borderRadius: 4, overflow: 'hidden' }}>
-                                                            <div style={{ 
-                                                                width: `${Math.min(((c.linkedDevices?.length || 0) / c.seats) * 100, 100)}%`, 
-                                                                height: '100%', 
-                                                                background: (c.linkedDevices?.length || 0) > c.seats ? 'var(--danger)' : '#3b82f6', 
-                                                                borderRadius: 4 
-                                                            }} />
-                                                        </div>
-                                                        <span style={{ fontSize: 12, color: (c.linkedDevices?.length || 0) > c.seats ? 'var(--danger)' : 'var(--text-primary)', fontWeight: 600 }}>
-                                                            {c.linkedDevices?.length || 0} / {c.seats} Used
-                                                        </span>
-                                                    </div>
-                                                </div>
-                                            )}
-                                        </>
-                                    )}
-                                    
-                                    {c.savedFileName && (
-                                        <button 
-                                            onClick={() => downloadLicense(c.savedFileName, c.originalFileName || c.savedFileName)}
-                                            style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(59, 130, 246, 0.1)', color: '#60a5fa', border: '1px solid rgba(59, 130, 246, 0.3)', padding: '8px 12px', borderRadius: 6, cursor: 'pointer', alignSelf: 'flex-start', fontSize: 12, transition: 'all 0.2s' }}
-                                        >
-                                            📄 Download File ({c.originalFileName || c.savedFileName})
-                                        </button>
-                                    )}
-
-                                    {activeTab === 'Trash' && role !== 'Viewer' && (
-                                        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                                            <button onClick={() => restoreContract(c.id)} style={{ flex: 1, background: 'var(--success)', color: '#fff', border: 'none', padding: '8px', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>Restore</button>
-                                            <button onClick={() => forceDeleteContract(c.id)} style={{ flex: 1, background: 'var(--danger)', color: '#fff', border: 'none', padding: '8px', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>Delete Permanently</button>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        );
-                    })}
+            {!isTrash && (
+                <div className="hw-kpis">
+                    <Kpi label="Active" value={kpis.Active} tone={CONTRACT_STATUS_META.Active.tone} icon={TbShieldCheck} active={status === 'Active'} onClick={() => toggleStatus('Active')} />
+                    <Kpi label="Expiring within 60 days" value={kpis.Expiring} tone={CONTRACT_STATUS_META.Expiring.tone} icon={TbHourglassHigh} active={status === 'Expiring'} onClick={() => toggleStatus('Expiring')} />
+                    <Kpi label="Expired" value={kpis.Expired} tone={CONTRACT_STATUS_META.Expired.tone} icon={TbShieldX} alert={kpis.Expired > 0} active={status === 'Expired'} onClick={() => toggleStatus('Expired')} />
+                    <Kpi label="Renewals due in 90 days" value={kpis.renewalCount} sub={moneyText(kpis.renewalDue)} tone="var(--accent-primary)" icon={TbCalendarDue} />
+                    <Kpi label="Spend of running terms" value={kpis.spend.length ? formatMoney(kpis.spend[0].total, kpis.spend[0].currency) : '-'} sub={kpis.spend.length > 1 ? moneyText(kpis.spend.slice(1)) : 'Per currency, never converted'} tone="var(--text-secondary)" icon={TbReceipt2} />
                 </div>
             )}
 
-            {/* Modal */}
-            {showModal && (
-                <div className="modal-overlay" onClick={() => setShowModal(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, backdropFilter: 'blur(4px)' }}>
-                    <div className="modal-content" onClick={e => e.stopPropagation()} style={{ background: 'var(--bg-glass)', width: 600, maxWidth: '90%', padding: 28, borderRadius: 16, border: '1px solid var(--border-color)' }}>
-                        <h2 style={{ margin: '0 0 24px 0', color: 'var(--text-primary)', fontSize: 20 }}>{currentForm.id ? 'Edit Contract' : 'New Contract'}</h2>
-                        
-                        <form onSubmit={saveContract}>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
-                                <div className="form-group">
-                                    <label style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>Type</label>
-                                    <select value={currentForm.type} onChange={e => setCurrentForm({...currentForm, type: e.target.value})} style={{ width: '100%', padding: '10px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14 }}>
-                                        <option value="Hardware Warranties">Hardware Warranties</option>
-                                        <option value="Software Licenses">Software Licenses</option>
-                                    </select>
-                                </div>
-                                <div className="form-group">
-                                    <label style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>Vendor</label>
-                                    <input required type="text" value={currentForm.vendor} onChange={e => setCurrentForm({...currentForm, vendor: e.target.value})} style={{ width: '100%', padding: '10px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14 }} placeholder="e.g. Dell, Microsoft..." />
-                                </div>
-                            </div>
-                            
-                            <div style={{ display: 'grid', gridTemplateColumns: currentForm.type === 'Software Licenses' ? '2fr 1fr' : '1fr 1fr', gap: 16, marginBottom: 16 }}>
-                                <div className="form-group">
-                                    <label style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>
-                                        {currentForm.type === 'Hardware Warranties' ? 'Warranty Level / Name' : 'Software Name'}
-                                    </label>
-                                    <input required type="text" value={currentForm.name} onChange={e => setCurrentForm({...currentForm, name: e.target.value})} style={{ width: '100%', padding: '10px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14 }} placeholder={currentForm.type === 'Hardware Warranties' ? "e.g. ProSupport Plus" : "e.g. Windows Server 2022"} />
-                                </div>
-                                
-                                {currentForm.type === 'Hardware Warranties' && (
-                                    <div className="form-group">
-                                        <label style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>Serial Number / Service Tag</label>
-                                        <input required type="text" value={currentForm.serialNumber || ''} onChange={e => setCurrentForm({...currentForm, serialNumber: e.target.value})} style={{ width: '100%', padding: '10px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14 }} placeholder="e.g. D1XYZ2" />
-                                    </div>
-                                )}
-                                
-                                {currentForm.type === 'Software Licenses' && (
-                                    <div className="form-group">
-                                        <label style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>Seats / Quantity</label>
-                                        <input type="number" value={currentForm.seats || ''} onChange={e => setCurrentForm({...currentForm, seats: e.target.value})} style={{ width: '100%', padding: '10px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14 }} placeholder="e.g. 50" min="1" />
-                                    </div>
-                                )}
-                            </div>
-
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
-                                <div className="form-group">
-                                    <label style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>Cost / Amount</label>
-                                    <input type="number" value={currentForm.cost || ''} onChange={e => setCurrentForm({...currentForm, cost: e.target.value})} style={{ width: '100%', padding: '10px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14 }} placeholder="e.g. 5000" min="0" />
-                                </div>
-                                <div className="form-group">
-                                    <label style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>Currency</label>
-                                    <select value={currentForm.currency || 'TWD'} onChange={e => setCurrentForm({...currentForm, currency: e.target.value})} style={{ width: '100%', padding: '10px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14 }}>
-                                        <option value="TWD">TWD</option>
-                                        <option value="USD">USD</option>
-                                        <option value="EUR">EUR</option>
-                                    </select>
-                                </div>
-                            </div>
-
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
-                                <div className="form-group">
-                                    <label style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>Start Date</label>
-                                    <input required type="date" value={currentForm.startDate} onChange={e => setCurrentForm({...currentForm, startDate: e.target.value})} style={{ width: '100%', padding: '10px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14 }} />
-                                </div>
-                                <div className="form-group">
-                                    <label style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>End Date</label>
-                                    <input required type="date" value={currentForm.endDate} onChange={e => setCurrentForm({...currentForm, endDate: e.target.value})} style={{ width: '100%', padding: '10px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 14 }} />
-                                </div>
-                            </div>
-
-                            <div className="form-group" style={{ marginBottom: 16 }}>
-                                <label style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>Linked Devices (from Server Rack)</label>
-                                <div className="custom-scrollbar" style={{ maxHeight: 160, overflowY: 'auto', background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '8px 12px' }}>
-                                    {devices.map(d => (
-                                        <label key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                                            <input 
-                                                type="checkbox" 
-                                                checked={(currentForm.linkedDevices || []).includes(d.id)}
-                                                onChange={() => toggleDeviceLink(d.id)}
-                                                style={{ cursor: 'pointer', width: 16, height: 16 }}
-                                            />
-                                            <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>{d.name} <span style={{ color: 'var(--text-muted)' }}>({d.model})</span></span>
-                                        </label>
-                                    ))}
-                                    {devices.length === 0 && <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: '10px 0' }}>No devices found in data center.</div>}
-                                </div>
-                            </div>
-
-                            {currentForm.type === 'Software Licenses' && (
-                                <div className="form-group" style={{ marginBottom: 16 }}>
-                                    <label style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>License Key (Optional)</label>
-                                    <textarea value={currentForm.licenseKey || ''} onChange={e => setCurrentForm({...currentForm, licenseKey: e.target.value})} style={{ width: '100%', padding: '10px 12px', background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 8, color: 'var(--text-primary)', minHeight: 80, fontSize: 13, fontFamily: 'monospace' }} placeholder="Paste product key here..." />
-                                </div>
-                            )}
-
-                            <div className="form-group" style={{ marginBottom: 24, padding: 16, background: 'rgba(255,255,255,0.02)', border: '1px dashed var(--border-color)', borderRadius: 8 }}>
-                                <label style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)', marginBottom: 8, fontWeight: 700 }}>Upload License File (PDF, LIC, PEM) (Optional)</label>
-                                <input type="file" ref={fileInputRef} onChange={handleFileChange} style={{ display: 'block', fontSize: 13, color: 'var(--text-secondary)' }} />
-                                {currentForm.originalFileName && (
-                                    <div style={{ marginTop: 8, fontSize: 12, color: 'var(--success)' }}>
-                                        ✓ Selected: {currentForm.originalFileName} (Will upload on save)
-                                    </div>
-                                )}
-                                {currentForm.savedFileName && !currentForm.originalFileName && (
-                                    <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>
-                                        Current file on server: {currentForm.originalFileName || currentForm.savedFileName}
-                                    </div>
-                                )}
-                            </div>
-
-                            <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid var(--border-color)', paddingTop: 20 }}>
-                                {currentForm.id ? (
-                                    <button type="button" className="btn btn-danger" onClick={() => deleteContract(currentForm.id)} style={{ padding: '8px 16px', borderRadius: 8 }}>Delete Contract</button>
-                                ) : <div />}
-                                <div style={{ display: 'flex', gap: 12 }}>
-                                    <button type="button" className="btn btn-outline" onClick={() => setShowModal(false)} style={{ padding: '8px 16px', borderRadius: 8 }}>Cancel</button>
-                                    <button type="submit" className="btn btn-primary" disabled={uploading} style={{ padding: '8px 24px', borderRadius: 8 }}>
-                                        {uploading ? 'Saving...' : 'Save Contract'}
-                                    </button>
-                                </div>
-                            </div>
-                        </form>
-                    </div>
+            <div className="glass-panel hw-filters ct-filters">
+                <div className="hw-search">
+                    <TbSearch size={15} aria-hidden="true" />
+                    <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search name, vendor, serial, key, device..." aria-label="Search contracts" />
                 </div>
+                {!isTrash && (
+                    <select value={status} onChange={e => setStatus(e.target.value)} aria-label="Status">
+                        <option value="ALL">All statuses</option>
+                        {STATUSES.map(s => <option key={s} value={s}>{CONTRACT_STATUS_META[s].label}</option>)}
+                    </select>
+                )}
+                <select value={vendor} onChange={e => setVendor(e.target.value)} aria-label="Vendor">
+                    <option value="ALL">All vendors</option>
+                    {vendors.map(v => <option key={v} value={v}>{v}</option>)}
+                </select>
+                {!isTrash && (
+                    <select value={sort} onChange={e => setSort(e.target.value)} aria-label="Sort">
+                        {Object.entries(SORTS).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+                    </select>
+                )}
+                <span className="hw-count">{shown.length} of {tabContracts.length}</span>
+            </div>
+
+            {!shown.length ? (
+                <div className="glass-panel hw-empty-row">
+                    {tabContracts.length ? 'No contract matches the filters.' : isTrash ? 'The trash is empty.' : `No ${tab.toLowerCase()} yet.${canWrite ? ' Use "Add contract" to create one.' : ''}`}
+                </div>
+            ) : view === 'cards' ? (
+                <div className="ct-cards">
+                    {shown.map(c => {
+                        const tone = c.deletedAt ? 'var(--text-muted)' : CONTRACT_STATUS_META[contractStatus(c, now)].tone;
+                        const open = relatedIssues(c, issues).filter(i => i.status !== 'Closed').length;
+                        const seats = seatUsage(c);
+                        return (
+                            <button key={c.id} type="button" className="glass-panel ct-card" style={{ '--hw-tone': tone }} onClick={() => setSelectedId(c.id)}>
+                                <div className="ct-card-head">
+                                    <div>
+                                        <div className="ct-card-title">{c.name}</div>
+                                        <div className="hw-muted hw-small">{c.vendor}{c.serialNumber ? ` · SN ${c.serialNumber}` : ''}</div>
+                                    </div>
+                                    <ContractStatusBadge contract={c} now={now} />
+                                </div>
+                                <TermBar contract={c} now={now} />
+                                <div className="ct-card-foot">
+                                    {c.deletedAt ? <span>In trash since {formatNoteTime(c.deletedAt)}</span> : <DaysChip contract={c} now={now} />}
+                                    <span className="ct-icons">
+                                        {seats && <span title="Seats used">{seats.used}/{seats.total}</span>}
+                                        <span title="Linked devices"><TbServer2 size={14} aria-hidden="true" /> {(c.linkedDevices || []).length}</span>
+                                        {open > 0 && <span className="is-alert" title="Open hardware issues"><TbAlertTriangle size={14} aria-hidden="true" /> {open}</span>}
+                                        {c.savedFileName && <TbFileText size={14} aria-label="Has a file" />}
+                                    </span>
+                                </div>
+                            </button>
+                        );
+                    })}
+                </div>
+            ) : (
+                <div className="hw-table-wrap">
+                    <table className="hw-table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Vendor</th>
+                                <th>Term</th>
+                                <th>{isTrash ? 'In trash since' : 'Remaining'}</th>
+                                <th>Cost</th>
+                                <th>Devices</th>
+                                <th>Status</th>
+                                {isTrash && canWrite && <th aria-label="Actions" />}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {shown.map(c => {
+                                const st = c.deletedAt ? '' : contractStatus(c, now);
+                                const open = relatedIssues(c, issues).filter(i => i.status !== 'Closed').length;
+                                const seats = seatUsage(c);
+                                return (
+                                    <tr key={c.id} className={`ct-row is-${st.toLowerCase()}`} onClick={() => setSelectedId(c.id)}>
+                                        <td>
+                                            <div className="ct-name">
+                                                <button type="button" className="hw-link" onClick={(e) => { e.stopPropagation(); setSelectedId(c.id); }}>{c.name}</button>
+                                                <span className="hw-muted hw-small">
+                                                    {c.type === 'Hardware Warranties' ? (c.serialNumber ? `SN ${c.serialNumber}` : '') : seats ? `${seats.used} / ${seats.total} seats${seats.over ? ' · over' : ''}` : ''}
+                                                </span>
+                                            </div>
+                                        </td>
+                                        <td>{c.vendor}</td>
+                                        <td><TermBar contract={c} now={now} /></td>
+                                        <td className="hw-nowrap">{c.deletedAt ? <span className="hw-muted hw-small">{formatNoteTime(c.deletedAt)}{c.deletedBy ? ` · ${c.deletedBy}` : ''}</span> : <DaysChip contract={c} now={now} />}</td>
+                                        <td className="hw-nowrap">{c.cost !== '' && c.cost !== null && c.cost !== undefined ? formatMoney(c.cost, c.currency) : <span className="hw-muted">-</span>}</td>
+                                        <td>
+                                            <span className="ct-icons">
+                                                <span title="Linked devices"><TbServer2 size={14} aria-hidden="true" /> {(c.linkedDevices || []).length}</span>
+                                                {open > 0 && <span className="is-alert" title="Open hardware issues"><TbAlertTriangle size={14} aria-hidden="true" /> {open}</span>}
+                                                {c.savedFileName && <TbFileText size={14} aria-label="Has a file" />}
+                                            </span>
+                                        </td>
+                                        <td><ContractStatusBadge contract={c} now={now} /></td>
+                                        {isTrash && canWrite && (
+                                            <td className="hw-nowrap">
+                                                <button type="button" className="btn btn-outline hw-btn hw-btn-sm" onClick={(e) => { e.stopPropagation(); restore(c); }}><TbRestore size={14} aria-hidden="true" /> Restore</button>
+                                            </td>
+                                        )}
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+
+            {selected && (
+                <ContractDrawer
+                    contract={selected} contracts={contracts} devicesById={devicesById} issues={issues} now={now}
+                    canWrite={canWrite} isSuperAdmin={isSuperAdmin}
+                    onClose={() => setSelectedId(null)} onEdit={openEdit} onRenew={openRenew} onTrash={trash} onRestore={restore}
+                    onForceDelete={forceDelete} onDownload={download} onSelect={setSelectedId} onCopy={copy}
+                    onShowInRack={onShowInRack}
+                />
+            )}
+            {formState && (
+                <ContractForm
+                    draft={formState.draft} stored={formState.stored} renewing={formState.renewing} devices={devices}
+                    onCancel={() => setFormState(null)} onSaved={saved} onConflict={conflict}
+                />
             )}
         </div>
     );

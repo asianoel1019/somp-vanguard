@@ -99,6 +99,7 @@ test('warranty by linked device or serial number; spare parts used with their na
     assert.equal(expired.active, false);
     assert.ok(expired.daysLeft < 0);
     assert.equal(warrantyFor({ sn: 'NONE' }, contracts, NOW), null);
+    assert.equal(warrantyFor({ sn: 'SNA' }, [{ ...contracts[0], deletedAt: '2026-01-01T00:00:00Z' }], NOW), null, 'a trashed contract is not a warranty');
     assert.equal(warrantyFor({ sn: '' }, [{ type: 'Hardware Warranties', serialNumber: '' }], NOW), null, 'empty serials never match');
 
     const used = sparePartsUsed({ sparePartUsages: [{ partId: 'p1', qty: 2, at: 't', user: 'bob' }, { partId: 'gone', qty: 1 }] }, [{ id: 'p1', name: 'Fan X', category: 'Fan' }]);

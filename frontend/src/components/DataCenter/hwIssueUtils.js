@@ -150,7 +150,7 @@ const norm = (v) => String(v || '').trim().toLowerCase();
 export function warrantyFor(issue, contracts, now = Date.now()) {
     if (!issue) return null;
     const sn = norm(issue.sn);
-    const matches = (contracts || []).filter(c => c && c.type === 'Hardware Warranties'
+    const matches = (contracts || []).filter(c => c && !c.deletedAt && c.type === 'Hardware Warranties'
         && ((issue.deviceId && Array.isArray(c.linkedDevices) && c.linkedDevices.includes(issue.deviceId)) || (sn && norm(c.serialNumber) === sn)));
     if (!matches.length) return null;
     const endOf = (c) => { const t = dayStart(c.endDate); return Number.isFinite(t) ? t + DAY_MS - 1 : -Infinity; };

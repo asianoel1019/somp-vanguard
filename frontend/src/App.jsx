@@ -50,6 +50,7 @@ import SunlightDust from './components/Themes/SunlightDust';
 
 import { useSync } from './contexts/WebSocketContext';
 import { useToast } from './contexts/ToastContext';
+import { expiringSoon } from './components/DataCenter/contractUtils';
 
 function App() {
   const [user, setUser] = useState(null);
@@ -147,16 +148,9 @@ function App() {
       }
 
       // GET /rack/contracts and /rack/spare-parts require the Data Center feature
+      // Trashed and renewed contracts are left out (contractUtils.expiringSoon)
       if (allowed('dataCenter')) api.get('/rack/contracts').then(res => {
-         const now = new Date();
-         const thirtyDaysFromNow = new Date();
-         thirtyDaysFromNow.setDate(now.getDate() + 30);
-         const expiring = (res.data || []).filter(c => {
-             if (!c.endDate) return false;
-             const exp = new Date(c.endDate);
-             return exp >= now && exp <= thirtyDaysFromNow;
-         });
-         setContractAlerts(expiring);
+         setContractAlerts(expiringSoon(res.data, Date.now(), 30));
       }).catch(e => console.error("Failed to load Contracts for dashboard", e));
       else setContractAlerts([]);
 
@@ -689,10 +683,9 @@ function App() {
                 {contractAlerts.length} license/contract(s) expiring within 30 days:
               </p>
               <ul style={{ margin: 0, paddingLeft: 20, fontSize: 13, color: 'var(--text-primary)' }}>
-                {contractAlerts.slice(0, 3).map((cert, i) => {
-                   const days = Math.floor((new Date(cert.endDate) - new Date()) / (1000 * 60 * 60 * 24));
-                   return (<li key={i} style={{ marginBottom: 6 }}><strong style={{ color: '#f59e0b' }}>{cert.name || cert.item}</strong> — {days} days left</li>);
-                })}
+                {contractAlerts.slice(0, 3).map((c) => (
+                   <li key={c.id} style={{ marginBottom: 6 }}><strong style={{ color: 'var(--warning)' }}>{c.name}</strong> — {c.daysLeft === 0 ? 'ends today' : `${c.daysLeft} days left`}</li>
+                ))}
                 {contractAlerts.length > 3 && <li style={{ color: 'var(--text-muted)', marginTop: 4 }}>+ {contractAlerts.length - 3} more...</li>}
               </ul>
             </div>

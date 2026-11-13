@@ -59,6 +59,8 @@ const ENTRIES = [
         writers: ['services/inventoryScheduler.js (mutateConfig, writeJson)', 'routes/inventory.js'], notes: 'web settings save had a read -> await -> write gap; worker writes lastScan / lastDiscovered' },
     { key: 'data_center/contracts.json', mode: 'mutate', owner: 'web', description: 'Contracts & warranties',
         writers: ['routes/rack.js'], notes: 'async gap: upload awaited the ClamAV scan between read and write' },
+    { key: 'data_center/contract_notify.json', mode: 'mutate', owner: 'worker', description: 'Contract expiry notices already sent (per contract and end date)',
+        writers: ['services/contractExpiryNotifier.js'], notes: 'hourly worker check; the state is committed before the Telegram message' },
     { key: 'network_service/ipam/subnets.json', mode: 'mutate', owner: 'both', description: 'IPAM subnets', writers: ['lib/ipamStore.js'], notes: 'converted earlier' },
     { key: 'network_service/ssl_certificates.json', mode: 'mutate', owner: 'both', description: 'SSL monitor certificates', writers: ['services/sslMonitorService.js'], notes: 'converted earlier' },
     { key: 'network_service/ssl_scan_lock.json', mode: 'mutate', owner: 'both', description: 'SSL scan lease', writers: ['services/sslMonitorService.js'], notes: 'converted earlier' },

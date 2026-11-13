@@ -12,11 +12,12 @@ const { auditLog } = require('../lib/logger');
 const LICENSES_DIR = process.env.DB_DATA_DIR ? path.join(process.env.DB_DATA_DIR, 'data_center', 'licenses') : 'C:\\ProgramData\\somp-vanguard\\data_center\\licenses';
 
 const { readDataSync, writeDataSync } = require('../lib/db');
-const { mutateDocument, replaceDocument } = require('../lib/docStore');
+const { mutateDocument } = require('../lib/docStore');
 const rackStore = require('../lib/rackStore');
 const { getRacks, saveRacks, getRackRevision, normDcId } = rackStore;
 const { placementProblem, validateRacks, isSideMounted } = require('../lib/rackLayout');
 const { deviceMapOf, syncDeviceChanges } = require('../lib/rackDeviceSync');
+const contractModel = require('../lib/contractModel');
 
 const writeRoles = checkRole(['SuperAdmin', 'Operator']);
 const superAdminOnly = checkRole(['SuperAdmin']);
@@ -303,14 +304,10 @@ function applyIssueSparePartUsage(issue, usage, username) {
     return { spareData, item, qty };
 }
 
-// Helper for contracts
+// Helper for contracts (writes: mutateContracts, below the contract routes)
 function getContracts() {
-    return readDataSync('data_center/contracts.json', []);
-}
-
-// Synchronous read -> change -> save callers only (no await in between); the upload route merges via mutateDocument
-function saveContracts(data) {
-    replaceDocument('data_center/contracts.json', data, { defaultValue: [] });
+    const list = readDataSync('data_center/contracts.json', []);
+    return Array.isArray(list) ? list : [];
 }
 
 router.use(requireAuth);
@@ -910,149 +907,253 @@ router.post('/spare-parts/:id/stock', writeRoles, (req, res) => {
     }
 });
 
-// Contracts & Warranties Routes
+// ---- Contracts & Warranties ---------------------------------------------------------------------------------------
+// Fields are validated (lib/contractModel.js); the server owns id, file, created / updated stamps, trash and renewal
+// links. A stale edit (expectedUpdatedAt) is refused with the current contract instead of overwriting it.
+const CONTRACT_FILE_TYPES = [
+    { ext: 'pdf', magic: '25504446', mime: 'application/pdf' },
+    { ext: 'png', magic: '89504E47', mime: 'image/png' },
+    { ext: 'jpg', magic: 'FFD8FF', mime: 'image/jpeg' },
+    { ext: 'docx', magic: '504B0304', mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
+];
+const CONTRACT_FILE_MAX = 5 * 1024 * 1024;
+
+class ContractError extends Error {
+    constructor(message, status = 400, extra = {}) { super(message); this.status = status; this.extra = extra; }
+}
+
+const contractLabel = (c) => `${c.name || '(unnamed)'}${c.vendor ? ` (${c.vendor})` : ''}, ${c.startDate || '?'} to ${c.endDate || '?'}`;
+
+function mutateContracts(fn, fnName) {
+    return mutateDocument('data_center/contracts.json', fn, { defaultValue: [], fnName, label: 'contracts' });
+}
+
+function removeLicenseFile(savedFileName) {
+    if (!savedFileName) return;
+    try {
+        const filePath = path.join(LICENSES_DIR, path.basename(savedFileName));
+        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    } catch (err) {
+        console.warn('[Contracts] Could not remove file:', err.message);
+    }
+}
+
+/** Decodes, checks (size, type by content) and stores an uploaded file, then virus-scans it. -> file fields */
+async function storeContractFile(fileBase64, originalFileName) {
+    const buffer = Buffer.from(String(fileBase64).replace(/^data:[^;,]*;base64,/, ''), 'base64');
+    if (!buffer.length) throw new ContractError('The file is empty.');
+    if (buffer.length > CONTRACT_FILE_MAX) throw new ContractError('File size exceeds 5MB limit.');
+    const hex = buffer.toString('hex', 0, 4).toUpperCase();
+    const kind = CONTRACT_FILE_TYPES.find(t => hex.startsWith(t.magic));
+    if (!kind) throw new ContractError('Only PDF, DOCX, PNG and JPG files are accepted.');
+
+    if (!fs.existsSync(LICENSES_DIR)) fs.mkdirSync(LICENSES_DIR, { recursive: true });
+    // The stored name is ASCII with the extension of the detected type; the original name is kept for display
+    const savedFileName = `${Date.now()}_${crypto.randomBytes(4).toString('hex')}.${kind.ext}`;
+    const fullPath = path.join(LICENSES_DIR, savedFileName);
+    fs.writeFileSync(fullPath, buffer);
+    try {
+        await execAsync(`clamscan "${fullPath}"`);
+    } catch (scanErr) {
+        // Exit code 1 is also what cmd.exe returns for a missing command: only a scan report naming a hit counts
+        const out = String(scanErr.stdout || '');
+        if (scanErr.code === 1 && (/\bFOUND\b/.test(out) || /Infected files:\s*[1-9]/.test(out))) {
+            fs.unlinkSync(fullPath);
+            throw new ContractError('Malware detected by ClamAV. Upload rejected.');
+        }
+        console.warn('[ClamAV] Scanner unavailable or failed to run:', scanErr.message.split(/\r?\n/)[0]);
+    }
+    return { savedFileName, originalFileName: contractModel.displayFileName(originalFileName), fileType: kind.mime };
+}
+
+const sendContractError = (res, err) => {
+    if (err instanceof ContractError) return res.status(err.status).json({ error: err.message, ...err.extra });
+    return res.status(500).json({ error: err.message });
+};
+
 router.get('/contracts', (req, res) => {
-    res.json(getContracts());
+    const list = getContracts();
+    res.json(Array.isArray(list) ? list : []);
 });
 
-router.post('/contracts', writeRoles, async (req, res) => {
+// Devices of every data center, for linking (racks of each DC; shelves, reserved and patch panels left out)
+router.get('/contracts/devices', (req, res) => {
     try {
-        const { id, type, name, vendor, startDate, endDate, linkedDevices, licenseKey, serialNumber, seats, cost, currency, fileBase64, originalFileName, fileType } = req.body;
-
-        let savedFileName = null;
-        if (fileBase64 && originalFileName) {
-            const base64DataStr = fileBase64.replace(/^data:([a-zA-Z0-9-+/.]+);base64,/, '');
-            const buffer = Buffer.from(base64DataStr, 'base64');
-
-            if (buffer.length > 5 * 1024 * 1024) {
-                return res.status(400).json({ error: 'File size exceeds 5MB limit.' });
-            }
-
-            const hex = buffer.toString('hex', 0, 4).toUpperCase();
-            const isPDF = hex.startsWith('25504446');
-            const isPNG = hex.startsWith('89504E47');
-            const isJPG = hex.startsWith('FFD8FF');
-            const isDOCX = hex.startsWith('504B0304');
-
-            if (!isPDF && !isPNG && !isJPG && !isDOCX) {
-                return res.status(400).json({ error: 'Invalid file magic bytes. Only PDF, DOCX, PNG, and JPG are allowed.' });
-            }
-
-            if (!fs.existsSync(LICENSES_DIR)) fs.mkdirSync(LICENSES_DIR, { recursive: true });
-
-            const cleanName = originalFileName.replace(/[^a-zA-Z0-9.\-_]/g, '_');
-            savedFileName = `${Date.now()}_${cleanName}`;
-            const fullPath = path.join(LICENSES_DIR, savedFileName);
-
-            fs.writeFileSync(fullPath, buffer);
-
-            try {
-                await execAsync(`clamscan "${fullPath}"`);
-            } catch (scanErr) {
-                if (scanErr.code === 1) {
-                    fs.unlinkSync(fullPath);
-                    return res.status(400).json({ error: 'Malware detected by ClamAV. Upload rejected.' });
-                } else {
-                    console.warn('[ClamAV] Scanner unavailable or failed to run:', scanErr.message);
+        const out = [];
+        for (const dc of getDataCenters()) {
+            for (const r of getRacks(dc.id)) {
+                for (const d of Array.isArray(r.devices) ? r.devices : []) {
+                    if (!d || !d.id || ['Shelf', 'Reserve', 'PatchPanel'].includes(d.type)) continue;
+                    out.push({
+                        id: d.id, hostname: d.hostname || '', model: d.model || '', sn: d.sn || '', type: d.type || '',
+                        dcId: dc.id, dcName: dc.name || dc.id, rackId: r.id, rackName: r.name || '', u: d.u,
+                    });
                 }
             }
         }
-
-        // The virus scan above is awaited: the contract is merged by id into the CURRENT list (atomic read-modify-write),
-        // so a contract saved / deleted meanwhile is not lost
-        const contractId = id || `contract-${Date.now()}`;
-        const saved = mutateDocument('data_center/contracts.json', (current) => {
-            const idx = id ? current.findIndex(c => c.id === id) : -1;
-            const prev = idx >= 0 ? current[idx] : null;
-            const contractObj = {
-                id: contractId,
-                type, name, vendor, startDate, endDate, linkedDevices, licenseKey, serialNumber, seats, cost, currency,
-                savedFileName: savedFileName || (prev ? prev.savedFileName : null),
-                originalFileName: originalFileName || (prev ? prev.originalFileName : null),
-                fileType: fileType || (prev ? prev.fileType : null)
-            };
-            if (idx >= 0) current[idx] = contractObj;
-            else current.push(contractObj);
-            return { contractObj, updated: idx >= 0 };
-        }, { defaultValue: [], fnName: 'rack.saveContract', label: 'contracts' });
-        auditLog(req.user.username, 'Contracts & Warranties', `${saved.updated ? 'Updated' : 'Added'} Contract: ${name}`);
-        res.json({ success: true, contract: saved.contractObj });
+        res.json(out);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
+// Create (no id) or update (id). renewedFrom on a create links the new term to the contract it renews.
+router.post('/contracts', writeRoles, async (req, res) => {
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const { id, expectedUpdatedAt, fileBase64, originalFileName, removeFile, renewedFrom } = body;
+    const checked = contractModel.cleanContractFields(body);
+    if (checked.error) return res.status(400).json({ error: checked.error });
+    const fields = checked.fields;
+    const username = req.user.username;
+
+    // Checked before the upload so a refused save leaves no file behind; checked again inside the write
+    const before = getContracts();
+    const existing = id ? before.find(c => c.id === id) : null;
+    if (id && !existing) return res.status(404).json({ error: 'Contract not found' });
+    if (existing && existing.deletedAt) return res.status(400).json({ error: 'The contract is in the trash; restore it first' });
+    if (!id && renewedFrom) {
+        const prev = before.find(c => c.id === renewedFrom);
+        if (!prev || prev.deletedAt) return res.status(404).json({ error: 'The contract being renewed was not found' });
+        if (prev.renewedTo) return res.status(409).json({ error: 'That contract was already renewed' });
+    }
+
+    let file = null;
+    try {
+        if (fileBase64 && originalFileName) file = await storeContractFile(fileBase64, originalFileName);
+    } catch (err) {
+        return sendContractError(res, err);
+    }
+
+    let result;
+    try {
+        // The upload above was awaited: the write merges into the CURRENT list (atomic read-modify-write)
+        result = mutateContracts((current) => {
+            const now = new Date().toISOString();
+            if (id) {
+                const idx = current.findIndex(c => c.id === id);
+                if (idx < 0) throw new ContractError('Contract not found', 404);
+                const prev = current[idx];
+                if (prev.deletedAt) throw new ContractError('The contract is in the trash; restore it first');
+                if (expectedUpdatedAt && (prev.updatedAt || '') !== expectedUpdatedAt) {
+                    throw new ContractError('This contract was changed by someone else. Reload it and apply your change again.', 409, { contract: prev });
+                }
+                const keepFile = !file && !removeFile;
+                const next = {
+                    ...prev, ...fields,
+                    savedFileName: file ? file.savedFileName : keepFile ? prev.savedFileName || null : null,
+                    originalFileName: file ? file.originalFileName : keepFile ? prev.originalFileName || null : null,
+                    fileType: file ? file.fileType : keepFile ? prev.fileType || null : null,
+                    updatedAt: now, updatedBy: username,
+                };
+                current[idx] = next;
+                const dropped = !keepFile && prev.savedFileName && prev.savedFileName !== next.savedFileName ? prev.savedFileName : null;
+                return { contract: next, updated: true, dropped };
+            }
+            const next = {
+                id: `contract-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`,
+                ...fields,
+                savedFileName: file ? file.savedFileName : null,
+                originalFileName: file ? file.originalFileName : null,
+                fileType: file ? file.fileType : null,
+                createdAt: now, createdBy: username, updatedAt: now, updatedBy: username,
+            };
+            let renewedOf = null;
+            if (renewedFrom) {
+                const prev = current.find(c => c.id === renewedFrom);
+                if (!prev || prev.deletedAt) throw new ContractError('The contract being renewed was not found', 404);
+                if (prev.renewedTo) throw new ContractError('That contract was already renewed', 409);
+                prev.renewedTo = next.id;
+                prev.updatedAt = now;
+                prev.updatedBy = username;
+                next.renewedFrom = prev.id;
+                renewedOf = prev;
+            }
+            current.push(next);
+            return { contract: next, updated: false, renewedOf };
+        }, 'rack.saveContract');
+    } catch (err) {
+        if (file) removeLicenseFile(file.savedFileName);
+        return sendContractError(res, err);
+    }
+    if (result.dropped) removeLicenseFile(result.dropped);
+    const c = result.contract;
+    const action = result.renewedOf ? `Renewed contract ${contractLabel(result.renewedOf)} -> new term ${c.startDate} to ${c.endDate}`
+        : `${result.updated ? 'Updated' : 'Added'} contract: ${contractLabel(c)}`;
+    auditLog(username, 'Contracts & Warranties', action);
+    res.json({ success: true, contract: c });
+});
+
+// Moves a contract to the trash
 router.delete('/contracts/:id', writeRoles, (req, res) => {
     try {
-        const { id } = req.params;
-        let contracts = getContracts();
-        const index = contracts.findIndex(c => c.id === id);
-
-        if (index !== -1) {
-            contracts[index].deletedAt = new Date().toISOString();
-            saveContracts(contracts);
-            auditLog(req.user.username, 'Contracts & Warranties', `Soft Deleted Contract ID: ${id}`);
-        }
-        res.json({ success: true });
+        const c = mutateContracts((current) => {
+            const found = current.find(x => x.id === req.params.id);
+            if (!found) throw new ContractError('Contract not found', 404);
+            if (!found.deletedAt) {
+                found.deletedAt = new Date().toISOString();
+                found.deletedBy = req.user.username;
+            }
+            return found;
+        }, 'rack.trashContract');
+        auditLog(req.user.username, 'Contracts & Warranties', `Moved contract to trash: ${contractLabel(c)}`);
+        res.json({ success: true, contract: c });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        sendContractError(res, err);
     }
 });
 
+// Permanent delete (SuperAdmin, trash only): the file goes too; a contract it renewed counts as current again
 router.delete('/contracts/:id/force', superAdminOnly, (req, res) => {
     try {
-        const { id } = req.params;
-        let contracts = getContracts();
-        const contract = contracts.find(c => c.id === id);
-
-        if (contract && contract.savedFileName) {
-            const filePath = path.join(LICENSES_DIR, contract.savedFileName);
-            if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-        }
-
-        contracts = contracts.filter(c => c.id !== id);
-        saveContracts(contracts);
-        auditLog(req.user.username, 'Contracts & Warranties', `Permanently Deleted Contract ID: ${id}`);
+        const c = mutateContracts((current) => {
+            const idx = current.findIndex(x => x.id === req.params.id);
+            if (idx < 0) throw new ContractError('Contract not found', 404);
+            if (!current[idx].deletedAt) throw new ContractError('Move the contract to the trash first');
+            const [removed] = current.splice(idx, 1);
+            for (const other of current) {
+                if (other.renewedTo === removed.id) delete other.renewedTo;
+                if (other.renewedFrom === removed.id) delete other.renewedFrom;
+            }
+            return removed;
+        }, 'rack.deleteContract');
+        removeLicenseFile(c.savedFileName);
+        auditLog(req.user.username, 'Contracts & Warranties', `Permanently deleted contract: ${contractLabel(c)}`);
         res.json({ success: true });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        sendContractError(res, err);
     }
 });
 
 router.post('/contracts/:id/restore', writeRoles, (req, res) => {
     try {
-        const { id } = req.params;
-        let contracts = getContracts();
-        const index = contracts.findIndex(c => c.id === id);
-
-        if (index !== -1) {
-            delete contracts[index].deletedAt;
-            saveContracts(contracts);
-            auditLog(req.user.username, 'Contracts & Warranties', `Restored Contract ID: ${id}`);
-        }
-        res.json({ success: true });
+        const c = mutateContracts((current) => {
+            const found = current.find(x => x.id === req.params.id);
+            if (!found) throw new ContractError('Contract not found', 404);
+            delete found.deletedAt;
+            delete found.deletedBy;
+            found.updatedAt = new Date().toISOString();
+            found.updatedBy = req.user.username;
+            return found;
+        }, 'rack.restoreContract');
+        auditLog(req.user.username, 'Contracts & Warranties', `Restored contract: ${contractLabel(c)}`);
+        res.json({ success: true, contract: c });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        sendContractError(res, err);
     }
 });
 
 router.get('/contracts/download/:filename', (req, res) => {
     try {
-        const { filename } = req.params;
-        const safeFilename = path.basename(filename);
-
+        const safeFilename = path.basename(req.params.filename);
         const ext = path.extname(safeFilename).toLowerCase();
         const allowedExts = ['.pdf', '.png', '.jpg', '.jpeg', '.docx'];
         if (!allowedExts.includes(ext)) {
             return res.status(403).json({ error: 'File type not permitted for download.' });
         }
-
+        const owner = getContracts().find(c => c && c.savedFileName === safeFilename);
         const filePath = path.join(LICENSES_DIR, safeFilename);
-        if (fs.existsSync(filePath)) {
-            res.download(filePath);
-        } else {
-            res.status(404).json({ error: 'File not found' });
-        }
+        if (!owner || !fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found' });
+        res.download(filePath, owner.originalFileName || safeFilename);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

@@ -73,7 +73,7 @@ const DataCenterHub = ({ activeTab = 'server-rack', setActiveView }) => {
             case 'hardware-issues':
                 return <HardwareIssues onShowInRack={(dcId, rackId) => handleSelectDC(dcId, rackId)} />;
             case 'contracts':
-                return <ContractsWarranties />;
+                return <ContractsWarranties onShowInRack={(dcId, rackId) => handleSelectDC(dcId, rackId)} />;
             default:
                 return <ServerRack selectedDCId={selectedDCId} />;
         }

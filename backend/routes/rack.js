@@ -117,6 +117,74 @@ function saveIssues(data) {
     writeDataSync('data_center/hw_issues.json', data);
 }
 
+// ---- Hardware issue fields --------------------------------------------------------------------------------------
+// Editable fields and their length limits. Everything else (id, timeline, spare-part usages, created / updated /
+// closed times) is owned by the server; the timeline only grows, and only through the server.
+const ISSUE_TEXT_FIELDS = { date: 10, datacenter: 200, deviceName: 200, sn: 100, rackLoc: 200, failedParts: 1000, reporter: 100, partsInfo: 2000 };
+const ISSUE_URGENCIES = ['H', 'M', 'L'];
+const ISSUE_STATUSES = ['Open', 'Processing', 'Closed'];
+const ISSUE_NOTE_MAX = 2000;
+
+/** The stored timeline as entries; very old issues kept it as text lines "[time] status: note". */
+function timelineOf(issue) {
+    const t = issue && issue.processNotes;
+    if (Array.isArray(t)) return t;
+    if (typeof t !== 'string' || !t.trim()) return [];
+    return t.split(/\r?\n/).filter(Boolean).map(line => {
+        const m = line.match(/^\[(.*?)\] (.*?): (.*)$/);
+        return m ? { timestamp: m[1], status: m[2], note: m[3], user: 'System' } : { timestamp: '', status: 'Legacy Note', note: line, user: 'System' };
+    });
+}
+
+/** One timeline entry, stamped here (ISO time, the signed-in user). */
+function noteEntry(user, status, note) {
+    return { timestamp: new Date().toISOString(), user: user || 'Unknown', status, note };
+}
+
+/**
+ * Validates the editable fields of a create / update body. Unknown and server-owned keys are dropped.
+ * create: deviceName is required; date, reporter, urgency and status get defaults.
+ * -> { error } or { fields }
+ */
+function cleanIssueFields(body, { create = false, username = '' } = {}) {
+    const fields = {};
+    for (const [key, max] of Object.entries(ISSUE_TEXT_FIELDS)) {
+        if (body[key] === undefined || body[key] === null) continue;
+        if (typeof body[key] !== 'string' && typeof body[key] !== 'number') return { error: `${key} must be text` };
+        const v = String(body[key]).trim();
+        if (v.length > max) return { error: `${key} is limited to ${max} characters` };
+        fields[key] = v;
+    }
+    if (fields.date && !/^\d{4}-\d{2}-\d{2}$/.test(fields.date)) return { error: 'date must be YYYY-MM-DD' };
+    if (body.urgency !== undefined && body.urgency !== null) {
+        if (!ISSUE_URGENCIES.includes(body.urgency)) return { error: `urgency must be one of ${ISSUE_URGENCIES.join(', ')}` };
+        fields.urgency = body.urgency;
+    }
+    if (body.status !== undefined && body.status !== null) {
+        if (!ISSUE_STATUSES.includes(body.status)) return { error: `status must be one of ${ISSUE_STATUSES.join(', ')}` };
+        fields.status = body.status;
+    }
+    if (create) {
+        if (!fields.deviceName) return { error: 'deviceName is required' };
+        if (!fields.date) fields.date = new Date().toISOString().slice(0, 10);
+        if (!fields.reporter) fields.reporter = username || '';
+        if (!fields.urgency) fields.urgency = 'M';
+        if (!fields.status) fields.status = 'Open';
+    }
+    return { fields };
+}
+
+/** Moves an issue to `to`, recording who and when on the timeline; keeps closedAt in step. */
+function setIssueStatus(issue, to, username, note) {
+    const from = issue.status || 'Open';
+    issue.status = to;
+    if (to === 'Closed') { if (from !== 'Closed' || !issue.closedAt) issue.closedAt = new Date().toISOString(); } else delete issue.closedAt;
+    if (from !== to || note) {
+        const text = note || `Status changed from ${from} to ${to}`;
+        issue.processNotes = [noteEntry(username, to, text), ...timelineOf(issue)];
+    }
+}
+
 // Spare parts: `quantity` is the one stock field; legacy `qty` / `stock` are folded into it on read
 function finiteNumber(v) {
     if (typeof v === 'number') return Number.isFinite(v) ? v : null;
@@ -200,12 +268,10 @@ function applyIssueSparePartUsage(issue, usage, username) {
 
     const at = new Date().toISOString();
     issue.sparePartUsages = [...usages, { usageId, partId: item.id, qty, at, user: username }];
-    issue.processNotes = [{
-        timestamp: new Date().toLocaleString(),
-        user: 'System',
-        status: 'Spare Part Used',
-        note: `Repaired using Spare Part: ${item.name} (Qty: ${qty})`
-    }, ...(Array.isArray(issue.processNotes) ? issue.processNotes : [])];
+    issue.processNotes = [
+        noteEntry(username, 'Spare Part Used', `Repaired using Spare Part: ${item.name} (Qty: ${qty})`),
+        ...timelineOf(issue),
+    ];
     return { spareData, item, qty };
 }
 
@@ -544,7 +610,9 @@ router.get('/issues', (req, res) => {
 router.post('/issues/single', writeRoles, (req, res) => {
     try {
         const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
-        const { sparePartUsage, sparePartUsages, id, ...fields } = body;
+        const { sparePartUsage } = body;
+        const clean = cleanIssueFields(body, { create: true, username: req.user.username });
+        if (clean.error) return res.status(400).json({ error: clean.error });
         const issues = getIssues();
         // A retried create (response lost) carries the same usageId: return the issue already created
         const retryUsageId = sparePartUsage && typeof sparePartUsage.usageId === 'string' ? sparePartUsage.usageId.trim() : '';
@@ -552,9 +620,11 @@ router.post('/issues/single', writeRoles, (req, res) => {
             const existing = issues.find(i => i && Array.isArray(i.sparePartUsages) && i.sparePartUsages.some(u => u && u.usageId === retryUsageId));
             if (existing) return res.json({ success: true, issue: existing, duplicate: true });
         }
-        let issueId = typeof id === 'string' && id.trim() ? id.trim() : `hw-${Date.now()}`;
+        let issueId = `hw-${Date.now()}`;
         if (issues.some(i => i && i.id === issueId)) issueId = `hw-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
-        const issue = { ...fields, id: issueId };
+        const now = new Date().toISOString();
+        const issue = { ...clean.fields, id: issueId, processNotes: [], createdBy: req.user.username, createdAt: now, updatedAt: now };
+        if (issue.status === 'Closed') issue.closedAt = now;
 
         const usage = applyIssueSparePartUsage(issue, sparePartUsage, req.user.username);
         if (usage.error) return res.status(400).json({ error: usage.error });
@@ -580,10 +650,19 @@ router.put('/issues/:id', writeRoles, (req, res) => {
         if (index === -1) return res.status(404).json({ error: 'Issue not found' });
 
         const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
-        // id and the recorded spare-part usages are server-owned
-        const { sparePartUsage, sparePartUsages, id: _ignoredId, ...updateData } = body;
-        const issue = { ...issues[index], ...updateData, id };
-        if (!Array.isArray(updateData.processNotes)) issue.processNotes = issues[index].processNotes || [];
+        const { sparePartUsage, expectedUpdatedAt } = body;
+        // Saved by someone else since this form was opened: refuse instead of overwriting their changes
+        const current = issues[index];
+        if (expectedUpdatedAt && current.updatedAt && expectedUpdatedAt !== current.updatedAt) {
+            return res.status(409).json({ error: 'This issue was changed by someone else. Reload it and apply your changes again.', issue: current });
+        }
+        const clean = cleanIssueFields(body, { username: req.user.username });
+        if (clean.error) return res.status(400).json({ error: clean.error });
+        // the timeline, the spare-part usages, the id and the times stay as stored
+        const { status: newStatus, ...updateData } = clean.fields;
+        const issue = { ...current, ...updateData, id, processNotes: timelineOf(current) };
+        if (newStatus && newStatus !== (current.status || 'Open')) setIssueStatus(issue, newStatus, req.user.username);
+        issue.updatedAt = new Date().toISOString();
 
         const usage = applyIssueSparePartUsage(issue, sparePartUsage, req.user.username);
         if (usage.error) return res.status(400).json({ error: usage.error });
@@ -595,6 +674,41 @@ router.put('/issues/:id', writeRoles, (req, res) => {
         issues[index] = issue;
         saveIssues(issues);
         auditLog(req.user.username, 'Hardware Issues', `Updated Issue: ${id}`);
+        res.json({ success: true, issue });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Adds a timeline entry (time and user from the server). type: Note | Open | Processing | Closed (a status change).
+router.post('/issues/:id/notes', writeRoles, (req, res) => {
+    try {
+        const { id } = req.params;
+        const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
+        const type = body.type === undefined ? 'Note' : body.type;
+        if (type !== 'Note' && !ISSUE_STATUSES.includes(type)) return res.status(400).json({ error: `type must be Note or one of ${ISSUE_STATUSES.join(', ')}` });
+        const note = typeof body.note === 'string' ? body.note.trim() : '';
+        if (!note) return res.status(400).json({ error: 'note is required' });
+        if (note.length > ISSUE_NOTE_MAX) return res.status(400).json({ error: `note is limited to ${ISSUE_NOTE_MAX} characters` });
+
+        const issues = getIssues();
+        const index = issues.findIndex(i => i && i.id === id);
+        if (index === -1) return res.status(404).json({ error: 'Issue not found' });
+        const issue = { ...issues[index], processNotes: timelineOf(issues[index]) };
+
+        const usage = applyIssueSparePartUsage(issue, body.sparePartUsage, req.user.username);
+        if (usage.error) return res.status(400).json({ error: usage.error });
+        if (type === 'Note') issue.processNotes = [noteEntry(req.user.username, 'General Note', note), ...issue.processNotes];
+        else setIssueStatus(issue, type, req.user.username, note);
+        issue.updatedAt = new Date().toISOString();
+
+        if (usage.spareData) {
+            saveSpareParts(usage.spareData);
+            auditLog(req.user.username, 'Spare Parts', `Deducted ${usage.qty}x ${usage.item.name} for Hardware Issue ${id}`);
+        }
+        issues[index] = issue;
+        saveIssues(issues);
+        auditLog(req.user.username, 'Hardware Issues', type === 'Note' ? `Added a note to Issue: ${id}` : `Set Issue ${id} to ${type}`);
         res.json({ success: true, issue });
     } catch (err) {
         res.status(500).json({ error: err.message });

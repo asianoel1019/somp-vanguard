@@ -2,11 +2,16 @@ import { useToast } from '../../contexts/ToastContext';
 import { useConfirm } from '../../contexts/ConfirmContext';
 import React, { useState, useEffect } from 'react';
 import api from '../../api';
+import { formatNoteTime, csvCell, initialOf } from './hwIssueUtils';
 
 // One id per spare-part selection: the server deducts stock once per usageId even if the save is retried
 const newUsageId = () => (typeof window !== 'undefined' && window.crypto && typeof window.crypto.randomUUID === 'function')
     ? window.crypto.randomUUID()
     : `usage-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+// Fields the form edits; the timeline, spare-part usages and times are kept by the server
+const EDITABLE_FIELDS = ['date', 'datacenter', 'deviceName', 'sn', 'rackLoc', 'failedParts', 'reporter', 'urgency', 'status', 'partsInfo'];
+const STATUS_FILTERS = ['ALL', 'Open', 'Processing', 'Closed'];
 
 export default function HardwareIssues() {
     const { showToast } = useToast();
@@ -16,7 +21,7 @@ export default function HardwareIssues() {
 
     const [hwIssues, setHwIssues] = useState([]);
     const [initialLoaded, setInitialLoaded] = useState(false);
-    
+
     // UI state
     const [viewMode, setViewMode] = useState('kanban');
     const [hwFilterStatus, setHwFilterStatus] = useState('ALL');
@@ -24,7 +29,7 @@ export default function HardwareIssues() {
     const [activeDropdownId, setActiveDropdownId] = useState(null);
     const [currentHWForm, setCurrentHWForm] = useState(null);
     const [isHWFormReadOnly, setIsHWFormReadOnly] = useState(false);
-    
+
     // Process Note State inside Drawer
     const [processType, setProcessType] = useState('Note'); // 'Processing', 'Closed', or 'Note'
     const [processNote, setProcessNote] = useState('');
@@ -159,7 +164,7 @@ export default function HardwareIssues() {
         setSelectedSparePartId('');
         setSparePartQty(1);
         setSparePartUsageId('');
-        
+
         // Pre-fetch racks if DC is selected
         const dc = dcs.find(d => d.name === issue.datacenter);
         if (dc) {
@@ -172,27 +177,38 @@ export default function HardwareIssues() {
         setShowHWFormModal(true);
     };
 
+    const applySavedIssue = (saved) => {
+        setHwIssues(prev => (prev.some(i => i.id === saved.id) ? prev.map(i => (i.id === saved.id ? saved : i)) : [...prev, saved]));
+    };
+
     const handleSaveIssue = (e) => {
         e.preventDefault();
-        let finalForm = { ...currentHWForm };
-        
+        const finalForm = {};
+        EDITABLE_FIELDS.forEach(k => { if (currentHWForm[k] !== undefined) finalForm[k] = currentHWForm[k]; });
+        if (currentHWForm.id && currentHWForm.updatedAt) finalForm.expectedUpdatedAt = currentHWForm.updatedAt;
+
         const usesPart = useSparePart && selectedSparePartId && sparePartQty > 0;
         if (usesPart) {
             finalForm.sparePartUsage = { partId: selectedSparePartId, qty: sparePartQty, usageId: sparePartUsageId || newUsageId() };
         }
 
         if (role !== 'Viewer') {
-            const request = finalForm.id
-                ? api.put(`/rack/issues/${finalForm.id}`, finalForm)
+            const request = currentHWForm.id
+                ? api.put(`/rack/issues/${currentHWForm.id}`, finalForm)
                 : api.post('/rack/issues/single', finalForm);
             request.then(res => {
-                const saved = res.data.issue;
-                setHwIssues(prev => (prev.some(i => i.id === saved.id) ? prev.map(i => (i.id === saved.id ? saved : i)) : [...prev, saved]));
+                applySavedIssue(res.data.issue);
                 setShowHWFormModal(false);
                 if (usesPart) reloadSpareParts();
             }).catch(err => {
                 console.error('Failed to save issue:', err);
-                // keep the form (and the usageId) so a retry does not deduct twice
+                const current = err.response?.status === 409 && err.response.data && err.response.data.issue;
+                if (current) {
+                    // someone else saved first: show their version; the user applies the changes again
+                    applySavedIssue(current);
+                    setCurrentHWForm(current);
+                }
+                // otherwise keep the form (and the usageId) so a retry does not deduct twice
                 showToast(err.response?.data?.error || 'Failed to save issue.', 'error');
             });
             return;
@@ -213,62 +229,41 @@ export default function HardwareIssues() {
         });
     };
 
-    const handleUpdateProcessStatus = () => {
-        const timestamp = new Date().toLocaleString();
-        const newNoteEntry = {
-            timestamp,
-            user: user.username || 'Unknown',
-            status: processType === 'Note' ? 'General Note' : processType,
-            note: processNote
-        };
-
-        const updatedIssue = { 
-            ...currentHWForm, 
-            processNotes: [newNoteEntry, ...(currentHWForm.processNotes || [])] 
-        };
-        
-        if (processType !== 'Note') {
-            updatedIssue.status = processType;
-        }
-
-        const usesPart = useSparePart && selectedSparePartId && sparePartQty > 0;
-        if (usesPart) {
-            updatedIssue.sparePartUsage = { partId: selectedSparePartId, qty: sparePartQty, usageId: sparePartUsageId || newUsageId() };
-        }
-
-        if (role !== 'Viewer' && updatedIssue.id) {
-            api.put(`/rack/issues/${updatedIssue.id}`, updatedIssue).then(res => {
-                const saved = res.data.issue;
-                setHwIssues(prev => prev.map(i => i.id === saved.id ? saved : i));
-                setCurrentHWForm(saved);
-                setProcessNote('');
-                setProcessType('Note');
-                setUseSparePart(false);
-                setSelectedSparePartId('');
-                setSparePartQty(1);
-                setSparePartUsageId('');
-                if (usesPart) reloadSpareParts();
-            }).catch(err => {
-                console.error('Failed to update issue:', err);
-                showToast(err.response?.data?.error || 'Failed to update issue.', 'error');
-            });
-            return;
-        }
-
-        const { sparePartUsage: _unsent, ...localIssue } = updatedIssue;
-        setCurrentHWForm(localIssue);
-        setProcessNote('');
-        setProcessType('Note');
+    const resetPartSelection = () => {
         setUseSparePart(false);
         setSelectedSparePartId('');
         setSparePartQty(1);
         setSparePartUsageId('');
     };
 
+    // Timeline entries are added by the server, which stamps the time and the user
+    const handleUpdateProcessStatus = () => {
+        if (role === 'Viewer' || !currentHWForm.id) return;
+        const body = { type: processType, note: processNote.trim() };
+        const usesPart = useSparePart && selectedSparePartId && sparePartQty > 0;
+        if (usesPart) {
+            body.sparePartUsage = { partId: selectedSparePartId, qty: sparePartQty, usageId: sparePartUsageId || newUsageId() };
+            if (!sparePartUsageId) setSparePartUsageId(body.sparePartUsage.usageId);
+        }
+        api.post(`/rack/issues/${currentHWForm.id}/notes`, body).then(res => {
+            const saved = res.data.issue;
+            applySavedIssue(saved);
+            setCurrentHWForm(saved);
+            setProcessNote('');
+            setProcessType('Note');
+            resetPartSelection();
+            if (usesPart) reloadSpareParts();
+        }).catch(err => {
+            console.error('Failed to update issue:', err);
+            showToast(err.response?.data?.error || 'Failed to update issue.', 'error');
+        });
+    };
+
     const exportIssuesToCSV = () => {
-        const escapeCSV = (val) => '"' + String(val || '').replace(/"/g, '""') + '"';
-        const headers = ['Date', 'Datacenter', 'Device', 'SN', 'Location', 'Failed Parts', 'Reporter', 'Urgency', 'Status', 'Process Notes'];
-        const rows = hwIssues.map(i => [
+        const escapeCSV = csvCell;
+        const headers = ['Date', 'Datacenter', 'Device', 'SN', 'Location', 'Failed Parts', 'Reporter', 'Urgency', 'Status', 'Closed At', 'Process Notes'];
+        const shown = hwIssues.filter(i => hwFilterStatus === 'ALL' || i.status === hwFilterStatus);
+        const rows = shown.map(i => [
             escapeCSV(i.date),
             escapeCSV(i.datacenter),
             escapeCSV(i.deviceName),
@@ -278,16 +273,18 @@ export default function HardwareIssues() {
             escapeCSV(i.reporter),
             escapeCSV(i.urgency),
             escapeCSV(i.status),
-            escapeCSV((i.processNotes || []).map(n => `[${n.timestamp}] ${n.status}: ${n.note}`).join(' | '))
+            escapeCSV(formatNoteTime(i.closedAt)),
+            escapeCSV((Array.isArray(i.processNotes) ? i.processNotes : []).map(n => `[${formatNoteTime(n.timestamp)}] ${n.user ? `${n.user} ` : ''}${n.status}: ${n.note}`).join(' | '))
         ]);
-        const csvContent = "data:text/csv;charset=utf-8,\uFEFF" + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
-        const encodedUri = encodeURI(csvContent);
+        const blob = new Blob(['\uFEFF' + [headers.join(','), ...rows.map(e => e.join(','))].join('\r\n')], { type: 'text/csv;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
-        link.setAttribute('href', encodedUri);
+        link.setAttribute('href', url);
         link.setAttribute('download', `hw_issues_${new Date().toISOString().split('T')[0]}.csv`);
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
+        setTimeout(() => URL.revokeObjectURL(url), 0);
     };
 
     if (!initialLoaded) return <div style={{ padding: 40, textAlign: 'center' }}>Loading Issues...</div>;
@@ -308,7 +305,7 @@ export default function HardwareIssues() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
                 <div>
                     <h1 className="page-title" style={{ margin: 0, marginBottom: 16 }}>Hardware Issues & Maintenance</h1>
-                    
+
                     {/* Metrics Ribbon */}
                     <div style={{ display: 'flex', gap: 16 }}>
                         <div className="glass-panel" style={{ padding: '12px 20px', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 12, minWidth: 160 }}>
@@ -337,22 +334,25 @@ export default function HardwareIssues() {
 
                 <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
                     <div style={{ display: 'flex', background: 'rgba(0,0,0,0.2)', padding: 4, borderRadius: 8, border: '1px solid var(--border-color)' }}>
-                        <button 
-                            className={`btn ${viewMode === 'table' ? 'btn-primary' : ''}`} 
-                            onClick={() => setViewMode('table')} 
+                        <button
+                            className={`btn ${viewMode === 'table' ? 'btn-primary' : ''}`}
+                            onClick={() => setViewMode('table')}
                             style={{ padding: '6px 12px', background: viewMode === 'table' ? 'var(--accent-primary)' : 'transparent', color: viewMode === 'table' ? '#fff' : 'var(--text-muted)', border: 'none', boxShadow: 'none' }}>
                             📄 Table
                         </button>
-                        <button 
-                            className={`btn ${viewMode === 'kanban' ? 'btn-primary' : ''}`} 
-                            onClick={() => setViewMode('kanban')} 
+                        <button
+                            className={`btn ${viewMode === 'kanban' ? 'btn-primary' : ''}`}
+                            onClick={() => setViewMode('kanban')}
                             style={{ padding: '6px 12px', background: viewMode === 'kanban' ? 'var(--accent-primary)' : 'transparent', color: viewMode === 'kanban' ? '#fff' : 'var(--text-muted)', border: 'none', boxShadow: 'none' }}>
                             📇 Kanban
                         </button>
                     </div>
 
-                    <button className="btn btn-outline" onClick={exportIssuesToCSV} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        📥 Export Excel
+                    <select value={hwFilterStatus} onChange={e => setHwFilterStatus(e.target.value)} aria-label="Status filter" style={{ padding: '8px 10px', borderRadius: 8 }}>
+                        {STATUS_FILTERS.map(f => <option key={f} value={f}>{f === 'ALL' ? 'All statuses' : f}</option>)}
+                    </select>
+                    <button className="btn btn-outline" onClick={exportIssuesToCSV} title="Exports the issues of the current status filter" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        📥 Export CSV
                     </button>
                     {role !== 'Viewer' && (
                         <button className="btn btn-primary" onClick={openCreateForm} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -385,7 +385,7 @@ export default function HardwareIssues() {
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.05)' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                                         <div style={{ width: 20, height: 20, borderRadius: '50%', background: 'var(--accent-primary)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 800 }}>
-                                            {issue.reporter.charAt(0).toUpperCase()}
+                                            {initialOf(issue.reporter)}
                                         </div>
                                         <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{issue.reporter}</span>
                                     </div>
@@ -416,7 +416,7 @@ export default function HardwareIssues() {
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.05)' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                                         <div style={{ width: 20, height: 20, borderRadius: '50%', background: 'var(--accent-primary)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 800 }}>
-                                            {issue.reporter.charAt(0).toUpperCase()}
+                                            {initialOf(issue.reporter)}
                                         </div>
                                         <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{issue.reporter}</span>
                                     </div>
@@ -446,7 +446,7 @@ export default function HardwareIssues() {
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.05)' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                                         <div style={{ width: 20, height: 20, borderRadius: '50%', background: 'var(--bg-tertiary)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 800 }}>
-                                            {issue.reporter.charAt(0).toUpperCase()}
+                                            {initialOf(issue.reporter)}
                                         </div>
                                         <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{issue.reporter}</span>
                                     </div>
@@ -477,8 +477,8 @@ export default function HardwareIssues() {
                                 <tr key={issue.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
                                     <td style={{ padding: '12px 16px', whiteSpace: 'nowrap', color: 'var(--text-secondary)' }}>{issue.date}</td>
                                     <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>{issue.datacenter}</td>
-                                    <td style={{ padding: '12px 16px', cursor: 'pointer' }} onClick={() => openEditForm(issue, true)}>
-                                        <span style={{ color: 'var(--accent-primary)', textDecoration: 'underline' }}>{issue.deviceName}</span> 
+                                    <td style={{ padding: '12px 16px', cursor: 'pointer' }} onClick={() => openEditForm(issue, role === 'Viewer')}>
+                                        <span style={{ color: 'var(--accent-primary)', textDecoration: 'underline' }}>{issue.deviceName}</span>
                                         <br />
                                         <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>SN: {issue.sn}</span>
                                     </td>
@@ -492,7 +492,7 @@ export default function HardwareIssues() {
                                         <div className="action-dropdown-container" style={{ position: 'relative', display: 'inline-block' }}>
                                             <button className="btn btn-outline" style={{ padding: '4px 12px', fontSize: 12 }} onClick={() => setActiveDropdownId(activeDropdownId === issue.id ? null : issue.id)}>Actions ▾</button>
                                             {activeDropdownId === issue.id && (
-                                                <div className="action-dropdown-menu glass-panel" style={{ 
+                                                <div className="action-dropdown-menu glass-panel" style={{
                                                     position: 'absolute', right: 0, top: '100%', bottom: 'auto', marginTop: '4px', zIndex: 100, display: 'flex', flexDirection: 'column', gap: 2, padding: 8, minWidth: 150, boxShadow: '0 8px 16px rgba(0,0,0,0.4)', border: '1px solid var(--border-color)', borderRadius: 8, textAlign: 'left'
                                                 }}>
                                                     <button className="dropdown-item-btn" style={{ background: 'transparent', border: 'none', color: 'var(--text-primary)', padding: 8, textAlign: 'left', cursor: 'pointer', borderRadius: 4, fontSize: 12, display: 'flex', alignItems: 'center', gap: 8 }} onClick={() => openEditForm(issue, role === 'Viewer')}>
@@ -554,7 +554,7 @@ export default function HardwareIssues() {
                                             </select>
                                         )}
                                     </div>
-                                    
+
                                     <div className="form-group">
                                         <label style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4, display: 'block' }}>Device</label>
                                         {isHWFormReadOnly ? (
@@ -589,7 +589,7 @@ export default function HardwareIssues() {
                                             <option value="L" style={{ color: 'var(--success)' }}>Low</option>
                                         </select>
                                     </div>
-                                    <div className="form-group">
+                                    <div className="form-group" title={currentHWForm.id ? 'Change the status from the Process Timeline below' : undefined}>
                                         <label style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4, display: 'block' }}>Status</label>
                                         <select value={currentHWForm.status} onChange={e => setCurrentHWForm({ ...currentHWForm, status: e.target.value })} disabled={isHWFormReadOnly || role === 'Viewer' || currentHWForm.id} style={{ width: '100%', padding: 10, background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 6 }}>
                                             <option value="Open">Open</option>
@@ -632,8 +632,15 @@ export default function HardwareIssues() {
                                 <div className="form-group" style={{ marginBottom: 24 }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                                         <label style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>Process Timeline</label>
+                                        {currentHWForm.id && (
+                                            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                                                {currentHWForm.createdBy ? `Created by ${currentHWForm.createdBy}` : ''}
+                                                {currentHWForm.createdAt ? ` on ${formatNoteTime(currentHWForm.createdAt)}` : ''}
+                                                {currentHWForm.closedAt ? ` · Closed ${formatNoteTime(currentHWForm.closedAt)}` : ''}
+                                            </span>
+                                        )}
                                     </div>
-                                    
+
                                     {!isHWFormReadOnly && role !== 'Viewer' && currentHWForm.id && (
                                         <div style={{ background: 'rgba(0,0,0,0.2)', padding: 16, borderRadius: 8, marginBottom: 16, border: '1px solid rgba(255,255,255,0.05)' }}>
                                             <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
@@ -641,12 +648,13 @@ export default function HardwareIssues() {
                                                     <option value="Note">📝 Note</option>
                                                     <option value="Processing">⚙️ Process</option>
                                                     <option value="Closed">✅ Close</option>
+                                                    {currentHWForm.status === 'Closed' && <option value="Open">↩️ Reopen</option>}
                                                 </select>
-                                                <input 
-                                                    type="text" 
-                                                    value={processNote} 
-                                                    onChange={e => setProcessNote(e.target.value)} 
-                                                    placeholder="Add an update note..." 
+                                                <input
+                                                    type="text"
+                                                    value={processNote}
+                                                    onChange={e => setProcessNote(e.target.value)}
+                                                    placeholder="Add an update note..."
                                                     style={{ flex: 1, padding: 8, borderRadius: 6, background: 'var(--bg-primary)', border: '1px solid var(--border-color)' }}
                                                 />
                                             </div>
@@ -668,7 +676,7 @@ export default function HardwareIssues() {
                                                     <div style={{ flex: 1, background: 'rgba(255,255,255,0.03)', padding: 12, borderRadius: 8, border: '1px solid rgba(255,255,255,0.05)' }}>
                                                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                                                             <span style={{ fontSize: 12, fontWeight: 700, color: note.status === 'Closed' ? 'var(--success)' : note.status === 'Processing' ? '#3b82f6' : 'var(--text-primary)' }}>{note.status}</span>
-                                                            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{note.timestamp}</span>
+                                                            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{formatNoteTime(note.timestamp)}</span>
                                                         </div>
                                                         <div style={{ fontSize: 13, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>{note.note}</div>
                                                         <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 8 }}>By: {note.user || 'Unknown'}</div>

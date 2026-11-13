@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import api from '../../api';
 import { RESOLUTIONS } from './hwIssueUtils';
+import './hwIssues.css';
 
 const STATUS_TEXT = { Open: 'Reopen', Processing: 'Move to Processing', Closed: 'Close' };
 
@@ -22,30 +23,25 @@ export default function HwStatusChangeModal({ issue, to, onCancel, onSaved, onEr
     };
 
     return (
-        <div className="drawer-overlay" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-            onClick={(e) => { if (e.target === e.currentTarget && !saving) onCancel(); }}>
-            <form className="glass-panel" onSubmit={submit} role="dialog" aria-modal="true" aria-label={`${STATUS_TEXT[to]} ${issue.deviceName}`}
-                style={{ width: 'min(460px, 92vw)', padding: 24, display: 'flex', flexDirection: 'column', gap: 14, borderRadius: 12 }}>
-                <h3 style={{ margin: 0, fontSize: 17 }}>{STATUS_TEXT[to]}: {issue.deviceName}</h3>
-                <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-                    {issue.status} → <strong>{to}</strong>. The note is added to the process timeline.
-                </div>
+        <div className="hw-modal-overlay" onClick={(e) => { if (e.target === e.currentTarget && !saving) onCancel(); }}>
+            <form className="glass-panel hw-modal" onSubmit={submit} role="dialog" aria-modal="true" aria-label={`${STATUS_TEXT[to]} ${issue.deviceName}`}>
+                <h3>{STATUS_TEXT[to]}: {issue.deviceName}</h3>
+                <div className="hw-modal-text">{issue.status} → <strong>{to}</strong>. The note is added to the process timeline.</div>
                 {to === 'Closed' && (
-                    <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: 'var(--text-muted)' }}>
+                    <label>
                         Resolution
-                        <select value={resolution} onChange={e => setResolution(e.target.value)} style={{ padding: 8, borderRadius: 6 }}>
+                        <select value={resolution} onChange={e => setResolution(e.target.value)}>
                             <option value="">(not specified)</option>
                             {RESOLUTIONS.map(r => <option key={r} value={r}>{r}</option>)}
                         </select>
                     </label>
                 )}
-                <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: 'var(--text-muted)' }}>
+                <label>
                     Note (required)
                     <textarea value={note} onChange={e => setNote(e.target.value)} rows={4} maxLength={2000} autoFocus required
-                        placeholder={to === 'Closed' ? 'What was done to fix it?' : 'What is happening now?'}
-                        style={{ padding: 8, borderRadius: 6, resize: 'vertical' }} />
+                        placeholder={to === 'Closed' ? 'What was done to fix it?' : 'What is happening now?'} />
                 </label>
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                <div className="hw-modal-actions">
                     <button type="button" className="btn btn-outline" onClick={onCancel} disabled={saving}>Cancel</button>
                     <button type="submit" className="btn btn-primary" disabled={saving || !note.trim()}>{saving ? 'Saving...' : STATUS_TEXT[to]}</button>
                 </div>

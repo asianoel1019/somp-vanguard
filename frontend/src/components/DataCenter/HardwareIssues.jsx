@@ -1,13 +1,20 @@
 import { useToast } from '../../contexts/ToastContext';
 import { useConfirm } from '../../contexts/ConfirmContext';
 import React, { useState, useEffect, useMemo } from 'react';
+import {
+    TbAlertTriangle, TbProgress, TbAlarm, TbCircleCheck, TbStopwatch, TbBuilding, TbTable, TbLayoutKanban, TbDownload, TbPlus,
+    TbSearch, TbFilterOff, TbMapPin, TbTool, TbTicket, TbArrowRight, TbChevronDown, TbPencil, TbEye, TbTrash, TbX, TbNote, TbTools
+} from 'react-icons/tb';
 import api from '../../api';
 import {
     formatNoteTime, csvCell, initialOf, ageDays, isOverdue, closedRecently, filterIssues, sortIssues, issueKpis,
     SLA_DAYS, URGENCY_LABELS, RESOLUTIONS
 } from './hwIssueUtils';
+import { URGENCY_TONE, STATUS_META, entryTone } from './hwIssueTheme';
+import { UrgencyBadge, StatusBadge, AgeChip } from './HwIssueParts';
 import HwStatusChangeModal from './HwStatusChangeModal';
 import HwIssueLinked from './HwIssueLinked';
+import './hwIssues.css';
 
 // One id per spare-part selection: the server deducts stock once per usageId even if the save is retried
 const newUsageId = () => (typeof window !== 'undefined' && window.crypto && typeof window.crypto.randomUUID === 'function')
@@ -17,21 +24,10 @@ const newUsageId = () => (typeof window !== 'undefined' && window.crypto && type
 // Fields the form edits; the timeline, spare-part usages and times are kept by the server
 const EDITABLE_FIELDS = ['date', 'datacenter', 'deviceName', 'deviceId', 'rackId', 'sn', 'rackLoc', 'failedParts', 'reporter', 'urgency', 'status',
     'partsInfo', 'assignee', 'rmaNumber', 'dueDate', 'resolution'];
-const URGENCY_COLORS = { H: 'var(--danger)', M: '#f59e0b', L: 'var(--success)' };
-const STATUS_COLORS = { Open: 'var(--text-primary)', Processing: '#3b82f6', Closed: 'var(--success)' };
-const COLUMNS = [
-    { status: 'Open', label: '🚨 Open', color: 'var(--text-primary)' },
-    { status: 'Processing', label: '⚙️ Processing', color: '#3b82f6' },
-    { status: 'Closed', label: '✅ Closed', color: 'var(--success)' },
-];
+const STATUSES = ['Open', 'Processing', 'Closed'];
 const EMPTY_FILTERS = { q: '', dc: 'ALL', urgency: 'ALL', status: 'ALL', from: '', to: '', overdueOnly: false };
 const SORTABLE = [['date', 'Date'], ['datacenter', 'Datacenter'], ['deviceName', 'Device / SN'], [null, 'Location'], [null, 'Failed Parts'],
     ['urgency', 'Urgency'], ['status', 'Status'], ['age', 'Age'], ['assignee', 'Assignee'], [null, 'Action']];
-
-const inputStyle = { width: '100%', padding: 10, background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 6 };
-const labelStyle = { fontSize: 12, color: 'var(--text-muted)', marginBottom: 4, display: 'block' };
-const thStyle = { padding: '12px 16px', color: 'var(--text-muted)', whiteSpace: 'nowrap' };
-const tdStyle = { padding: '12px 16px' };
 
 /** Very old issues kept the timeline as text lines. */
 function withTimeline(i) {
@@ -47,52 +43,25 @@ function withTimeline(i) {
     return { ...i, processNotes: notes };
 }
 
-/** "3d" age chip; red with "overdue" when past its deadline. */
-function AgeChip({ issue, now }) {
-    const days = ageDays(issue, now);
-    if (days === null) return null;
-    const late = isOverdue(issue, now);
-    return (
-        <span title={late ? 'Past its due date' : issue.status === 'Closed' ? 'Days it was open' : 'Days open'}
-            style={{ fontSize: 11, fontWeight: 700, padding: '1px 6px', borderRadius: 4, whiteSpace: 'nowrap',
-                background: late ? 'rgba(239,68,68,0.18)' : 'rgba(255,255,255,0.08)', color: late ? 'var(--danger)' : 'var(--text-muted)' }}>
-            {days}d{late ? ' · overdue' : ''}
-        </span>
-    );
-}
-
-function UrgencyBadge({ urgency, closed }) {
-    if (closed) return <span style={{ padding: '2px 6px', borderRadius: 4, background: 'rgba(255,255,255,0.1)', color: 'var(--text-muted)', fontSize: 10, fontWeight: 700 }}>CLOSED</span>;
-    return (
-        <span style={{ padding: '2px 6px', borderRadius: 4, background: URGENCY_COLORS[urgency] || URGENCY_COLORS.M, color: '#fff', fontSize: 10, fontWeight: 700 }}>
-            {(URGENCY_LABELS[urgency] || 'Medium').toUpperCase()}
-        </span>
-    );
-}
-
 function IssueCard({ issue, now, draggable, onOpen, onDragStart }) {
     const closed = issue.status === 'Closed';
+    const classes = ['kanban-card', 'hw-card', issue.urgency === 'H' && !closed ? 'glow-red' : '', closed ? 'is-closed' : '',
+        isOverdue(issue, now) ? 'is-overdue' : '', draggable ? 'is-draggable' : ''].filter(Boolean).join(' ');
     return (
-        <div className={`kanban-card ${issue.urgency === 'H' && !closed ? 'glow-red' : ''}`} onClick={onOpen}
-            draggable={draggable} onDragStart={onDragStart} role="button" tabIndex={0}
-            onKeyDown={(e) => { if (e.key === 'Enter') onOpen(); }}
-            style={{ borderLeft: isOverdue(issue, now) ? '3px solid var(--danger)' : undefined, cursor: draggable ? 'grab' : 'pointer' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
-                <div style={{ fontWeight: 700, fontSize: 14, textDecoration: closed ? 'line-through' : 'none', opacity: closed ? 0.7 : 1 }}>{issue.deviceName}</div>
-                <UrgencyBadge urgency={issue.urgency} closed={closed} />
+        <div className={classes} onClick={onOpen} draggable={draggable} onDragStart={onDragStart} role="button" tabIndex={0}
+            onKeyDown={(e) => { if (e.key === 'Enter') onOpen(); }}>
+            <div className="hw-card-head">
+                <div className="hw-card-title">{issue.deviceName}</div>
+                {closed ? <StatusBadge status="Closed" /> : <UrgencyBadge urgency={issue.urgency} />}
             </div>
-            <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>📍 {issue.datacenter}{issue.rackLoc ? ` | ${issue.rackLoc}` : ''}</div>
-            {!closed && <div style={{ fontSize: 12, color: 'var(--text-primary)', marginTop: 4 }}>🔧 {issue.failedParts}</div>}
-            {closed && issue.resolution && <div style={{ fontSize: 12, color: 'var(--success)', marginTop: 4 }}>✔ {issue.resolution}</div>}
-            {issue.rmaNumber && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>RMA {issue.rmaNumber}</div>}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-                    <div style={{ width: 20, height: 20, flexShrink: 0, borderRadius: '50%', background: closed ? 'var(--bg-tertiary)' : 'var(--accent-primary)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 800 }}>
-                        {initialOf(issue.assignee || issue.reporter)}
-                    </div>
-                    <span style={{ fontSize: 11, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {issue.assignee ? `→ ${issue.assignee}` : issue.reporter}
-                    </span>
+            <div className="hw-line"><TbMapPin size={14} aria-hidden="true" />{issue.datacenter}{issue.rackLoc ? ` · ${issue.rackLoc}` : ''}</div>
+            {!closed && <div className="hw-line is-strong"><TbTool size={14} aria-hidden="true" />{issue.failedParts}</div>}
+            {closed && issue.resolution && <div className="hw-line is-good"><TbCircleCheck size={14} aria-hidden="true" />{issue.resolution}</div>}
+            {issue.rmaNumber && <div className="hw-line"><TbTicket size={14} aria-hidden="true" />RMA {issue.rmaNumber}</div>}
+            <div className="hw-card-foot">
+                <div className="hw-person">
+                    <div className={`hw-avatar${closed ? ' is-muted' : ''}`}>{initialOf(issue.assignee || issue.reporter)}</div>
+                    {issue.assignee ? <><TbArrowRight size={12} aria-hidden="true" /><span>{issue.assignee}</span></> : <span>{issue.reporter}</span>}
                 </div>
                 <AgeChip issue={issue} now={now} />
             </div>
@@ -168,7 +137,7 @@ export default function HardwareIssues({ onShowInRack }) {
 
         // Click outside logic for Action Menu in table view
         const closeDropdown = (e) => {
-            if (!e.target.closest('.action-dropdown-container')) setActiveDropdownId(null);
+            if (!e.target.closest('.hw-menu-wrap')) setActiveDropdownId(null);
         };
         document.addEventListener('click', closeDropdown);
         // ages and overdue marks move with the clock
@@ -314,6 +283,7 @@ export default function HardwareIssues({ onShowInRack }) {
     const peopleNames = useMemo(() => [...new Set(hwIssues.flatMap(i => [i.reporter, i.assignee]).filter(Boolean))].sort(), [hwIssues]);
     const filtersActive = JSON.stringify(filters) !== JSON.stringify(EMPTY_FILTERS);
     const setFilter = (key, value) => setFilters(prev => ({ ...prev, [key]: value }));
+    const setFormField = (key, value) => setCurrentHWForm(prev => ({ ...prev, [key]: value }));
 
     const exportIssuesToCSV = () => {
         const headers = ['Date', 'Datacenter', 'Device', 'SN', 'Location', 'Failed Parts', 'Reporter', 'Assignee', 'RMA / Case', 'Urgency', 'Status',
@@ -344,7 +314,7 @@ export default function HardwareIssues({ onShowInRack }) {
         if (issue && issue.status !== status) setStatusChange({ issue, to: status });
     };
 
-    if (!initialLoaded) return <div style={{ padding: 40, textAlign: 'center' }}>Loading Issues...</div>;
+    if (!initialLoaded) return <div className="hw-empty-row">Loading Issues...</div>;
 
     const columnIssues = (status) => sortIssues(filteredIssues.filter(i => i.status === status && (status !== 'Closed' || showAllClosed || closedRecently(i, now))), 'date', 'desc', now);
     const hiddenClosed = filteredIssues.filter(i => i.status === 'Closed' && !closedRecently(i, now)).length;
@@ -352,99 +322,110 @@ export default function HardwareIssues({ onShowInRack }) {
     const formLocked = isHWFormReadOnly || !canWrite;
 
     const kpiCards = [
-        { label: 'Open', value: kpis.open, icon: '🚨', color: '#ef4444', sub: `High ${kpis.openByUrgency.H} · Med ${kpis.openByUrgency.M} · Low ${kpis.openByUrgency.L}` },
-        { label: 'Processing', value: kpis.processing, icon: '⚙️', color: '#3b82f6' },
-        { label: 'Overdue', value: kpis.overdue, icon: '⏰', color: kpis.overdue ? '#ef4444' : '#94a3b8', sub: `High ${SLA_DAYS.H}d · Med ${SLA_DAYS.M}d · Low ${SLA_DAYS.L}d`,
-            onClick: () => setFilters({ ...EMPTY_FILTERS, overdueOnly: true }), title: 'Show the overdue issues' },
-        { label: 'Closed (30 days)', value: kpis.closed30, icon: '✅', color: '#10b981' },
-        { label: 'Avg days to close', value: kpis.avgDaysToClose ?? '-', icon: '⏱️', color: '#8b5cf6', sub: kpis.closedCounted ? `${kpis.closedCounted} closed in 90 days` : 'none closed in 90 days' },
-        { label: 'Active by DC', value: kpis.activeByDc.length, icon: '🏢', color: '#06b6d4', sub: kpis.activeByDc.slice(0, 3).map(([dc, n]) => `${dc} ${n}`).join(' · ') || 'none' },
+        { id: 'open', label: 'Open', value: kpis.open, icon: TbAlertTriangle, tone: 'var(--danger)', sub: `High ${kpis.openByUrgency.H} · Med ${kpis.openByUrgency.M} · Low ${kpis.openByUrgency.L}` },
+        { id: 'processing', label: 'Processing', value: kpis.processing, icon: TbProgress, tone: 'var(--accent-primary)' },
+        { id: 'overdue', label: 'Overdue', value: kpis.overdue, icon: TbAlarm, tone: kpis.overdue ? 'var(--danger)' : 'var(--text-muted)', alert: kpis.overdue > 0,
+            sub: `High ${SLA_DAYS.H}d · Med ${SLA_DAYS.M}d · Low ${SLA_DAYS.L}d`, onClick: () => setFilters({ ...EMPTY_FILTERS, overdueOnly: true }), title: 'Show the overdue issues' },
+        { id: 'closed', label: 'Closed (30 days)', value: kpis.closed30, icon: TbCircleCheck, tone: 'var(--success)' },
+        { id: 'avg', label: 'Avg days to close', value: kpis.avgDaysToClose ?? '-', icon: TbStopwatch, tone: 'var(--accent-primary)',
+            sub: kpis.closedCounted ? `${kpis.closedCounted} closed in 90 days` : 'none closed in 90 days' },
+        { id: 'dc', label: 'Active by DC', value: kpis.activeByDc.length, icon: TbBuilding, tone: 'var(--text-secondary)',
+            sub: kpis.activeByDc.slice(0, 3).map(([dc, n]) => `${dc} ${n}`).join(' · ') || 'none' },
     ];
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-            {/* Header & Ribbon */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap', marginBottom: 16 }}>
-                <h1 className="page-title" style={{ margin: 0 }}>Hardware Issues & Maintenance</h1>
-                <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-                    <div style={{ display: 'flex', background: 'rgba(0,0,0,0.2)', padding: 4, borderRadius: 8, border: '1px solid var(--border-color)' }}>
-                        {[['table', '📄 Table'], ['kanban', '📇 Kanban']].map(([mode, text]) => (
-                            <button key={mode} className={`btn ${viewMode === mode ? 'btn-primary' : ''}`} onClick={() => setViewMode(mode)}
-                                style={{ padding: '6px 12px', background: viewMode === mode ? 'var(--accent-primary)' : 'transparent', color: viewMode === mode ? '#fff' : 'var(--text-muted)', border: 'none', boxShadow: 'none' }}>
-                                {text}
-                            </button>
-                        ))}
+        <div className="hw-page">
+            <div className="hw-header">
+                <h1 className="page-title">Hardware Issues & Maintenance</h1>
+                <div className="hw-actions">
+                    <div className="hw-seg" role="tablist" aria-label="View">
+                        {[['table', 'Table', TbTable], ['kanban', 'Kanban', TbLayoutKanban]].map(([mode, text, icon]) => {
+                            const Icon = icon;
+                            return (
+                                <button key={mode} type="button" role="tab" aria-selected={viewMode === mode} className={viewMode === mode ? 'is-active' : ''} onClick={() => setViewMode(mode)}>
+                                    <Icon size={16} aria-hidden="true" />{text}
+                                </button>
+                            );
+                        })}
                     </div>
-                    <button className="btn btn-outline" onClick={exportIssuesToCSV} title="Exports the issues that match the filters" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        📥 Export CSV
+                    <button className="btn btn-outline hw-btn" onClick={exportIssuesToCSV} title="Exports the issues that match the filters">
+                        <TbDownload size={16} aria-hidden="true" /> Export CSV
                     </button>
                     {canWrite && (
-                        <button className="btn btn-primary" onClick={openCreateForm} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>+ Report Issue</button>
+                        <button className="btn btn-primary hw-btn" onClick={openCreateForm}><TbPlus size={16} aria-hidden="true" /> Report Issue</button>
                     )}
                 </div>
             </div>
 
             {/* Figures */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12, marginBottom: 16 }}>
-                {kpiCards.map(k => (
-                    <div key={k.label} className="glass-panel" onClick={k.onClick} title={k.title} role={k.onClick ? 'button' : undefined}
-                        style={{ padding: '12px 16px', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 12, cursor: k.onClick ? 'pointer' : 'default' }}>
-                        <div style={{ background: `${k.color}33`, color: k.color, width: 38, height: 38, flexShrink: 0, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>{k.icon}</div>
-                        <div style={{ minWidth: 0 }}>
-                            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{k.label}</div>
-                            <div style={{ fontSize: 22, fontWeight: 800, color: k.label === 'Overdue' && kpis.overdue ? 'var(--danger)' : undefined }}>{k.value}</div>
-                            {k.sub && <div style={{ fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{k.sub}</div>}
+            <div className="hw-kpis">
+                {kpiCards.map(k => {
+                    const Icon = k.icon;
+                    return (
+                        <div key={k.id} className={`glass-panel hw-kpi${k.onClick ? ' is-clickable' : ''}`} style={{ '--hw-tone': k.tone }}
+                            onClick={k.onClick} title={k.title} role={k.onClick ? 'button' : undefined} tabIndex={k.onClick ? 0 : undefined}
+                            onKeyDown={k.onClick ? (e) => { if (e.key === 'Enter') k.onClick(); } : undefined}>
+                            <div className="hw-kpi-icon"><Icon size={20} aria-hidden="true" /></div>
+                            <div className="hw-kpi-body">
+                                <div className="hw-kpi-label">{k.label}</div>
+                                <div className={`hw-kpi-value${k.alert ? ' is-alert' : ''}`}>{k.value}</div>
+                                {k.sub && <div className="hw-kpi-sub">{k.sub}</div>}
+                            </div>
                         </div>
-                    </div>
-                ))}
+                    );
+                })}
             </div>
 
             {/* Filters */}
-            <div className="glass-panel" style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', padding: '10px 14px', borderRadius: 12, marginBottom: 16 }}>
-                <input type="search" value={filters.q} onChange={e => setFilter('q', e.target.value)} aria-label="Search issues"
-                    placeholder="Search device, SN, part, reporter, assignee, RMA..." style={{ flex: '1 1 240px', padding: '8px 10px', borderRadius: 8 }} />
-                <select value={filters.dc} onChange={e => setFilter('dc', e.target.value)} aria-label="Datacenter" style={{ padding: '8px 10px', borderRadius: 8 }}>
+            <div className="glass-panel hw-filters">
+                <div className="hw-search">
+                    <TbSearch size={16} aria-hidden="true" />
+                    <input type="search" value={filters.q} onChange={e => setFilter('q', e.target.value)} aria-label="Search issues"
+                        placeholder="Search device, SN, part, reporter, assignee, RMA..." />
+                </div>
+                <select value={filters.dc} onChange={e => setFilter('dc', e.target.value)} aria-label="Datacenter">
                     <option value="ALL">All datacenters</option>
                     {dcNames.map(n => <option key={n} value={n}>{n}</option>)}
                 </select>
-                <select value={filters.urgency} onChange={e => setFilter('urgency', e.target.value)} aria-label="Urgency" style={{ padding: '8px 10px', borderRadius: 8 }}>
+                <select value={filters.urgency} onChange={e => setFilter('urgency', e.target.value)} aria-label="Urgency">
                     <option value="ALL">All urgencies</option>
                     {['H', 'M', 'L'].map(u => <option key={u} value={u}>{URGENCY_LABELS[u]}</option>)}
                 </select>
-                <select value={filters.status} onChange={e => setFilter('status', e.target.value)} aria-label="Status" style={{ padding: '8px 10px', borderRadius: 8 }}>
+                <select value={filters.status} onChange={e => setFilter('status', e.target.value)} aria-label="Status">
                     <option value="ALL">All statuses</option>
-                    {COLUMNS.map(c => <option key={c.status} value={c.status}>{c.status}</option>)}
+                    {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)' }}>
-                    From <input type="date" value={filters.from} onChange={e => setFilter('from', e.target.value)} style={{ padding: '6px 8px', borderRadius: 8 }} />
-                </label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)' }}>
-                    To <input type="date" value={filters.to} onChange={e => setFilter('to', e.target.value)} style={{ padding: '6px 8px', borderRadius: 8 }} />
-                </label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' }}>
+                <label className="hw-inline-label">From <input type="date" value={filters.from} onChange={e => setFilter('from', e.target.value)} /></label>
+                <label className="hw-inline-label">To <input type="date" value={filters.to} onChange={e => setFilter('to', e.target.value)} /></label>
+                <label className="hw-inline-label">
                     <input type="checkbox" checked={filters.overdueOnly} onChange={e => setFilter('overdueOnly', e.target.checked)} /> Overdue only
                 </label>
-                {filtersActive && <button type="button" className="btn btn-outline" style={{ padding: '6px 12px', fontSize: 12 }} onClick={() => setFilters(EMPTY_FILTERS)}>Clear filters</button>}
-                <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--text-muted)' }}>{filteredIssues.length} of {hwIssues.length} issues</span>
+                {filtersActive && (
+                    <button type="button" className="btn btn-outline hw-btn hw-btn-sm" onClick={() => setFilters(EMPTY_FILTERS)}>
+                        <TbFilterOff size={14} aria-hidden="true" /> Clear filters
+                    </button>
+                )}
+                <span className="hw-count">{filteredIssues.length} of {hwIssues.length} issues</span>
             </div>
 
             {/* Views */}
             {viewMode === 'kanban' ? (
                 <div className="kanban-board">
-                    {COLUMNS.map(col => {
-                        const list = columnIssues(col.status);
+                    {STATUSES.map(status => {
+                        const list = columnIssues(status);
+                        const meta = STATUS_META[status];
+                        const Icon = meta.icon;
                         return (
-                            <div key={col.status} className="kanban-column"
-                                style={{ opacity: col.status === 'Closed' ? 0.85 : 1, outline: dragOver === col.status ? '2px dashed var(--accent-primary)' : 'none', outlineOffset: -4 }}
-                                onDragOver={canWrite ? (e) => { e.preventDefault(); if (dragOver !== col.status) setDragOver(col.status); } : undefined}
+                            <div key={status} className={`kanban-column hw-column${status === 'Closed' ? ' is-closed' : ''}${dragOver === status ? ' is-drop-target' : ''}`}
+                                onDragOver={canWrite ? (e) => { e.preventDefault(); if (dragOver !== status) setDragOver(status); } : undefined}
                                 onDragLeave={canWrite ? (e) => { if (!e.currentTarget.contains(e.relatedTarget)) setDragOver(null); } : undefined}
-                                onDrop={canWrite ? onDropTo(col.status) : undefined}>
+                                onDrop={canWrite ? onDropTo(status) : undefined}>
                                 <div className="kanban-header">
-                                    <span style={{ color: col.color }}>{col.label}</span>
-                                    <span style={{ fontSize: 12, background: 'rgba(255,255,255,0.1)', padding: '2px 8px', borderRadius: 12 }}>{list.length}</span>
+                                    <span className="hw-column-title" style={{ '--hw-tone': meta.tone }}><Icon size={16} aria-hidden="true" />{status}</span>
+                                    <span className="hw-column-count">{list.length}</span>
                                 </div>
-                                {col.status === 'Closed' && (hiddenClosed > 0 || showAllClosed) && (
-                                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)', padding: '0 4px 8px', cursor: 'pointer' }}>
+                                {status === 'Closed' && (hiddenClosed > 0 || showAllClosed) && (
+                                    <label className="hw-older">
                                         <input type="checkbox" checked={showAllClosed} onChange={e => setShowAllClosed(e.target.checked)} />
                                         Show older closed issues{hiddenClosed && !showAllClosed ? ` (${hiddenClosed})` : ''}
                                     </label>
@@ -455,19 +436,19 @@ export default function HardwareIssues({ onShowInRack }) {
                                             onOpen={() => openEditForm(issue, !canWrite)}
                                             onDragStart={(e) => { e.dataTransfer.setData('text/plain', issue.id); e.dataTransfer.effectAllowed = 'move'; }} />
                                     ))}
-                                    {list.length === 0 && <div style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center', padding: 16 }}>{canWrite ? 'Drop a card here' : 'No issues'}</div>}
+                                    {list.length === 0 && <div className="hw-column-empty">{canWrite ? 'Drop a card here' : 'No issues'}</div>}
                                 </div>
                             </div>
                         );
                     })}
                 </div>
             ) : (
-                <div style={{ flex: 1, overflow: 'auto', background: 'var(--bg-glass)', border: '1px solid var(--border-color)', borderRadius: 12, minHeight: '300px' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                        <thead style={{ position: 'sticky', top: 0, background: 'var(--bg-primary)', zIndex: 10 }}>
-                            <tr style={{ borderBottom: '1px solid var(--border-color)', textAlign: 'left' }}>
+                <div className="hw-table-wrap">
+                    <table className="hw-table">
+                        <thead>
+                            <tr>
                                 {SORTABLE.map(([key, text]) => (
-                                    <th key={text} style={{ ...thStyle, cursor: key ? 'pointer' : 'default' }}
+                                    <th key={text} className={key ? 'is-sortable' : undefined}
                                         aria-sort={key && sort.key === key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : undefined}
                                         onClick={key ? () => setSort(prev => ({ key, dir: prev.key === key && prev.dir === 'desc' ? 'asc' : 'desc' })) : undefined}>
                                         {text}{key && sort.key === key ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : ''}
@@ -477,38 +458,39 @@ export default function HardwareIssues({ onShowInRack }) {
                         </thead>
                         <tbody>
                             {sortedIssues.map(issue => (
-                                <tr key={issue.id} style={{ borderBottom: '1px solid var(--border-color)', background: isOverdue(issue, now) ? 'rgba(239,68,68,0.06)' : undefined }}>
-                                    <td style={{ ...tdStyle, whiteSpace: 'nowrap', color: 'var(--text-secondary)' }}>{issue.date}</td>
-                                    <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>{issue.datacenter}</td>
-                                    <td style={{ ...tdStyle, cursor: 'pointer' }} onClick={() => openEditForm(issue, !canWrite)}>
-                                        <span style={{ color: 'var(--accent-primary)', textDecoration: 'underline' }}>{issue.deviceName}</span>
-                                        <br />
-                                        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>SN: {issue.sn}</span>
+                                <tr key={issue.id} className={isOverdue(issue, now) ? 'is-overdue' : undefined}>
+                                    <td className="hw-nowrap hw-muted">{issue.date}</td>
+                                    <td className="hw-nowrap">{issue.datacenter}</td>
+                                    <td>
+                                        <button type="button" className="hw-link" onClick={() => openEditForm(issue, !canWrite)}>{issue.deviceName}</button>
+                                        <div className="hw-muted hw-small">SN: {issue.sn || '-'}</div>
                                     </td>
-                                    <td style={{ ...tdStyle, whiteSpace: 'nowrap', color: 'var(--text-primary)' }}>{issue.rackLoc}</td>
-                                    <td style={{ ...tdStyle, color: 'var(--text-secondary)' }}>{issue.failedParts}</td>
-                                    <td style={tdStyle}>
-                                        <span style={{ padding: '4px 8px', borderRadius: 4, background: URGENCY_COLORS[issue.urgency] || URGENCY_COLORS.M, color: '#fff', fontSize: 11, fontWeight: 700 }}>{URGENCY_LABELS[issue.urgency] || issue.urgency}</span>
+                                    <td className="hw-nowrap">{issue.rackLoc}</td>
+                                    <td className="hw-muted">{issue.failedParts}</td>
+                                    <td><UrgencyBadge urgency={issue.urgency} /></td>
+                                    <td className="hw-nowrap">
+                                        <StatusBadge status={issue.status} />
+                                        {issue.status === 'Closed' && issue.resolution && <div className="hw-muted hw-small">{issue.resolution}</div>}
                                     </td>
-                                    <td style={{ ...tdStyle, whiteSpace: 'nowrap', fontWeight: 700, color: STATUS_COLORS[issue.status] || 'var(--text-primary)' }}>
-                                        {issue.status}
-                                        {issue.status === 'Closed' && issue.resolution && <div style={{ fontSize: 11, fontWeight: 400, color: 'var(--text-muted)' }}>{issue.resolution}</div>}
+                                    <td><AgeChip issue={issue} now={now} /></td>
+                                    <td className="hw-nowrap">
+                                        {issue.assignee || <span className="hw-muted">-</span>}
+                                        {issue.rmaNumber && <div className="hw-muted hw-small">RMA {issue.rmaNumber}</div>}
                                     </td>
-                                    <td style={tdStyle}><AgeChip issue={issue} now={now} /></td>
-                                    <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>{issue.assignee || <span style={{ color: 'var(--text-muted)' }}>-</span>}{issue.rmaNumber && <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>RMA {issue.rmaNumber}</div>}</td>
-                                    <td style={tdStyle}>
-                                        <div className="action-dropdown-container" style={{ position: 'relative', display: 'inline-block' }}>
-                                            <button className="btn btn-outline" style={{ padding: '4px 12px', fontSize: 12 }} onClick={() => setActiveDropdownId(activeDropdownId === issue.id ? null : issue.id)}>Actions ▾</button>
+                                    <td>
+                                        <div className="hw-menu-wrap">
+                                            <button type="button" className="btn btn-outline hw-btn hw-btn-sm" aria-haspopup="menu" aria-expanded={activeDropdownId === issue.id}
+                                                onClick={() => setActiveDropdownId(activeDropdownId === issue.id ? null : issue.id)}>
+                                                Actions <TbChevronDown size={14} aria-hidden="true" />
+                                            </button>
                                             {activeDropdownId === issue.id && (
-                                                <div className="action-dropdown-menu glass-panel" style={{
-                                                    position: 'absolute', right: 0, top: '100%', bottom: 'auto', marginTop: '4px', zIndex: 100, display: 'flex', flexDirection: 'column', gap: 2, padding: 8, minWidth: 150, boxShadow: '0 8px 16px rgba(0,0,0,0.4)', border: '1px solid var(--border-color)', borderRadius: 8, textAlign: 'left'
-                                                }}>
-                                                    <button className="dropdown-item-btn" style={{ background: 'transparent', border: 'none', color: 'var(--text-primary)', padding: 8, textAlign: 'left', cursor: 'pointer', borderRadius: 4, fontSize: 12, display: 'flex', alignItems: 'center', gap: 8 }} onClick={() => openEditForm(issue, !canWrite)}>
-                                                        {canWrite ? <><span style={{ width: 16 }}>✏️</span> View / Edit</> : <><span style={{ width: 16 }}>👁️</span> View</>}
+                                                <div className="glass-panel hw-menu" role="menu">
+                                                    <button type="button" role="menuitem" onClick={() => openEditForm(issue, !canWrite)}>
+                                                        {canWrite ? <><TbPencil size={14} aria-hidden="true" /> View / Edit</> : <><TbEye size={14} aria-hidden="true" /> View</>}
                                                     </button>
                                                     {canWrite && (
-                                                        <button className="dropdown-item-btn" style={{ background: 'transparent', border: 'none', color: 'var(--danger)', padding: 8, textAlign: 'left', cursor: 'pointer', borderRadius: 4, fontSize: 12, borderTop: '1px solid var(--border-color)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 8 }} onClick={() => handleDeleteIssue(issue.id)}>
-                                                            <span style={{ width: 16 }}>🗑️</span> Delete
+                                                        <button type="button" role="menuitem" className="is-danger" onClick={() => handleDeleteIssue(issue.id)}>
+                                                            <TbTrash size={14} aria-hidden="true" /> Delete
                                                         </button>
                                                     )}
                                                 </div>
@@ -518,7 +500,7 @@ export default function HardwareIssues({ onShowInRack }) {
                                 </tr>
                             ))}
                             {sortedIssues.length === 0 && (
-                                <tr><td colSpan={SORTABLE.length} style={{ textAlign: 'center', padding: 32, color: 'var(--text-muted)' }}>{filtersActive ? 'No issues match the filters.' : 'No issues reported.'}</td></tr>
+                                <tr><td colSpan={SORTABLE.length} className="hw-empty-row">{filtersActive ? 'No issues match the filters.' : 'No issues reported.'}</td></tr>
                             )}
                         </tbody>
                     </table>
@@ -534,106 +516,93 @@ export default function HardwareIssues({ onShowInRack }) {
 
             {/* Slide-out Drawer Panel */}
             {showHWFormModal && currentHWForm && (
-                <div className="drawer-overlay" onClick={(e) => { if (e.target.className === 'drawer-overlay') setShowHWFormModal(false); }}>
-                    <div className="drawer-panel">
+                <div className="drawer-overlay" onClick={(e) => { if (e.target === e.currentTarget) setShowHWFormModal(false); }}>
+                    <div className="drawer-panel" role="dialog" aria-modal="true" aria-label="Hardware issue">
                         <div className="drawer-header">
-                            <h2 style={{ color: 'var(--accent-primary)', margin: 0, fontSize: 20 }}>
-                                {isHWFormReadOnly ? 'Issue Details' : currentHWForm.id ? 'Edit Issue' : 'Report HW Issue'}
-                            </h2>
-                            <button className="btn btn-outline" style={{ border: 'none', padding: '4px 8px', fontSize: 18 }} onClick={() => setShowHWFormModal(false)}>✕</button>
+                            <h2 className="hw-drawer-title">{isHWFormReadOnly ? 'Issue Details' : currentHWForm.id ? 'Edit Issue' : 'Report HW Issue'}</h2>
+                            <button type="button" className="hw-icon-btn" aria-label="Close" onClick={() => setShowHWFormModal(false)}><TbX size={20} aria-hidden="true" /></button>
                         </div>
 
-                        <form onSubmit={handleSaveIssue} style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                        <form onSubmit={handleSaveIssue} className="hw-form-form">
                             <div className="drawer-body">
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
-                                    <div className="form-group">
-                                        <label style={labelStyle}>Date</label>
-                                        <input type="date" value={currentHWForm.date || ''} onChange={e => setCurrentHWForm({ ...currentHWForm, date: e.target.value })} disabled={formLocked} required style={inputStyle} />
+                                <div className="hw-grid">
+                                    <div className="hw-field">
+                                        <label htmlFor="hw-date">Date</label>
+                                        <input id="hw-date" type="date" value={currentHWForm.date || ''} onChange={e => setFormField('date', e.target.value)} disabled={formLocked} required />
                                     </div>
-                                    <div className="form-group">
-                                        <label style={labelStyle}>Reporter</label>
-                                        <input type="text" value={currentHWForm.reporter || ''} onChange={e => setCurrentHWForm({ ...currentHWForm, reporter: e.target.value })} disabled={formLocked} required style={inputStyle} />
+                                    <div className="hw-field">
+                                        <label htmlFor="hw-reporter">Reporter</label>
+                                        <input id="hw-reporter" type="text" value={currentHWForm.reporter || ''} onChange={e => setFormField('reporter', e.target.value)} disabled={formLocked} required />
                                     </div>
                                 </div>
 
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 16, marginBottom: 16 }}>
-                                    <div className="form-group">
-                                        <label style={labelStyle}>Datacenter</label>
+                                <div className="hw-grid is-one">
+                                    <div className="hw-field">
+                                        <label htmlFor="hw-dc">Datacenter</label>
                                         {isHWFormReadOnly ? (
-                                            <div style={inputStyle}>{currentHWForm.datacenter || 'N/A'}</div>
+                                            <div className="hw-readonly">{currentHWForm.datacenter || 'N/A'}</div>
                                         ) : (
-                                            <select value={currentHWForm.datacenter || ''} onChange={e => handleDCChange(e.target.value)} required style={inputStyle}>
+                                            <select id="hw-dc" value={currentHWForm.datacenter || ''} onChange={e => handleDCChange(e.target.value)} required>
                                                 <option value="">Select DC</option>
                                                 {dcs.map(dc => <option key={dc.id} value={dc.name}>{dc.name}</option>)}
                                                 {currentHWForm.datacenter && !dcs.find(d => d.name === currentHWForm.datacenter) && <option value={currentHWForm.datacenter}>{currentHWForm.datacenter} (Legacy)</option>}
                                             </select>
                                         )}
                                     </div>
-
-                                    <div className="form-group">
-                                        <label style={labelStyle}>Device</label>
+                                    <div className="hw-field">
+                                        <label htmlFor="hw-device">Device</label>
                                         {isHWFormReadOnly ? (
-                                            <div style={inputStyle}>{currentHWForm.deviceName || 'N/A'}{currentHWForm.sn ? ` (SN ${currentHWForm.sn})` : ''}</div>
+                                            <div className="hw-readonly">{currentHWForm.deviceName || 'N/A'}{currentHWForm.sn ? ` (SN ${currentHWForm.sn})` : ''}</div>
                                         ) : (
-                                            <select value={availableDevices.find(d => d.id === currentHWForm.deviceId || d.hostname === currentHWForm.deviceName)?.id || currentHWForm.deviceName || ''} onChange={e => handleDeviceChange(e.target.value)} required style={inputStyle}>
+                                            <select id="hw-device" value={availableDevices.find(d => d.id === currentHWForm.deviceId || d.hostname === currentHWForm.deviceName)?.id || currentHWForm.deviceName || ''} onChange={e => handleDeviceChange(e.target.value)} required>
                                                 <option value="">Select Device</option>
                                                 {availableDevices.map(d => <option key={d.id} value={d.id}>{d.hostname} {d.sn ? `(${d.sn})` : ''}</option>)}
                                                 {currentHWForm.deviceName && !availableDevices.find(d => d.id === currentHWForm.deviceId || d.hostname === currentHWForm.deviceName) && <option value={currentHWForm.deviceName}>{currentHWForm.deviceName} (Manual/Legacy)</option>}
                                             </select>
                                         )}
                                     </div>
-                                </div>
-
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 16, marginBottom: 16 }}>
-                                    <div className="form-group">
-                                        <label style={labelStyle}>Location</label>
-                                        <input type="text" value={currentHWForm.rackLoc || ''} onChange={e => setCurrentHWForm({ ...currentHWForm, rackLoc: e.target.value })} disabled={formLocked} placeholder="e.g. Rack A - U10" required style={inputStyle} />
+                                    <div className="hw-field">
+                                        <label htmlFor="hw-loc">Location</label>
+                                        <input id="hw-loc" type="text" value={currentHWForm.rackLoc || ''} onChange={e => setFormField('rackLoc', e.target.value)} disabled={formLocked} placeholder="e.g. Rack A - U10" required />
                                     </div>
-                                    <div className="form-group">
-                                        <label style={labelStyle}>Failed Parts</label>
-                                        <input type="text" value={currentHWForm.failedParts || ''} onChange={e => setCurrentHWForm({ ...currentHWForm, failedParts: e.target.value })} disabled={formLocked} required style={inputStyle} />
+                                    <div className="hw-field">
+                                        <label htmlFor="hw-parts">Failed Parts</label>
+                                        <input id="hw-parts" type="text" value={currentHWForm.failedParts || ''} onChange={e => setFormField('failedParts', e.target.value)} disabled={formLocked} required />
                                     </div>
                                 </div>
 
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
-                                    <div className="form-group">
-                                        <label style={labelStyle}>Urgency</label>
-                                        <select value={currentHWForm.urgency || 'M'} onChange={e => setCurrentHWForm({ ...currentHWForm, urgency: e.target.value })} disabled={formLocked} style={{ ...inputStyle, color: URGENCY_COLORS[currentHWForm.urgency] || 'var(--text-primary)' }}>
-                                            <option value="H" style={{ color: 'var(--danger)' }}>High</option>
-                                            <option value="M" style={{ color: 'var(--text-primary)' }}>Medium</option>
-                                            <option value="L" style={{ color: 'var(--success)' }}>Low</option>
+                                <div className="hw-grid">
+                                    <div className="hw-field">
+                                        <label htmlFor="hw-urgency">Urgency</label>
+                                        <select id="hw-urgency" value={currentHWForm.urgency || 'M'} onChange={e => setFormField('urgency', e.target.value)} disabled={formLocked}
+                                            style={{ color: URGENCY_TONE[currentHWForm.urgency] || 'var(--text-primary)' }}>
+                                            {['H', 'M', 'L'].map(u => <option key={u} value={u}>{URGENCY_LABELS[u]}</option>)}
                                         </select>
                                     </div>
-                                    <div className="form-group" title={currentHWForm.id ? 'Change the status from the Process Timeline below, or drag the card' : undefined}>
-                                        <label style={labelStyle}>Status</label>
-                                        <select value={currentHWForm.status || 'Open'} onChange={e => setCurrentHWForm({ ...currentHWForm, status: e.target.value })} disabled={formLocked || !!currentHWForm.id} style={inputStyle}>
-                                            {COLUMNS.map(c => <option key={c.status} value={c.status}>{c.status}</option>)}
+                                    <div className="hw-field" title={currentHWForm.id ? 'Change the status from the Process Timeline below, or drag the card' : undefined}>
+                                        <label htmlFor="hw-status">Status</label>
+                                        <select id="hw-status" value={currentHWForm.status || 'Open'} onChange={e => setFormField('status', e.target.value)} disabled={formLocked || !!currentHWForm.id}>
+                                            {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
                                         </select>
                                     </div>
-                                </div>
-
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
-                                    <div className="form-group">
-                                        <label style={labelStyle}>Assignee</label>
-                                        <input type="text" list="hw-people" value={currentHWForm.assignee || ''} onChange={e => setCurrentHWForm({ ...currentHWForm, assignee: e.target.value })} disabled={formLocked} maxLength={100} placeholder="Who handles it" style={inputStyle} />
+                                    <div className="hw-field">
+                                        <label htmlFor="hw-assignee">Assignee</label>
+                                        <input id="hw-assignee" type="text" list="hw-people" value={currentHWForm.assignee || ''} onChange={e => setFormField('assignee', e.target.value)} disabled={formLocked} maxLength={100} placeholder="Who handles it" />
                                         <datalist id="hw-people">{peopleNames.map(n => <option key={n} value={n} />)}</datalist>
                                     </div>
-                                    <div className="form-group">
-                                        <label style={labelStyle}>RMA / vendor case no.</label>
-                                        <input type="text" value={currentHWForm.rmaNumber || ''} onChange={e => setCurrentHWForm({ ...currentHWForm, rmaNumber: e.target.value })} disabled={formLocked} maxLength={100} style={inputStyle} />
+                                    <div className="hw-field">
+                                        <label htmlFor="hw-rma">RMA / vendor case no.</label>
+                                        <input id="hw-rma" type="text" value={currentHWForm.rmaNumber || ''} onChange={e => setFormField('rmaNumber', e.target.value)} disabled={formLocked} maxLength={100} />
                                     </div>
-                                </div>
-
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>
-                                    <div className="form-group">
-                                        <label style={labelStyle}>Due date</label>
-                                        <input type="date" value={currentHWForm.dueDate || ''} onChange={e => setCurrentHWForm({ ...currentHWForm, dueDate: e.target.value })} disabled={formLocked} style={inputStyle} />
-                                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>Empty: {SLA_DAYS.H} / {SLA_DAYS.M} / {SLA_DAYS.L} days for High / Medium / Low.</div>
+                                    <div className="hw-field">
+                                        <label htmlFor="hw-due">Due date</label>
+                                        <input id="hw-due" type="date" value={currentHWForm.dueDate || ''} onChange={e => setFormField('dueDate', e.target.value)} disabled={formLocked} />
+                                        <div className="hw-field-help">Empty: {SLA_DAYS.H} / {SLA_DAYS.M} / {SLA_DAYS.L} days for High / Medium / Low.</div>
                                     </div>
                                     {currentHWForm.status === 'Closed' && (
-                                        <div className="form-group">
-                                            <label style={labelStyle}>Resolution</label>
-                                            <select value={currentHWForm.resolution || ''} onChange={e => setCurrentHWForm({ ...currentHWForm, resolution: e.target.value })} disabled={formLocked} style={inputStyle}>
+                                        <div className="hw-field">
+                                            <label htmlFor="hw-resolution">Resolution</label>
+                                            <select id="hw-resolution" value={currentHWForm.resolution || ''} onChange={e => setFormField('resolution', e.target.value)} disabled={formLocked}>
                                                 <option value="">(not specified)</option>
                                                 {RESOLUTIONS.map(r => <option key={r} value={r}>{r}</option>)}
                                             </select>
@@ -648,16 +617,16 @@ export default function HardwareIssues({ onShowInRack }) {
 
                                 {/* Spare Parts Integration Option */}
                                 {!formLocked && (
-                                    <div style={{ background: 'rgba(59,130,246,0.05)', padding: 16, borderRadius: 8, marginBottom: 24, border: '1px solid rgba(59,130,246,0.2)' }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: useSparePart ? 12 : 0 }}>
-                                            <input type="checkbox" id="useSparePart" checked={useSparePart} onChange={e => setUseSparePart(e.target.checked)} style={{ cursor: 'pointer' }} />
-                                            <label htmlFor="useSparePart" style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent-primary)', margin: 0, cursor: 'pointer' }}>🛠️ Use Spare Part for Repair (Auto Deduct Inventory)</label>
-                                        </div>
+                                    <div className="hw-box is-accent hw-section">
+                                        <label className="hw-check">
+                                            <input type="checkbox" checked={useSparePart} onChange={e => setUseSparePart(e.target.checked)} />
+                                            <TbTools size={16} aria-hidden="true" /> Use a spare part for the repair (deducted from the inventory)
+                                        </label>
                                         {useSparePart && (
-                                            <div style={{ display: 'flex', gap: 12, marginTop: 12 }}>
-                                                <div style={{ flex: 1 }}>
-                                                    <label style={{ ...labelStyle, fontSize: 11 }}>Select Spare Part</label>
-                                                    <select value={selectedSparePartId} onChange={e => { setSelectedSparePartId(e.target.value); setSparePartUsageId(e.target.value ? newUsageId() : ''); }} required={useSparePart} style={{ ...inputStyle, padding: 8, color: 'var(--text-primary)' }}>
+                                            <div className="hw-box-row">
+                                                <div className="hw-field" style={{ flex: 1 }}>
+                                                    <label htmlFor="hw-spare">Spare part</label>
+                                                    <select id="hw-spare" value={selectedSparePartId} onChange={e => { setSelectedSparePartId(e.target.value); setSparePartUsageId(e.target.value ? newUsageId() : ''); }} required={useSparePart}>
                                                         <option value="">-- Choose Part --</option>
                                                         {(sparePartsData.items || []).map(item => (
                                                             <option key={item.id} value={item.id} disabled={!(item.quantity > 0)}>
@@ -666,21 +635,21 @@ export default function HardwareIssues({ onShowInRack }) {
                                                         ))}
                                                     </select>
                                                 </div>
-                                                <div style={{ width: '80px' }}>
-                                                    <label style={{ ...labelStyle, fontSize: 11 }}>Qty</label>
-                                                    <input type="number" min="1" value={sparePartQty} onChange={e => setSparePartQty(parseInt(e.target.value) || 1)} required={useSparePart} style={{ ...inputStyle, padding: 8, color: 'var(--text-primary)' }} />
+                                                <div className="hw-field" style={{ width: 90 }}>
+                                                    <label htmlFor="hw-spare-qty">Qty</label>
+                                                    <input id="hw-spare-qty" type="number" min="1" value={sparePartQty} onChange={e => setSparePartQty(parseInt(e.target.value) || 1)} required={useSparePart} />
                                                 </div>
                                             </div>
                                         )}
                                     </div>
                                 )}
 
-                                {/* Process Timeline Integration in Drawer */}
-                                <div className="form-group" style={{ marginBottom: 24 }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-                                        <label style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>Process Timeline</label>
+                                {/* Process Timeline */}
+                                <div className="hw-section">
+                                    <div className="hw-section-head">
+                                        <span className="hw-section-title"><TbNote size={16} aria-hidden="true" /> Process Timeline</span>
                                         {currentHWForm.id && (
-                                            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                                            <span className="hw-muted hw-small">
                                                 {currentHWForm.createdBy ? `Created by ${currentHWForm.createdBy}` : ''}
                                                 {currentHWForm.createdAt ? ` on ${formatNoteTime(currentHWForm.createdAt)}` : ''}
                                                 {currentHWForm.closedAt ? ` · Closed ${formatNoteTime(currentHWForm.closedAt)}` : ''}
@@ -689,51 +658,42 @@ export default function HardwareIssues({ onShowInRack }) {
                                     </div>
 
                                     {!formLocked && currentHWForm.id && (
-                                        <div style={{ background: 'rgba(0,0,0,0.2)', padding: 16, borderRadius: 8, marginBottom: 16, border: '1px solid rgba(255,255,255,0.05)' }}>
-                                            <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
-                                                <select value={processType} onChange={e => setProcessType(e.target.value)} style={{ padding: 8, borderRadius: 6, background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', width: 130 }}>
-                                                    <option value="Note">📝 Note</option>
-                                                    <option value="Processing">⚙️ Process</option>
-                                                    <option value="Closed">✅ Close</option>
-                                                    {currentHWForm.status === 'Closed' && <option value="Open">↩️ Reopen</option>}
+                                        <div className="hw-box hw-section">
+                                            <div className="hw-box-row">
+                                                <select value={processType} onChange={e => setProcessType(e.target.value)} aria-label="Update type">
+                                                    <option value="Note">Note</option>
+                                                    <option value="Processing">Move to Processing</option>
+                                                    <option value="Closed">Close</option>
+                                                    {currentHWForm.status === 'Closed' && <option value="Open">Reopen</option>}
                                                 </select>
                                                 {processType === 'Closed' && (
-                                                    <select value={processResolution} onChange={e => setProcessResolution(e.target.value)} aria-label="Resolution" style={{ padding: 8, borderRadius: 6, background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}>
+                                                    <select value={processResolution} onChange={e => setProcessResolution(e.target.value)} aria-label="Resolution">
                                                         <option value="">Resolution...</option>
                                                         {RESOLUTIONS.map(r => <option key={r} value={r}>{r}</option>)}
                                                     </select>
                                                 )}
-                                                <input
-                                                    type="text"
-                                                    value={processNote}
-                                                    onChange={e => setProcessNote(e.target.value)}
-                                                    placeholder="Add an update note..."
-                                                    maxLength={2000}
-                                                    style={{ flex: 1, minWidth: 180, padding: 8, borderRadius: 6, background: 'var(--bg-primary)', border: '1px solid var(--border-color)' }}
-                                                />
+                                                <input type="text" value={processNote} onChange={e => setProcessNote(e.target.value)} placeholder="Add an update note..." maxLength={2000} aria-label="Update note" />
                                             </div>
                                             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                                                <button type="button" className="btn btn-primary" style={{ padding: '6px 12px', fontSize: 12 }} onClick={handleUpdateProcessStatus} disabled={!processNote.trim()}>Add Update</button>
+                                                <button type="button" className="btn btn-primary hw-btn-sm" onClick={handleUpdateProcessStatus} disabled={!processNote.trim()}>Add Update</button>
                                             </div>
                                         </div>
                                     )}
 
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                                    <div className="hw-timeline">
                                         {(currentHWForm.processNotes || []).length === 0 ? (
-                                            <div style={{ color: 'var(--text-muted)', fontSize: 13, textAlign: 'center', padding: '20px 0' }}>No process notes yet.</div>
+                                            <div className="hw-empty-row">No process notes yet.</div>
                                         ) : (
                                             (currentHWForm.processNotes || []).map((note, idx) => (
-                                                <div key={idx} style={{ display: 'flex', gap: 12 }}>
-                                                    <div style={{ width: 2, background: 'var(--border-color)', position: 'relative', marginTop: 8 }}>
-                                                        <div style={{ position: 'absolute', top: 0, left: -4, width: 10, height: 10, borderRadius: '50%', background: note.status === 'Closed' ? 'var(--success)' : note.status === 'Processing' ? '#3b82f6' : 'var(--accent-primary)' }}></div>
-                                                    </div>
-                                                    <div style={{ flex: 1, background: 'rgba(255,255,255,0.03)', padding: 12, borderRadius: 8, border: '1px solid rgba(255,255,255,0.05)' }}>
-                                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                                                            <span style={{ fontSize: 12, fontWeight: 700, color: note.status === 'Closed' ? 'var(--success)' : note.status === 'Processing' ? '#3b82f6' : 'var(--text-primary)' }}>{note.status}</span>
-                                                            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{formatNoteTime(note.timestamp)}</span>
+                                                <div key={idx} className="hw-entry" style={{ '--hw-tone': entryTone(note.status) }}>
+                                                    <div className="hw-entry-rail" />
+                                                    <div className="hw-entry-body">
+                                                        <div className="hw-entry-head">
+                                                            <span className="hw-entry-status">{note.status}</span>
+                                                            <span className="hw-muted hw-small">{formatNoteTime(note.timestamp)}</span>
                                                         </div>
-                                                        <div style={{ fontSize: 13, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>{note.note}</div>
-                                                        <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 8 }}>By: {note.user || 'Unknown'}</div>
+                                                        <div className="hw-entry-note">{note.note}</div>
+                                                        <div className="hw-entry-by">By: {note.user || 'Unknown'}</div>
                                                     </div>
                                                 </div>
                                             ))
@@ -744,7 +704,9 @@ export default function HardwareIssues({ onShowInRack }) {
 
                             <div className="drawer-footer">
                                 {!formLocked && currentHWForm.id && (
-                                    <button type="button" className="btn btn-outline" style={{ color: 'var(--danger)', borderColor: 'var(--danger)', marginRight: 'auto' }} onClick={() => handleDeleteIssue(currentHWForm.id)}>Delete</button>
+                                    <button type="button" className="btn btn-outline hw-btn hw-btn-danger" style={{ marginRight: 'auto' }} onClick={() => handleDeleteIssue(currentHWForm.id)}>
+                                        <TbTrash size={16} aria-hidden="true" /> Delete
+                                    </button>
                                 )}
                                 {formLocked ? (
                                     <button type="button" className="btn btn-primary" onClick={() => setShowHWFormModal(false)}>Close</button>

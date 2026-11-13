@@ -18,6 +18,7 @@ const { getRacks, saveRacks, getRackRevision, normDcId } = rackStore;
 const { placementProblem, validateRacks, isSideMounted } = require('../lib/rackLayout');
 const { deviceMapOf, syncDeviceChanges } = require('../lib/rackDeviceSync');
 const contractModel = require('../lib/contractModel');
+const spareModel = require('../lib/sparePartModel');
 
 const writeRoles = checkRole(['SuperAdmin', 'Operator']);
 const superAdminOnly = checkRole(['SuperAdmin']);
@@ -214,31 +215,15 @@ function setIssueStatus(issue, to, username, note) {
     }
 }
 
-// Spare parts: `quantity` is the one stock field; legacy `qty` / `stock` are folded into it on read
-function finiteNumber(v) {
-    if (typeof v === 'number') return Number.isFinite(v) ? v : null;
-    if (typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v))) return Number(v);
-    return null;
-}
-
-function normalizeSpareItem(item) {
-    const { qty, stock, ...rest } = item || {};
-    const q = finiteNumber(rest.quantity) ?? finiteNumber(qty) ?? finiteNumber(stock) ?? 0;
-    return {
-        ...rest,
-        quantity: Math.max(0, Math.floor(q)),
-        history: Array.isArray(rest.history) ? rest.history : []
-    };
-}
-
-const DEFAULT_SPARE_CATEGORIES = ['RAM', 'SSD', 'HDD', 'Fan', 'Power Supply', 'Cable'];
+// Spare parts: rules in lib/sparePartModel.js. The document is read, changed and saved synchronously (web only).
+const { finiteNumber, isPositiveInt, normalizeSpareItem, applyStockMovement } = spareModel;
 
 function getSpareParts() {
     const raw = readDataSync('data_center/spare_parts.json', null);
     const data = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
     return {
         ...data,
-        categories: Array.isArray(data.categories) ? data.categories : [...DEFAULT_SPARE_CATEGORIES],
+        categories: Array.isArray(data.categories) ? data.categories : [...spareModel.DEFAULT_CATEGORIES],
         items: (Array.isArray(data.items) ? data.items : []).filter(i => i && typeof i === 'object').map(normalizeSpareItem)
     };
 }
@@ -248,28 +233,6 @@ function saveSpareParts(data) {
         ...data,
         items: (data.items || []).map(normalizeSpareItem)
     });
-}
-
-const isPositiveInt = (v) => Number.isInteger(v) && v >= 1;
-
-/**
- * Applies a stock movement to `item` in place (no save). Returns an error message or null.
- */
-function applyStockMovement(item, { type, qty, note, username }) {
-    if (type !== 'IN' && type !== 'OUT') return "type must be 'IN' or 'OUT'";
-    if (!isPositiveInt(qty)) return 'qty must be a positive integer';
-    if (type === 'OUT' && qty > item.quantity) {
-        return `Insufficient stock for "${item.name}": ${item.quantity} on hand, ${qty} requested`;
-    }
-    item.quantity = type === 'IN' ? item.quantity + qty : item.quantity - qty;
-    item.history = [...(item.history || []), {
-        date: new Date().toISOString(),
-        type,
-        qty,
-        note: note == null ? '' : String(note),
-        user: username
-    }];
-    return null;
 }
 
 /**
@@ -292,11 +255,14 @@ function applyIssueSparePartUsage(issue, usage, username) {
     const item = spareData.items.find(i => i.id === usage.partId);
     if (!item) return { error: `Spare part not found: ${usage.partId}` };
 
-    const err = applyStockMovement(item, { type: 'OUT', qty, note: `Hardware Issue ${issue.id}`, username });
+    const err = applyStockMovement(item, { type: 'OUT', qty, reason: 'Repair', note: `Hardware Issue ${issue.id}`, issueId: issue.id, username });
     if (err) return { error: err };
+    item.updatedAt = new Date().toISOString();
+    item.updatedBy = username;
 
     const at = new Date().toISOString();
-    issue.sparePartUsages = [...usages, { usageId, partId: item.id, qty, at, user: username }];
+    // The part name is kept on the issue, so a part deleted later still reads by name
+    issue.sparePartUsages = [...usages, { usageId, partId: item.id, partName: item.name, qty, at, user: username }];
     issue.processNotes = [
         noteEntry(username, 'Spare Part Used', `Repaired using Spare Part: ${item.name} (Qty: ${qty})`),
         ...timelineOf(issue),
@@ -774,10 +740,22 @@ function cleanCategories(list) {
     for (const c of list) {
         if (typeof c !== 'string') return null;
         const v = c.trim();
+        if (v.length > 100) return null;
         if (v && !out.includes(v)) out.push(v);
     }
     return out;
 }
+
+/** Saves a new category list; a category that still has items cannot be dropped. -> error text or null */
+function setSpareCategories(data, categories) {
+    const used = [...new Set(data.items.map(i => i.category).filter(Boolean))];
+    const dropped = used.filter(c => !categories.includes(c) && data.categories.includes(c));
+    if (dropped.length) return `Category "${dropped[0]}" still has spare parts; move or delete them first`;
+    data.categories = categories;
+    return null;
+}
+
+const spareStamp = (item, username) => { item.updatedAt = new Date().toISOString(); item.updatedBy = username; };
 
 // Legacy whole-document save (stale clients): only the categories are taken; items change via the item endpoints.
 router.post('/spare-parts', writeRoles, (req, res) => {
@@ -785,9 +763,10 @@ router.post('/spare-parts', writeRoles, (req, res) => {
         const categories = cleanCategories(req.body && req.body.categories);
         if (!categories) return res.status(400).json({ error: 'categories must be an array of strings' });
         const data = getSpareParts();
-        data.categories = categories;
+        const err = setSpareCategories(data, categories);
+        if (err) return res.status(400).json({ error: err });
         saveSpareParts(data);
-        auditLog(req.user.username, 'Data Centers', 'Updated Spare Parts Categories');
+        auditLog(req.user.username, 'Spare Parts', 'Updated spare part categories');
         res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -797,71 +776,101 @@ router.post('/spare-parts', writeRoles, (req, res) => {
 router.put('/spare-parts/categories', writeRoles, (req, res) => {
     try {
         const categories = cleanCategories(req.body && req.body.categories);
-        if (!categories) return res.status(400).json({ error: 'categories must be an array of strings' });
+        if (!categories) return res.status(400).json({ error: 'categories must be an array of names (up to 100 characters)' });
         const data = getSpareParts();
-        data.categories = categories;
+        const before = data.categories;
+        const err = setSpareCategories(data, categories);
+        if (err) return res.status(400).json({ error: err });
         saveSpareParts(data);
-        auditLog(req.user.username, 'Data Centers', 'Updated Spare Parts Categories');
+        const added = categories.filter(c => !before.includes(c));
+        const removed = before.filter(c => !categories.includes(c));
+        auditLog(req.user.username, 'Spare Parts', `Updated spare part categories${added.length ? `; added ${added.join(', ')}` : ''}${removed.length ? `; removed ${removed.join(', ')}` : ''}`);
         res.json({ success: true, categories });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
-// Metadata the spare-part form edits (SpareParts.jsx); quantity / history change only via /stock
-const SPARE_STRING_FIELDS = ['name', 'category', 'model', 'spec', 'location'];
+// Renames a category and moves its items with it (into an existing category: merged)
+router.post('/spare-parts/categories/rename', writeRoles, (req, res) => {
+    try {
+        const from = typeof req.body?.from === 'string' ? req.body.from.trim() : '';
+        const to = typeof req.body?.to === 'string' ? req.body.to.trim() : '';
+        if (!from || !to || to.length > 100) return res.status(400).json({ error: 'from and to are required (up to 100 characters)' });
+        const data = getSpareParts();
+        if (!data.categories.includes(from) && !data.items.some(i => i.category === from)) return res.status(404).json({ error: 'Category not found' });
+        let moved = 0;
+        for (const item of data.items) {
+            if (item.category === from) { item.category = to; spareStamp(item, req.user.username); moved += 1; }
+        }
+        const list = data.categories.map(c => (c === from ? to : c));
+        if (!list.includes(to)) list.push(to);
+        data.categories = list.filter((c, idx) => list.indexOf(c) === idx);
+        saveSpareParts(data);
+        auditLog(req.user.username, 'Spare Parts', `Renamed category ${from} -> ${to} (${moved} part(s))`);
+        res.json({ success: true, categories: data.categories, moved });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 
-function pickSpareFields(body, { partial }) {
-    const src = body && typeof body === 'object' ? body : {};
-    const has = (k) => Object.prototype.hasOwnProperty.call(src, k);
-    const out = {};
-    for (const k of SPARE_STRING_FIELDS) {
-        if (has(k)) out[k] = src[k] === null || src[k] === undefined ? '' : String(src[k]);
+/** A new item from a request body (validated), with its initial stock as the first movement. -> { error } or { item } */
+function newSpareItem(body, username) {
+    const picked = spareModel.cleanSpareFields(body, { partial: false });
+    if (picked.error) return { error: picked.error };
+    const rawQty = body && body.quantity !== undefined && body.quantity !== '' ? finiteNumber(body.quantity) : 0;
+    if (rawQty === null || !Number.isInteger(rawQty) || rawQty < 0 || rawQty > 1e7) return { error: 'quantity must be an integer >= 0' };
+    const now = new Date().toISOString();
+    const item = normalizeSpareItem({
+        id: `spare-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`,
+        model: '', spec: '', location: '', vendor: '', partNumber: '', compatibleWith: '', supplier: '', notes: '',
+        condition: 'New', currency: 'TWD', minStock: 0, reorderQty: 0, unitPrice: 0,
+        ...picked.fields,
+        quantity: 0,
+        createdAt: now, createdBy: username, updatedAt: now, updatedBy: username,
+    });
+    if (rawQty > 0) {
+        const err = applyStockMovement(item, { type: 'IN', qty: rawQty, reason: 'Initial stock', note: '', serials: body.serials, username });
+        if (err) return { error: err };
     }
-    if (has('name')) out.name = out.name.trim();
-    if (has('category')) out.category = out.category.trim();
-    if ((!partial || has('name')) && !out.name) return { error: 'name is required' };
-    if ((!partial || has('category')) && !out.category) return { error: 'category is required' };
-    if (has('minStock')) {
-        const n = finiteNumber(src.minStock);
-        if (n === null || !Number.isInteger(n) || n < 0) return { error: 'minStock must be an integer >= 0' };
-        out.minStock = n;
-    }
-    if (has('unitPrice')) {
-        const n = src.unitPrice === '' || src.unitPrice === null ? 0 : finiteNumber(src.unitPrice);
-        if (n === null || n < 0) return { error: 'unitPrice must be a number >= 0' };
-        out.unitPrice = n;
-    }
-    return { fields: out };
+    return { item };
 }
 
 router.post('/spare-parts/items', writeRoles, (req, res) => {
     try {
-        const picked = pickSpareFields(req.body, { partial: false });
-        if (picked.error) return res.status(400).json({ error: picked.error });
-        const rawQty = req.body && req.body.quantity !== undefined ? finiteNumber(req.body.quantity) : 0;
-        if (rawQty === null || !Number.isInteger(rawQty) || rawQty < 0) {
-            return res.status(400).json({ error: 'quantity must be an integer >= 0' });
-        }
-
+        const made = newSpareItem(req.body || {}, req.user.username);
+        if (made.error) return res.status(400).json({ error: made.error });
         const data = getSpareParts();
-        const item = {
-            id: `spare-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`,
-            model: '',
-            spec: '',
-            location: '',
-            minStock: 0,
-            unitPrice: 0,
-            ...picked.fields,
-            quantity: rawQty,
-            history: rawQty > 0
-                ? [{ date: new Date().toISOString(), type: 'IN', qty: rawQty, note: 'Initial stock', user: req.user.username }]
-                : []
-        };
-        data.items.push(item);
+        if (!data.categories.includes(made.item.category)) data.categories.push(made.item.category);
+        data.items.push(made.item);
         saveSpareParts(data);
-        auditLog(req.user.username, 'Spare Parts', `Added Spare Part: ${item.name} (Qty: ${rawQty})`);
-        res.json({ success: true, item });
+        auditLog(req.user.username, 'Spare Parts', `Added spare part: ${made.item.name} [${made.item.category}] (qty ${made.item.quantity})`);
+        res.json({ success: true, item: made.item });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Several items at once (catalog picker): all or nothing
+router.post('/spare-parts/items/bulk', writeRoles, (req, res) => {
+    try {
+        const list = req.body && Array.isArray(req.body.items) ? req.body.items : null;
+        if (!list || !list.length || list.length > 200) return res.status(400).json({ error: 'items must be a list of 1 to 200 parts' });
+        const made = [];
+        for (let idx = 0; idx < list.length; idx++) {
+            const r = newSpareItem(list[idx], req.user.username);
+            if (r.error) return res.status(400).json({ error: `Part ${idx + 1}: ${r.error}` });
+            r.item.id = `${r.item.id}-${idx}`;
+            made.push(r.item);
+        }
+        const data = getSpareParts();
+        for (const item of made) {
+            if (!data.categories.includes(item.category)) data.categories.push(item.category);
+            data.items.push(item);
+        }
+        saveSpareParts(data);
+        auditLog(req.user.username, 'Spare Parts', `Added ${made.length} spare part(s) from the catalog: ${made.slice(0, 10).map(i => i.name).join(', ')}${made.length > 10 ? ', ...' : ''}`);
+        res.json({ success: true, items: made });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -873,15 +882,41 @@ router.patch('/spare-parts/:id', writeRoles, (req, res) => {
         const data = getSpareParts();
         const index = data.items.findIndex(i => i.id === id);
         if (index === -1) return res.status(404).json({ error: 'Spare part not found' });
+        const current = data.items[index];
+        const expected = req.body && req.body.expectedUpdatedAt;
+        if (expected && (current.updatedAt || '') !== expected) {
+            return res.status(409).json({ error: 'This spare part was changed by someone else. Reload it and apply your change again.', item: current });
+        }
 
-        // quantity / history / id are ignored here (stock moves go through /stock)
-        const picked = pickSpareFields(req.body, { partial: true });
+        // quantity / history / serials / id are ignored here (stock changes go through /stock and /count)
+        const picked = spareModel.cleanSpareFields(req.body, { partial: true });
         if (picked.error) return res.status(400).json({ error: picked.error });
 
-        data.items[index] = { ...data.items[index], ...picked.fields };
+        data.items[index] = { ...current, ...picked.fields };
+        spareStamp(data.items[index], req.user.username);
+        if (picked.fields.category && !data.categories.includes(picked.fields.category)) data.categories.push(picked.fields.category);
         saveSpareParts(data);
-        auditLog(req.user.username, 'Spare Parts', `Updated Spare Part: ${data.items[index].name} (${id})`);
+        auditLog(req.user.username, 'Spare Parts', `Updated spare part: ${data.items[index].name} (${id})`);
         res.json({ success: true, item: data.items[index] });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Delete: a part with stock left needs a SuperAdmin; issues that used it keep its name
+router.delete('/spare-parts/:id', writeRoles, (req, res) => {
+    try {
+        const data = getSpareParts();
+        const index = data.items.findIndex(i => i.id === req.params.id);
+        if (index === -1) return res.status(404).json({ error: 'Spare part not found' });
+        const item = data.items[index];
+        if (item.quantity > 0 && req.user.role !== 'SuperAdmin') {
+            return res.status(403).json({ error: `${item.quantity} still in stock: book them out first, or ask a SuperAdmin to delete the part` });
+        }
+        data.items.splice(index, 1);
+        saveSpareParts(data);
+        auditLog(req.user.username, 'Spare Parts', `Deleted spare part: ${item.name} [${item.category}]${item.quantity ? ` with ${item.quantity} in stock` : ''}`);
+        res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -890,17 +925,38 @@ router.patch('/spare-parts/:id', writeRoles, (req, res) => {
 router.post('/spare-parts/:id/stock', writeRoles, (req, res) => {
     try {
         const { id } = req.params;
-        const { type, note } = req.body || {};
+        const { type, note, reason, issueId, serials } = req.body || {};
         const qty = req.body ? req.body.qty : undefined;
         const data = getSpareParts();
         const item = data.items.find(i => i.id === id);
         if (!item) return res.status(404).json({ error: 'Spare part not found' });
 
-        const err = applyStockMovement(item, { type, qty, note, username: req.user.username });
+        const err = applyStockMovement(item, { type, qty, reason, note, issueId, serials, username: req.user.username });
         if (err) return res.status(400).json({ error: err });
+        spareStamp(item, req.user.username);
 
         saveSpareParts(data);
-        auditLog(req.user.username, 'Spare Parts', `Stock ${type} ${qty}x ${item.name} (now ${item.quantity})${note ? ` - ${note}` : ''}`);
+        const h = item.history.at(-1);
+        auditLog(req.user.username, 'Spare Parts', `Stock ${type} ${qty}x ${item.name} (${h.reason}; now ${item.quantity})${h.note ? ` - ${h.note}` : ''}`);
+        res.json({ success: true, item });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Stock count: the counted quantity replaces the stored one; the difference is recorded
+router.post('/spare-parts/:id/count', writeRoles, (req, res) => {
+    try {
+        const data = getSpareParts();
+        const item = data.items.find(i => i.id === req.params.id);
+        if (!item) return res.status(404).json({ error: 'Spare part not found' });
+        const { actual, note, serials } = req.body || {};
+        const err = spareModel.applyStockCount(item, { actual, note, serials, username: req.user.username });
+        if (err) return res.status(400).json({ error: err });
+        spareStamp(item, req.user.username);
+        saveSpareParts(data);
+        const h = item.history.at(-1);
+        auditLog(req.user.username, 'Spare Parts', `Stock count ${item.name}: ${h.before} -> ${h.after}${h.note ? ` - ${h.note}` : ''}`);
         res.json({ success: true, item });
     } catch (err) {
         res.status(500).json({ error: err.message });

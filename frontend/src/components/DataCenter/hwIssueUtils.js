@@ -165,6 +165,6 @@ export function sparePartsUsed(issue, items) {
     const byId = new Map((items || []).map(i => [i.id, i]));
     return (Array.isArray(issue && issue.sparePartUsages) ? issue.sparePartUsages : []).map(u => {
         const it = byId.get(u.partId);
-        return { name: it ? it.name : `(removed part ${u.partId})`, category: it ? it.category : '', qty: u.qty, at: u.at, user: u.user };
+        return { name: it ? it.name : u.partName ? `${u.partName} (deleted)` : `(removed part ${u.partId})`, category: it ? it.category : '', qty: u.qty, at: u.at, user: u.user };
     });
 }

@@ -56,7 +56,8 @@
 .ct-drawer-footer > div { display: flex; gap: 8px; flex-wrap: wrap; }
 
 /* form dialog */
-.ct-form { width: min(720px, 94vw); max-height: 92vh; padding: 0; border-radius: 14px; display: flex; flex-direction: column; overflow: hidden; }
+/* dialogs sit over the page: solid background (glass-panel alone lets the page show through) */
+.ct-form { width: min(720px, 94vw); max-height: 92vh; padding: 0; border-radius: 14px; display: flex; flex-direction: column; overflow: hidden; background: var(--bg-secondary); }
 .ct-form-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 18px 22px; border-bottom: 1px solid var(--border-color); }
 .ct-form-head h3 { margin: 0; font-size: 18px; }
 .ct-form-body { flex: 1; overflow-y: auto; padding: 18px 22px; }

@@ -51,6 +51,7 @@ import SunlightDust from './components/Themes/SunlightDust';
 import { useSync } from './contexts/WebSocketContext';
 import { useToast } from './contexts/ToastContext';
 import { expiringSoon } from './components/DataCenter/contractUtils';
+import { lowStockItems } from './components/DataCenter/sparePartUtils';
 
 function App() {
   const [user, setUser] = useState(null);
@@ -172,9 +173,8 @@ function App() {
       }
 
       if (allowed('dataCenter')) api.get('/rack/spare-parts').then(res => {
-         const parts = res.data?.items || [];
-         const low = parts.filter(p => p.quantity < (p.minStock || 0));
-         setSpareAlerts(low);
+         // At or below the minimum (sparePartUtils.lowStockItems), out of stock first
+         setSpareAlerts(lowStockItems(res.data?.items));
       }).catch(e => console.error("Failed to load spare parts for dashboard", e));
       else setSpareAlerts([]);
     }
@@ -730,11 +730,11 @@ function App() {
                 <button onClick={(e) => { e.stopPropagation(); dismissAlert('spare'); }} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 20, lineHeight: 1 }}>&times;</button>
               </div>
               <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12, marginTop: 0 }}>
-                {spareAlerts.length} spare part(s) below minimum stock level:
+                {spareAlerts.length} spare part(s) at or below the minimum stock level:
               </p>
               <ul style={{ margin: 0, paddingLeft: 20, fontSize: 13, color: 'var(--text-primary)' }}>
-                {spareAlerts.slice(0, 3).map((part, i) => (
-                  <li key={i} style={{ marginBottom: 6 }}><strong style={{ color: 'var(--danger)' }}>{part.name}</strong> — {part.quantity} left (Min: {part.minStock})</li>
+                {spareAlerts.slice(0, 3).map((part) => (
+                  <li key={part.id} style={{ marginBottom: 6 }}><strong style={{ color: 'var(--danger)' }}>{part.name}</strong> — {part.quantity} left (Min: {part.minStock})</li>
                 ))}
                 {spareAlerts.length > 3 && <li style={{ color: 'var(--text-muted)', marginTop: 4 }}>+ {spareAlerts.length - 3} more...</li>}
               </ul>

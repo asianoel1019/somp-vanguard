@@ -76,7 +76,7 @@ export default function ContractForm({ draft, stored, renewing, devices, onCance
                     <h3>{title}</h3>
                     <button type="button" className="hw-icon-btn" onClick={onCancel} disabled={saving} aria-label="Close"><TbX size={18} /></button>
                 </div>
-                <div className="ct-form-body">
+                <div className="ct-form-body custom-scrollbar">
                     {renewing && (
                         <div className="ct-info hw-section">
                             <TbRefresh size={14} aria-hidden="true" /> The new term starts the day after the current one ends. Once saved, the current
@@ -157,7 +157,7 @@ export default function ContractForm({ draft, stored, renewing, devices, onCance
                                 </div>
                                 <label className="hw-inline-label"><input type="checkbox" checked={selectedOnly} onChange={e => setSelectedOnly(e.target.checked)} /> Selected only</label>
                             </div>
-                            <div className="ct-picker-list">
+                            <div className="ct-picker-list custom-scrollbar">
                                 {groups.map(g => (
                                     <div key={g.key}>
                                         <div className="ct-picker-group">{g.label}</div>

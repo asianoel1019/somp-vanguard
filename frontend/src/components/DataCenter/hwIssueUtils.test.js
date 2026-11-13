@@ -102,7 +102,7 @@ test('warranty by linked device or serial number; spare parts used with their na
     assert.equal(warrantyFor({ sn: 'SNA' }, [{ ...contracts[0], deletedAt: '2026-01-01T00:00:00Z' }], NOW), null, 'a trashed contract is not a warranty');
     assert.equal(warrantyFor({ sn: '' }, [{ type: 'Hardware Warranties', serialNumber: '' }], NOW), null, 'empty serials never match');
 
-    const used = sparePartsUsed({ sparePartUsages: [{ partId: 'p1', qty: 2, at: 't', user: 'bob' }, { partId: 'gone', qty: 1 }] }, [{ id: 'p1', name: 'Fan X', category: 'Fan' }]);
-    assert.deepEqual(used.map(u => [u.name, u.qty]), [['Fan X', 2], ['(removed part gone)', 1]]);
+    const used = sparePartsUsed({ sparePartUsages: [{ partId: 'p1', qty: 2, at: 't', user: 'bob' }, { partId: 'gone', qty: 1 }, { partId: 'gone2', partName: 'PSU 800W', qty: 1 }] }, [{ id: 'p1', name: 'Fan X', category: 'Fan' }]);
+    assert.deepEqual(used.map(u => [u.name, u.qty]), [['Fan X', 2], ['(removed part gone)', 1], ['PSU 800W (deleted)', 1]]);
     assert.deepEqual(sparePartsUsed({}, []), []);
 });

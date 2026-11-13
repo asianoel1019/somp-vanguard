@@ -1,53 +1,58 @@
 import React from 'react';
+import { TbCircleCheck, TbCircleX } from 'react-icons/tb';
+import { Alert } from './ProvisionUi';
 import { checkLabel, precheckColumns, installedNote } from './provisionUtils';
 
-// Pre-check result table: one row per host, one column per check (icon + tooltip message).
+// Pre-check result table: one row per host, one column per check; the reason of every failed check is listed under its host.
 const ProvisionPrecheck = ({ precheck }) => {
     if (!precheck) return null;
     const hosts = precheck.hosts || [];
     const cols = precheckColumns(hosts);
     return (
-        <div className="flex flex-col gap-2">
-            <div className={`text-sm ${precheck.ok ? 'text-success' : 'text-warning'}`}>
+        <div className="pv-section">
+            <Alert tone={precheck.ok ? 'success' : 'warning'}>
                 {precheck.ok ? 'Pre-check passed for all hosts.' : 'Pre-check found problems. You can still install, but affected hosts may fail.'}
-            </div>
-            {precheck.note && <div className="text-xs text-muted italic">{precheck.note}</div>}
-            {precheck.nas && !precheck.nas.ok && <div className="text-xs text-danger">NAS: {precheck.nas.message}</div>}
-            <div style={{ overflowX: 'auto' }}>
-                <table className="w-full text-xs">
+            </Alert>
+            {precheck.note && <div className="pv-help" style={{ fontStyle: 'italic' }}>{precheck.note}</div>}
+            {precheck.nas && !precheck.nas.ok && <Alert tone="danger">NAS: {precheck.nas.message}</Alert>}
+            <div className="pv-scroll">
+                <table className="pv-table">
                     <thead>
-                        <tr className="text-secondary text-left">
-                            <th className="p-1">Host</th>
-                            {cols.map(c => <th key={c} className="p-1">{checkLabel(c)}</th>)}
+                        <tr>
+                            <th>Host</th>
+                            {cols.map(c => <th key={c} style={{ textAlign: 'center' }}>{checkLabel(c)}</th>)}
                         </tr>
                     </thead>
                     <tbody>
-                        {hosts.map(h => (
-                            <React.Fragment key={h.ip}>
-                                <tr className="border-t border-white/10">
-                                    <td className="p-1 font-mono">{h.ip}{h.hostname ? <span className="text-secondary"> {h.hostname}</span> : null}</td>
-                                    {cols.map(c => {
-                                        const chk = (h.checks || []).find(x => x.id === c);
-                                        if (!chk) return <td key={c} className="p-1 text-muted">-</td>;
-                                        return (
-                                            <td key={c} className={`p-1 ${chk.ok ? 'text-success' : 'text-danger'}`} title={chk.message || ''}>
-                                                {chk.ok ? '✔' : '✖'}
-                                            </td>
-                                        );
-                                    })}
-                                </tr>
-                                {installedNote(h) && (
+                        {hosts.map(h => {
+                            const failed = (h.checks || []).filter(x => !x.ok && x.message);
+                            const note = installedNote(h);
+                            return (
+                                <React.Fragment key={h.ip}>
                                     <tr>
-                                        <td colSpan={cols.length + 1} className="px-1 pb-1 text-secondary">{checkLabel('installed')}: {installedNote(h)}</td>
+                                        <td><span className="pv-mono">{h.ip}</span>{h.hostname ? <span className="pv-host-name"> {h.hostname}</span> : null}</td>
+                                        {cols.map(c => {
+                                            const chk = (h.checks || []).find(x => x.id === c);
+                                            if (!chk) return <td key={c} className="pv-muted" style={{ textAlign: 'center' }}>-</td>;
+                                            const Icon = chk.ok ? TbCircleCheck : TbCircleX;
+                                            return (
+                                                <td key={c} style={{ textAlign: 'center' }} title={chk.message || ''}>
+                                                    <Icon size={18} style={{ color: chk.ok ? 'var(--success)' : 'var(--danger)' }} aria-label={`${checkLabel(c)}: ${chk.ok ? 'ok' : 'failed'}`} />
+                                                </td>
+                                            );
+                                        })}
                                     </tr>
-                                )}
-                                {(h.checks || []).filter(x => !x.ok && x.message).map(x => (
-                                    <tr key={`${h.ip}-${x.id}`}>
-                                        <td colSpan={cols.length + 1} className="px-1 pb-1 text-danger">{checkLabel(x.id)}: {x.message}</td>
-                                    </tr>
-                                ))}
-                            </React.Fragment>
-                        ))}
+                                    {(note || failed.length > 0) && (
+                                        <tr>
+                                            <td colSpan={cols.length + 1} className="pv-sub">
+                                                {note && <div className="pv-muted">{checkLabel('installed')}: {note}</div>}
+                                                {failed.map(x => <div key={x.id} style={{ color: 'var(--danger)' }}>{checkLabel(x.id)}: {x.message}</div>)}
+                                            </td>
+                                        </tr>
+                                    )}
+                                </React.Fragment>
+                            );
+                        })}
                     </tbody>
                 </table>
             </div>

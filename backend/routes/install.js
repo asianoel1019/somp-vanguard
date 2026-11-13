@@ -105,10 +105,21 @@ router.get('/targets', writers, (req, res) => {
 
 router.get('/jobs', (req, res) => {
     try {
-        res.json(jobs.listJobs({ limit: req.query.limit, before: req.query.before }));
+        const { limit, before, status, os, q } = req.query;
+        res.json(jobs.listJobs({ limit, before, status, os, q }));
     } catch (e) {
+        if (e.status === 400) return res.status(400).json({ error: e.message });
         console.error('[Remote Install] jobs error:', runners.errText(e));
         res.status(500).json({ error: 'Failed to list jobs' });
+    }
+});
+
+router.get('/jobs/stats', (req, res) => {
+    try {
+        res.json(jobs.jobStats({ days: req.query.days }));
+    } catch (e) {
+        console.error('[Remote Install] job stats error:', runners.errText(e));
+        res.status(500).json({ error: 'Failed to read job statistics' });
     }
 });
 

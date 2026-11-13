@@ -4,7 +4,8 @@ import {
     isValidIpv4, parseManualIps, mergeTargets, unknownManualIps, buildExecuteBody, buildPrecheckBody,
     precheckColumns, installWarning, jobStatusTone, retryableHosts, canRetry, jobProgress, formatDuration,
     nextPollState, packageLine, jobSummaryLine, toneClass, formatTime, packageClass, installedNote, checkLabel,
-    runnerLabel, resumedBadge, jobAccountsLine
+    runnerLabel, resumedBadge, jobAccountsLine, progressSegments, jobResultSegments, packageState, toneColor,
+    historyParams, historyKpis
 } from './provisionUtils.js';
 
 test('jobAccountsLine: triggering user and the service account the hosts are provisioned with', () => {
@@ -152,4 +153,34 @@ test('misc helpers: tones, time, manual parse edge cases', () => {
     assert.deepEqual(parseManualIps('01.2.3.4').invalid, ['01.2.3.4']);
     const many = Array.from({ length: 60 }, (_, i) => `10.0.0.${i + 1}`).join(' ');
     assert.equal(parseManualIps(many).valid.length, 60);
+});
+
+test('formatDuration accepts the ISO timestamps the API returns', () => {
+    assert.equal(formatDuration('2026-11-13T09:00:00.000Z', '2026-11-13T09:02:05.000Z'), '2m 5s');
+    assert.equal(formatDuration('2026-11-13T09:00:00.000Z', null, Date.parse('2026-11-13T10:30:00.000Z')), '1h 30m');
+    assert.equal(formatDuration('not a date', null), '-');
+});
+
+test('progress segments of a job and of a History row', () => {
+    const hosts = ['ok', 'ok', 'failed', 'interrupted', 'running', 'queued', 'skipped', 'cancelled'].map(status => ({ status }));
+    assert.deepEqual(progressSegments(hosts), { ok: 2, failed: 2, running: 1, queued: 1, other: 2, total: 8 });
+    assert.deepEqual(jobResultSegments({ hostCount: 8, okCount: 6, failCount: 1, running: false }), { ok: 6, failed: 1, running: 0, queued: 0, other: 1, total: 8 });
+    assert.deepEqual(jobResultSegments({ hostCount: 4, okCount: 1, failCount: 0, running: true }), { ok: 1, failed: 0, running: 3, queued: 0, other: 0, total: 4 });
+    assert.deepEqual(jobResultSegments({ hostCount: 2, okCount: 5, failCount: 5 }), { ok: 2, failed: 0, running: 0, queued: 0, other: 0, total: 2 }, 'never more than the hosts');
+    assert.equal(packageState({ skipped: true, ok: true }), 'skipped');
+    assert.equal(packageState({ ok: false }), 'failed');
+    assert.equal(toneColor('info'), 'var(--accent-primary)');
+});
+
+test('History filters become query parameters; figures from the stats', () => {
+    assert.deepEqual(historyParams({}), { limit: 25 });
+    assert.deepEqual(historyParams({ status: 'failed', os: 'linux', q: '  192.0.2.1 ', before: 40 }), { limit: 25, status: 'failed,interrupted', os: 'linux', q: '192.0.2.1', before: 40 });
+    assert.equal(historyParams({ status: 'running', os: 'mac', q: 'x'.repeat(150) }).q.length, 100);
+    assert.equal(historyParams({ os: 'mac' }).os, undefined);
+    assert.equal(historyParams({ status: 'running' }).status, 'queued,running');
+    const k = historyKpis({ days: 30, jobs: 4, running: 1, hosts: 6, okHosts: 3, failedHosts: 2, rebootHosts: 1, doneJobs: 1, failedJobs: 1 });
+    assert.deepEqual(k.map(x => [x.id, x.value]), [['jobs', 4], ['running', 1], ['hosts', 6], ['rate', '60%'], ['failed', 2]]);
+    assert.equal(k.find(x => x.id === 'rate').tone, 'warning');
+    assert.equal(historyKpis({ days: 30, jobs: 0, running: 0, hosts: 0, okHosts: 0, failedHosts: 0 }).find(x => x.id === 'rate').value, '-');
+    assert.deepEqual(historyKpis(null), []);
 });

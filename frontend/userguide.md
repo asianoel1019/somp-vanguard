@@ -149,7 +149,7 @@ Server List 是 SOMP Vanguard 的核心伺服器資產資料庫 (CMDB)，自動�
 *   **執行程序**：工作優先在背景 Worker 執行；Worker 不可用或 5 秒內未回應時改由 Web 執行（工作檢視顯示「runs in: Background worker / Web server (fallback)」）。每個程序自行從設定讀取憑證，密碼不會經 IPC 傳送也不會儲存。同一工作只會在一個程序執行。
 *   **執行帳號（行為變更）**：Windows 安裝改以 Settings 的服務帳號 `AD_ADMIN_USER` / `AD_ADMIN_PWD`（與 Server Inventory 同一來源）執行，不再使用登入者本人的帳密；Linux 以 `LINUX_ADMIN_*` 執行。觸發者記錄在 SOMP 稽核與歷史（工作檢視顯示「Triggered by」與「Run as」）。必須先設定服務帳號，否則 Execute / Pre-check / Retry 會回錯誤「Server Provision requires the service account in Settings (AD_ADMIN_USER / AD_ADMIN_PWD)」。
 *   **取消**：不再啟動新主機 / 套件；**已在執行的 Windows 主機不會被中斷**，會跑完其套件。取消旗標寫在資料庫，執行程序每台主機 / 套件前與每 15 秒檢查，IPC 中斷也會生效。
-*   **歷史與重試**：History 分頁列出過去的工作；「Retry failed hosts」建立新工作，只含 failed / interrupted / skipped 主機，並重新檢查是否為已知目標（不會繼承未知目標覆寫，SuperAdmin 需明確再次允許）。
+*   **歷史與重試**：History 分頁上方顯示近 30 天的工作數、執行中、處理主機數、主機成功率與失敗主機數；可依工作 ID、建立者、範本、主機 IP / 名稱搜尋，並依狀態（Running / Done / Partial / Failed / Cancelled）與作業系統篩選；表格每列顯示成功 / 失敗比例，點一列從右側開啟工作詳情（Esc 或 X 關閉），清單中有執行中的工作時每 15 秒自動更新。「Retry failed hosts」建立新工作，只含 failed / interrupted / skipped 主機，並重新檢查是否為已知目標（不會繼承未知目標覆寫，SuperAdmin 需明確再次允許）。
 *   **重新開機**：只有該主機所有套件都成功、且至少有一個套件實際安裝才會重開機。
 *   **已安裝偵測**：軟體主清單每行最後可選填 `|@detect:類型:值`，已安裝的套件會標示 SKIP 並略過。Windows：`@detect:reg:顯示名稱樣式`（可加 `>=最低版本`，例如 `Google Chrome*>=120.0`）或 `@detect:file:C:\路徑\app.exe`；Linux：`@detect:rpm:套件`、`@detect:dpkg:套件`、`@detect:cmd:指令`（結束代碼 0 = 已安裝）。範例：`Chrome|chrome\setup.msi|/qn|@detect:reg:Google Chrome*>=120.0`。勾選「Force reinstall」可忽略偵測。只檢查 HKLM（不含個別使用者安裝）；偵測錯誤或逾時 30 秒視為未安裝並繼續；預檢不會執行 `cmd:` 規則，且 `cmd:` 規則必須沒有副作用。
 *   **部署後清理**：Windows 安裝檔複製到 `X:\SOMP_Provision\<工作編號>\`，主機處理完後自動刪除該資料夾（install_*.log 內容先存入記錄）；清理失敗只顯示警告。腳本套件（.bat / .cmd / .ps1 的資料夾）維持在 `X:\<資料夾名>` 且不會被刪除；只有單一安裝檔與其記錄被清理。勾選「Keep installers」可保留以便除錯；記錄請用相對路徑。

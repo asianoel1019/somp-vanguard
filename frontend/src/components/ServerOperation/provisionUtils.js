@@ -134,9 +134,15 @@ export function jobProgress(hosts) {
     return { finished, total: list.length };
 }
 
+// Timestamps come from the API as ISO strings; numbers (ms) are accepted too.
+const toMs = (t) => (typeof t === 'number' ? t : Date.parse(t));
+
 export function formatDuration(startedAt, finishedAt, now = Date.now()) {
     if (!startedAt) return '-';
-    const s = Math.max(0, Math.round(((finishedAt || now) - startedAt) / 1000));
+    const start = toMs(startedAt);
+    const end = finishedAt ? toMs(finishedAt) : now;
+    if (!Number.isFinite(start) || !Number.isFinite(end)) return '-';
+    const s = Math.max(0, Math.round((end - start) / 1000));
     if (s < 60) return `${s}s`;
     const m = Math.floor(s / 60);
     if (m < 60) return `${m}m ${s % 60}s`;
@@ -206,4 +212,83 @@ export function jobSummaryLine(job) {
     const parts = [`${job.hostCount || 0} host(s)`, `${job.okCount || 0} ok`, `${job.failCount || 0} failed`];
     if (job.rebootCount) parts.push(`${job.rebootCount} need reboot`);
     return parts.join(', ');
+}
+
+// ---- Redesigned page: tones, progress, History filters and figures ----------------------------------------------
+
+/** CSS colour of a tone (theme variables). */
+export function toneColor(tone) {
+    switch (tone) {
+        case 'success': return 'var(--success)';
+        case 'danger': return 'var(--danger)';
+        case 'warning': return 'var(--warning)';
+        case 'info': return 'var(--accent-primary)';
+        default: return 'var(--text-muted)';
+    }
+}
+
+/** Host counts of a job for the progress bar: ok / failed (failed, interrupted) / running / queued / other (skipped, cancelled). */
+export function progressSegments(hosts) {
+    const out = { ok: 0, failed: 0, running: 0, queued: 0, other: 0, total: 0 };
+    (hosts || []).forEach(h => {
+        out.total++;
+        if (h.status === 'ok') out.ok++;
+        else if (h.status === 'failed' || h.status === 'interrupted') out.failed++;
+        else if (h.status === 'running') out.running++;
+        else if (h.status === 'queued') out.queued++;
+        else out.other++;
+    });
+    return out;
+}
+
+/** The same counts from a History row (job totals only): ok, failed, and the rest still open or skipped. */
+export function jobResultSegments(job) {
+    const total = Number(job && job.hostCount) || 0;
+    const ok = Math.min(total, Number(job && job.okCount) || 0);
+    const failed = Math.min(total - ok, Number(job && job.failCount) || 0);
+    const rest = total - ok - failed;
+    const open = !!(job && job.running);
+    return { ok, failed, running: open ? rest : 0, queued: 0, other: open ? 0 : rest, total };
+}
+
+/** 'ok' | 'failed' | 'skipped' of a package result. */
+export function packageState(p) {
+    if (p && p.skipped) return 'skipped';
+    return p && p.ok ? 'ok' : 'failed';
+}
+
+/** History status filter -> the statuses sent to GET /install/jobs ('' = all). */
+export const HISTORY_STATUS_FILTERS = [
+    { id: 'all', label: 'All', statuses: '' },
+    { id: 'running', label: 'Running', statuses: 'queued,running' },
+    { id: 'done', label: 'Done', statuses: 'done' },
+    { id: 'partial', label: 'Partial', statuses: 'partial' },
+    { id: 'failed', label: 'Failed', statuses: 'failed,interrupted' },
+    { id: 'cancelled', label: 'Cancelled', statuses: 'cancelled' },
+];
+
+/** Query parameters of GET /install/jobs for the History filters. */
+export function historyParams({ status = 'all', os = 'all', q = '', limit = 25, before = null } = {}) {
+    const params = { limit };
+    const f = HISTORY_STATUS_FILTERS.find(x => x.id === status);
+    if (f && f.statuses) params.status = f.statuses;
+    if (os === 'windows' || os === 'linux') params.os = os;
+    const text = String(q || '').trim().slice(0, 100);
+    if (text) params.q = text;
+    if (before !== null && before !== undefined) params.before = before;
+    return params;
+}
+
+/** Figure cards of the History tab from GET /install/jobs/stats. */
+export function historyKpis(stats) {
+    if (!stats) return [];
+    const finished = (stats.okHosts || 0) + (stats.failedHosts || 0);
+    const rate = finished ? `${Math.round((stats.okHosts / finished) * 100)}%` : '-';
+    return [
+        { id: 'jobs', label: `Jobs (${stats.days} days)`, value: stats.jobs, sub: `${stats.doneJobs || 0} done, ${stats.failedJobs || 0} failed`, tone: 'info' },
+        { id: 'running', label: 'Running now', value: stats.running, sub: stats.running ? 'in progress' : 'idle', tone: stats.running ? 'info' : 'muted' },
+        { id: 'hosts', label: 'Hosts provisioned', value: stats.hosts, sub: stats.rebootHosts ? `${stats.rebootHosts} needed a reboot` : 'no reboots', tone: 'muted' },
+        { id: 'rate', label: 'Host success rate', value: rate, sub: `${stats.okHosts || 0} of ${finished} finished hosts`, tone: finished && stats.okHosts / finished < 0.9 ? 'warning' : 'success' },
+        { id: 'failed', label: 'Failed hosts', value: stats.failedHosts, sub: 'failed, interrupted or skipped', tone: stats.failedHosts ? 'danger' : 'muted' },
+    ];
 }

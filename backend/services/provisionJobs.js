@@ -228,15 +228,75 @@ function hostRowToApi(r, withLog) {
     return out;
 }
 
-function listJobs({ limit, before } = {}) {
+const JOB_STATUSES = [...ACTIVE_JOB, ...FINISHED_JOB];
+const likeEscape = (s) => s.replace(/[\\%_]/g, (c) => `\\${c}`);
+
+/**
+ * Validates the History filters. status: comma list of job statuses; os: windows | linux; q: up to 100 characters,
+ * matched against the job id (prefix), creator, template and the IP / host name of any of its hosts.
+ * -> { error } or { where: [sql], params: [] }
+ */
+function jobFilters({ status, os, q } = {}) {
+    const where = [];
+    const params = [];
+    if (status !== undefined && status !== null && String(status).trim() !== '') {
+        const list = [...new Set(String(status).split(',').map(s => s.trim()).filter(Boolean))];
+        const bad = list.filter(s => !JOB_STATUSES.includes(s));
+        if (bad.length) return { error: `Unknown status: ${bad.join(', ')}` };
+        where.push(`status IN (${list.map(() => '?').join(',')})`);
+        params.push(...list);
+    }
+    if (os !== undefined && os !== null && String(os).trim() !== '') {
+        if (!['windows', 'linux'].includes(String(os))) return { error: 'os must be windows or linux' };
+        where.push("COALESCE(json_extract(request, '$.osType'), 'windows') = ?");
+        params.push(String(os));
+    }
+    const text = String(q || '').trim();
+    if (text) {
+        if (text.length > 100) return { error: 'Search text is limited to 100 characters' };
+        const like = `%${likeEscape(text)}%`;
+        where.push(`(id LIKE ? ESCAPE '\\' OR createdBy LIKE ? ESCAPE '\\' OR buType LIKE ? ESCAPE '\\'
+            OR EXISTS (SELECT 1 FROM provision_job_hosts hh WHERE hh.jobId = provision_jobs.id AND (hh.ip LIKE ? ESCAPE '\\' OR hh.hostname LIKE ? ESCAPE '\\')))`);
+        params.push(`${likeEscape(text)}%`, like, like, like, like);
+    }
+    return { where, params };
+}
+
+/** Newest first, `limit` per page (keyset on rowid via `before`); optional History filters (jobFilters). */
+function listJobs({ limit, before, status, os, q } = {}) {
     const lim = prov.clampInt(limit, 25, 1, 200);
+    const f = jobFilters({ status, os, q });
+    if (f.error) { const e = new Error(f.error); e.status = 400; throw e; }
     const h = getHandle();
+    const where = [...f.where];
+    const params = [...f.params];
     const beforeSeq = parseInt(before, 10);
-    const rows = Number.isFinite(beforeSeq)
-        ? h.prepare('SELECT rowid AS seq, * FROM provision_jobs WHERE rowid < ? ORDER BY rowid DESC LIMIT ?').all(beforeSeq, lim + 1)
-        : h.prepare('SELECT rowid AS seq, * FROM provision_jobs ORDER BY rowid DESC LIMIT ?').all(lim + 1);
+    if (Number.isFinite(beforeSeq)) { where.push('rowid < ?'); params.push(beforeSeq); }
+    const sql = `SELECT rowid AS seq, * FROM provision_jobs${where.length ? ` WHERE ${where.join(' AND ')}` : ''} ORDER BY rowid DESC LIMIT ?`;
+    const rows = h.prepare(sql).all(...params, lim + 1);
     const jobs = rows.slice(0, lim).map(jobRowToApi);
     return { jobs, nextBefore: rows.length > lim && jobs.length ? jobs[jobs.length - 1].seq : null };
+}
+
+/**
+ * History figures: jobs created in the last `days` days (1..365, default 30) with their host counts, and the jobs
+ * running now (whenever they were created).
+ */
+function jobStats({ days, now = Date.now() } = {}) {
+    const d = prov.clampInt(days, 30, 1, 365);
+    const since = new Date(now - d * 24 * 60 * 60 * 1000).toISOString();
+    const h = getHandle();
+    const r = h.prepare(`SELECT COUNT(*) AS jobs, COALESCE(SUM(hostCount), 0) AS hosts, COALESCE(SUM(okCount), 0) AS okHosts,
+        COALESCE(SUM(failCount), 0) AS failedHosts, COALESCE(SUM(rebootCount), 0) AS rebootHosts,
+        COALESCE(SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END), 0) AS doneJobs,
+        COALESCE(SUM(CASE WHEN status IN ('failed', 'interrupted') THEN 1 ELSE 0 END), 0) AS failedJobs
+        FROM provision_jobs WHERE createdAt >= ?`).get(since);
+    const running = h.prepare(`SELECT COUNT(*) AS n FROM provision_jobs WHERE status IN (${ACTIVE_JOB.map(() => '?').join(',')})`).get(...ACTIVE_JOB).n;
+    return {
+        days: d, since, jobs: Number(r.jobs) || 0, running: Number(running) || 0,
+        hosts: Number(r.hosts) || 0, okHosts: Number(r.okHosts) || 0, failedHosts: Number(r.failedHosts) || 0,
+        rebootHosts: Number(r.rebootHosts) || 0, doneJobs: Number(r.doneJobs) || 0, failedJobs: Number(r.failedJobs) || 0,
+    };
 }
 
 function getJob(id, { logs = true } = {}) {
@@ -1052,7 +1112,7 @@ function init({ readConfig, firstDelayMs = 30 * 1000, retryDelayMs = 5000, sweep
 }
 
 module.exports = {
-    ensureTables, getHandle, lookupTargets, listTargets, activeJobForIp, listJobs, getJob, createJob, submit, cancelJob, retryInput,
+    ensureTables, getHandle, lookupTargets, listTargets, activeJobForIp, listJobs, jobStats, getJob, createJob, submit, cancelJob, retryInput,
     markInterrupted, recoverOrphans, cleanup, init, initWorker, whenIdle, ACTIVE_JOB, FINISHED_JOB,
     setRole, onWorkerMessage, onWorkerGone, handleWorkerMessage,
     _live: live, _hooks: hooks, _config: config, _beat: beat, _tryAdopt: tryAdopt, _identity: identity

@@ -2,7 +2,12 @@ import React, { useState, useEffect, useRef } from 'react';
 import api from '../../api';
 import { createPoller } from './pollController';
 import {
-    jobStatusTone, toneClass, packageLine, packageClass, jobSummaryLine, jobProgress,
+    TbBrandWindows, TbTerminal2, TbClock, TbServer2, TbUsers, TbPlayerStop, TbRepeat, TbCircleCheck, TbCircleX, TbCircleMinus,
+    TbChevronDown, TbChevronRight, TbFileText
+} from 'react-icons/tb';
+import { StatusBadge, ProgressBar, Alert } from './ProvisionUi';
+import {
+    jobStatusTone, toneColor, packageLine, packageState, jobSummaryLine, jobProgress, progressSegments,
     formatDuration, formatTime, canRetry, runnerLabel, resumedBadge, jobAccountsLine
 } from './provisionUtils';
 
@@ -135,91 +140,129 @@ const ProvisionJobView = ({ jobId, canWrite, onOpenJob, onActiveChange }) => {
 
     const notice = (
         <>
-            {error && <div className="p-3 bg-danger/20 border border-danger/35 rounded text-danger text-sm flex items-center gap-2">
-                <span>{error}</span>
-                {!/not found/i.test(error) && <button className="btn btn-outline text-xs ml-2" onClick={restart}>Refresh</button>}
-            </div>}
+            {error && (
+                <Alert tone="danger">
+                    <span>{error}</span>
+                    {!/not found/i.test(error) && <div><button type="button" className="btn btn-outline text-xs" onClick={restart}>Refresh</button></div>}
+                </Alert>
+            )}
             {unknownList.length > 0 && (
-                <div className="p-3 bg-warning/20 border border-warning/35 rounded text-warning text-sm">
-                    <div>Retry rejected: these hosts are no longer known targets (not in CMDB or Server Inventory): {unknownList.join(', ')}</div>
-                    {isSuperAdmin && <button className="btn btn-outline text-xs mt-2" disabled={busy} onClick={() => handleRetry(true)}>Retry allowing unknown targets</button>}
-                </div>
+                <Alert tone="warning">
+                    <span>Retry rejected: these hosts are no longer known targets (not in CMDB or Server Inventory): {unknownList.join(', ')}</span>
+                    {isSuperAdmin && <div><button type="button" className="btn btn-outline text-xs" disabled={busy} onClick={() => handleRetry(true)}>Retry allowing unknown targets</button></div>}
+                </Alert>
             )}
             {lost && (
-                <div className="p-3 bg-warning/20 border border-warning/35 rounded text-warning text-sm">
-                    Lost track of job {String(jobId).slice(0, 8)}; the job may still be running on the server. Check its status again later.
-                    <button className="btn btn-outline text-xs ml-2" onClick={restart}>Refresh</button>
-                </div>
+                <Alert tone="warning">
+                    <span>Lost track of job {String(jobId).slice(0, 8)}; the job may still be running on the server. Check its status again later.</span>
+                    <div><button type="button" className="btn btn-outline text-xs" onClick={restart}>Refresh</button></div>
+                </Alert>
             )}
         </>
     );
 
     if (!data) {
         return (
-            <div className="flex flex-col gap-3">
+            <div className="pv-section">
                 {notice}
-                {!error && !lost && <div className="text-sm text-secondary">Loading job...</div>}
+                {!error && !lost && <div className="pv-help">Loading job...</div>}
             </div>
         );
     }
     const job = data.job;
     const hosts = data.hosts || [];
     const prog = jobProgress(hosts);
+    const seg = progressSegments(hosts);
     const statusLabel = cancelling && running ? 'cancelling' : job.status;
+    const OsIcon = job.osType === 'linux' ? TbTerminal2 : TbBrandWindows;
 
     return (
-        <div className="flex flex-col gap-4">
+        <div className="pv-section" style={{ gap: 14 }}>
             {notice}
-            <div className="flex justify-between items-center flex-wrap gap-2">
-                <div>
-                    <div className="text-sm">
-                        <span className="font-mono text-primary">{String(job.id).slice(0, 8)}</span>{' '}
-                        <span className={`text-xs px-2 py-0.5 rounded ${toneClass(cancelling && running ? 'warning' : jobStatusTone(job.status))}`}>{statusLabel}</span>
-                        {resumedBadge(job) && <span className={`text-xs px-2 py-0.5 rounded ml-1 ${toneClass('warning')}`} title="Queued hosts were run again after a service / worker restart; hosts that were mid-install are marked interrupted">{resumedBadge(job)}</span>}
-                    </div>
-                    <div className="text-xs text-secondary mt-1">
-                        {job.buType} / {job.osType} / {formatTime(job.createdAt)} / {formatDuration(job.startedAt || job.createdAt, job.finishedAt)}
-                        {runnerLabel(job) && <> / runs in: {runnerLabel(job)}</>}
-                    </div>
-                    {jobAccountsLine(job) && <div className="text-xs text-secondary">{jobAccountsLine(job)}</div>}
-                    <div className="text-xs text-secondary">
-                        {running ? `${prog.finished}/${prog.total} hosts finished` : jobSummaryLine(job)}
-                    </div>
-                    {job.note && <div className="text-xs text-muted italic">{job.note}</div>}
-                    {job.unknownTargets && job.unknownTargets.length > 0 && (
-                        <div className="text-xs text-warning">Unknown targets allowed: {job.unknownTargets.join(', ')}</div>
-                    )}
-                </div>
-                <div className="flex gap-2">
-                    {canWrite && running && <button className="btn btn-outline text-sm" disabled={busy || cancelling} onClick={handleCancel}>{cancelling ? 'Cancelling...' : 'Cancel job'}</button>}
-                    {canWrite && canRetry(job, hosts) && <button className="btn btn-primary text-sm" disabled={busy} onClick={() => handleRetry(false)}>Retry failed hosts</button>}
+            <div className="pv-host-head">
+                <span className="pv-host-ip">{String(job.id).slice(0, 8)}</span>
+                <StatusBadge status={statusLabel} tone={cancelling && running ? 'warning' : undefined} />
+                {resumedBadge(job) && (
+                    <span title="Queued hosts were run again after a service / worker restart; hosts that were mid-install are marked interrupted">
+                        <StatusBadge status="resumed" tone="warning" label={resumedBadge(job)} />
+                    </span>
+                )}
+                <span className="pv-spacer" />
+                {canWrite && running && (
+                    <button type="button" className="btn btn-outline pv-icon-btn text-sm" disabled={busy || cancelling} onClick={handleCancel}>
+                        <TbPlayerStop size={16} aria-hidden="true" /> {cancelling ? 'Cancelling...' : 'Cancel job'}
+                    </button>
+                )}
+                {canWrite && canRetry(job, hosts) && (
+                    <button type="button" className="btn btn-primary pv-icon-btn text-sm" disabled={busy} onClick={() => handleRetry(false)}>
+                        <TbRepeat size={16} aria-hidden="true" /> Retry failed hosts
+                    </button>
+                )}
+            </div>
+
+            <div className="pv-meta">
+                <span><OsIcon size={14} aria-hidden="true" />{job.buType} / {job.osType}</span>
+                <span><TbClock size={14} aria-hidden="true" />{formatTime(job.createdAt)} ({formatDuration(job.startedAt || job.createdAt, job.finishedAt)})</span>
+                {runnerLabel(job) && <span><TbServer2 size={14} aria-hidden="true" />{runnerLabel(job)}</span>}
+                {jobAccountsLine(job) && <span><TbUsers size={14} aria-hidden="true" />{jobAccountsLine(job)}</span>}
+            </div>
+
+            <div className="pv-section" style={{ gap: 6 }}>
+                <ProgressBar segments={seg} />
+                <div className="pv-legend">
+                    <span>{running ? `${prog.finished}/${prog.total} hosts finished` : jobSummaryLine(job)}</span>
+                    {seg.ok > 0 && <span><i style={{ background: 'var(--success)' }} />{seg.ok} ok</span>}
+                    {seg.failed > 0 && <span><i style={{ background: 'var(--danger)' }} />{seg.failed} failed</span>}
+                    {seg.running > 0 && <span><i style={{ background: 'var(--accent-primary)' }} />{seg.running} running</span>}
+                    {seg.queued > 0 && <span><i style={{ background: 'color-mix(in srgb, var(--accent-primary) 35%, transparent)' }} />{seg.queued} queued</span>}
+                    {seg.other > 0 && <span><i style={{ background: 'var(--warning)' }} />{seg.other} skipped / cancelled</span>}
                 </div>
             </div>
 
+            {job.note && <div className="pv-help" style={{ fontStyle: 'italic' }}>{job.note}</div>}
+            {job.unknownTargets && job.unknownTargets.length > 0 && (
+                <Alert tone="warning">Unknown targets allowed: {job.unknownTargets.join(', ')}</Alert>
+            )}
+
             {hosts.map(h => (
-                <div key={h.ip} className="p-4 bg-black/40 rounded border border-white/10">
-                    <div className="flex justify-between items-center mb-2">
-                        <span className="font-bold text-primary">{h.ip}{h.hostname ? <span className="text-secondary font-normal text-xs"> {h.hostname}</span> : null}</span>
-                        <span className="flex gap-2 items-center">
-                            {h.rebootRequired && <span className="text-xs px-2 py-0.5 rounded bg-warning/20 text-warning">Reboot required</span>}
-                            <span className={`text-xs px-2 py-0.5 rounded ${toneClass(jobStatusTone(h.status))}`}>{h.status}</span>
-                        </span>
+                <div key={h.ip} className="pv-host" style={{ '--pv-tone': toneColor(jobStatusTone(h.status)) }}>
+                    <div className="pv-host-head">
+                        <span className="pv-host-ip">{h.ip}</span>
+                        {h.hostname && <span className="pv-host-name">{h.hostname}</span>}
+                        <span className="pv-spacer" />
+                        {h.rebootRequired && <StatusBadge status="reboot" tone="warning" label="Reboot required" />}
+                        <StatusBadge status={h.status} />
                     </div>
-                    {h.error && <div className="text-xs text-danger mb-2">{h.error}</div>}
+                    {h.error && <div className="pv-help" style={{ color: 'var(--danger)' }}>{h.error}</div>}
                     {(h.packages || []).length > 0 && (
-                        <ul className="text-xs mb-2 flex flex-col gap-1">
-                            {h.packages.map(p => (
-                                <li key={p.name} className={packageClass(p)}>{packageLine(p)}{p.rebootRequired ? ' [reboot]' : ''}</li>
-                            ))}
+                        <ul className="pv-pkgs">
+                            {h.packages.map(p => {
+                                const st = packageState(p);
+                                const Icon = st === 'ok' ? TbCircleCheck : st === 'skipped' ? TbCircleMinus : TbCircleX;
+                                const color = st === 'ok' ? 'var(--success)' : st === 'skipped' ? 'var(--text-muted)' : 'var(--danger)';
+                                const code = p.exitCode === undefined || p.exitCode === null ? '' : ` (exit ${p.exitCode})`;
+                                return (
+                                    <li key={p.name} title={packageLine(p)}>
+                                        <Icon size={15} style={{ color }} aria-label={st} />
+                                        <span>
+                                            <span style={{ color: st === 'failed' ? 'var(--danger)' : 'var(--text-primary)' }}>{p.name}</span>
+                                            <span className="pv-pkg-msg">{code}{p.message ? `: ${p.message}` : ''}{st === 'skipped' ? ' (already installed)' : ''}{p.rebootRequired ? ' [reboot]' : ''}</span>
+                                        </span>
+                                    </li>
+                                );
+                            })}
                         </ul>
                     )}
                     {h.logHidden
-                        ? <div className="text-xs text-muted italic">Log visible to Operators only</div>
-                        : <button className="btn btn-outline text-xs" onClick={() => toggleLog(h.ip)}>{expanded[h.ip] ? 'Hide log' : 'Show log'}</button>}
+                        ? <div className="pv-help" style={{ fontStyle: 'italic' }}>Log visible to Operators only</div>
+                        : (
+                            <button type="button" className="pv-link" aria-expanded={!!expanded[h.ip]} onClick={() => toggleLog(h.ip)}>
+                                {expanded[h.ip] ? <TbChevronDown size={14} aria-hidden="true" /> : <TbChevronRight size={14} aria-hidden="true" />}
+                                <TbFileText size={14} aria-hidden="true" /> {expanded[h.ip] ? 'Hide log' : 'Show log'}
+                            </button>
+                        )}
                     {!h.logHidden && expanded[h.ip] && (
-                        <pre className="text-xs font-mono text-muted whitespace-pre-wrap max-h-40 overflow-y-auto mt-2">
-                            {logs[h.ip] === undefined ? 'Loading...' : (logs[h.ip] || '(empty)')}
-                        </pre>
+                        <pre className="pv-log">{logs[h.ip] === undefined ? 'Loading...' : (logs[h.ip] || '(empty)')}</pre>
                     )}
                 </div>
             ))}

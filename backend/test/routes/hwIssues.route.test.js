@@ -14,6 +14,7 @@ const tok = (name, role) => `Bearer ${signToken({ username: name, domain: 'corp'
 const ALICE = tok('alice', 'Operator'), BOB = tok('bob', 'Operator'), VIEWER = tok('vic', 'Viewer');
 const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 let app;
+const audits = [];
 
 test.before(async () => {
     await dbManager.initDB();
@@ -21,7 +22,7 @@ test.before(async () => {
         roles: ['SuperAdmin', 'Operator', 'Viewer', 'None'], users: {}, defaultRole: 'Viewer',
         groups: { g: { type: 'group', target: 'g', enabled: true, features: { dataCenter: true } } },
     });
-    require('../../lib/logger').auditLog = () => {};
+    require('../../lib/logger').auditLog = (user, mod, msg) => { audits.push([user, mod, msg]); };
     app = express();
     app.use(express.json());
     app.use('/api/rack', require('../../routes/rack'));
@@ -147,4 +148,40 @@ test('a stale edit is refused with 409 and the current issue; a fresh one saves'
     assert.deepEqual(legacy.body.issue.processNotes.map(n => [n.status, n.note]), [['Processing', 'RMA sent'], ['Legacy Note', 'free text line']]);
     const noted = await call('post', '/issues/hw-legacy/notes', ALICE, { note: 'new' });
     assert.deepEqual(noted.body.issue.processNotes.map(n => n.note), ['new', 'RMA sent', 'free text line']);
+});
+
+test('assignee, RMA number, due date, device / rack ids are kept; due date and resolution are validated', async () => {
+    const r = await call('post', '/issues/single', ALICE, { ...BASE, assignee: 'bob', rmaNumber: 'RMA-778', dueDate: '2026-11-20', deviceId: 'dev-1', rackId: 'rack-9' });
+    assert.equal(r.status, 200);
+    const i = r.body.issue;
+    assert.deepEqual([i.assignee, i.rmaNumber, i.dueDate, i.deviceId, i.rackId], ['bob', 'RMA-778', '2026-11-20', 'dev-1', 'rack-9']);
+    assert.match((await call('post', '/issues/single', ALICE, { ...BASE, dueDate: 'next week' })).body.error, /dueDate must be YYYY-MM-DD/);
+    assert.match((await call('put', `/issues/${i.id}`, ALICE, { resolution: 'Magic' })).body.error, /resolution must be one of/);
+});
+
+test('closing records the resolution; reopening clears it; it can only be given when closing', async () => {
+    const id = (await call('post', '/issues/single', ALICE, BASE)).body.issue.id;
+    assert.match((await call('post', `/issues/${id}/notes`, BOB, { type: 'Processing', note: 'x', resolution: 'Part replaced' })).body.error, /only set when closing/);
+    assert.equal((await call('post', `/issues/${id}/notes`, BOB, { type: 'Closed', note: 'swapped', resolution: 'Bogus' })).status, 400);
+    assert.equal(stored(id).status, 'Open', 'a refused close changes nothing');
+    const c = await call('post', `/issues/${id}/notes`, BOB, { type: 'Closed', note: 'swapped', resolution: 'Part replaced' });
+    assert.equal(c.body.issue.resolution, 'Part replaced');
+    const r = await call('post', `/issues/${id}/notes`, ALICE, { type: 'Open', note: 'failed again' });
+    assert.equal(r.body.issue.status, 'Open');
+    assert.ok(!('resolution' in r.body.issue));
+    // an open issue cannot carry a resolution through the form either
+    const f = await call('put', `/issues/${id}`, ALICE, { resolution: 'Other' });
+    assert.ok(!('resolution' in f.body.issue));
+});
+
+test('audit / Telegram lines describe the issue; High urgency is flagged; closing gives the resolution and days open', async () => {
+    audits.length = 0;
+    const id = (await call('post', '/issues/single', ALICE, { ...BASE, assignee: 'bob' })).body.issue.id;
+    assert.match(audits.at(-1)[2], new RegExp(`^Reported Issue ${id}: 🚨 SRV01 \\(DC-A, R1 - U10\\): PSU; urgency High; assignee bob$`));
+    await call('post', `/issues/${id}/notes`, BOB, { type: 'Closed', note: 'PSU replaced', resolution: 'Part replaced' });
+    assert.match(audits.at(-1)[2], new RegExp(`^Closed Issue ${id}: SRV01 \\(DC-A\\); resolution Part replaced; open 0 day\\(s\\); PSU replaced$`));
+    const low = (await call('post', '/issues/single', ALICE, { ...BASE, urgency: 'L' })).body.issue.id;
+    assert.ok(!audits.at(-1)[2].includes('🚨'), 'only High is flagged');
+    await call('post', `/issues/${low}/notes`, ALICE, { note: 'checked' });
+    assert.equal(audits.at(-1)[2], `Added a note to Issue ${low} (SRV01)`);
 });

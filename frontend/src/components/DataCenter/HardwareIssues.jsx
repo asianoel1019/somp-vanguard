@@ -1,8 +1,13 @@
 import { useToast } from '../../contexts/ToastContext';
 import { useConfirm } from '../../contexts/ConfirmContext';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import api from '../../api';
-import { formatNoteTime, csvCell, initialOf } from './hwIssueUtils';
+import {
+    formatNoteTime, csvCell, initialOf, ageDays, isOverdue, closedRecently, filterIssues, sortIssues, issueKpis,
+    SLA_DAYS, URGENCY_LABELS, RESOLUTIONS
+} from './hwIssueUtils';
+import HwStatusChangeModal from './HwStatusChangeModal';
+import HwIssueLinked from './HwIssueLinked';
 
 // One id per spare-part selection: the server deducts stock once per usageId even if the save is retried
 const newUsageId = () => (typeof window !== 'undefined' && window.crypto && typeof window.crypto.randomUUID === 'function')
@@ -10,33 +15,123 @@ const newUsageId = () => (typeof window !== 'undefined' && window.crypto && type
     : `usage-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
 // Fields the form edits; the timeline, spare-part usages and times are kept by the server
-const EDITABLE_FIELDS = ['date', 'datacenter', 'deviceName', 'sn', 'rackLoc', 'failedParts', 'reporter', 'urgency', 'status', 'partsInfo'];
-const STATUS_FILTERS = ['ALL', 'Open', 'Processing', 'Closed'];
+const EDITABLE_FIELDS = ['date', 'datacenter', 'deviceName', 'deviceId', 'rackId', 'sn', 'rackLoc', 'failedParts', 'reporter', 'urgency', 'status',
+    'partsInfo', 'assignee', 'rmaNumber', 'dueDate', 'resolution'];
+const URGENCY_COLORS = { H: 'var(--danger)', M: '#f59e0b', L: 'var(--success)' };
+const STATUS_COLORS = { Open: 'var(--text-primary)', Processing: '#3b82f6', Closed: 'var(--success)' };
+const COLUMNS = [
+    { status: 'Open', label: '🚨 Open', color: 'var(--text-primary)' },
+    { status: 'Processing', label: '⚙️ Processing', color: '#3b82f6' },
+    { status: 'Closed', label: '✅ Closed', color: 'var(--success)' },
+];
+const EMPTY_FILTERS = { q: '', dc: 'ALL', urgency: 'ALL', status: 'ALL', from: '', to: '', overdueOnly: false };
+const SORTABLE = [['date', 'Date'], ['datacenter', 'Datacenter'], ['deviceName', 'Device / SN'], [null, 'Location'], [null, 'Failed Parts'],
+    ['urgency', 'Urgency'], ['status', 'Status'], ['age', 'Age'], ['assignee', 'Assignee'], [null, 'Action']];
 
-export default function HardwareIssues() {
+const inputStyle = { width: '100%', padding: 10, background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 6 };
+const labelStyle = { fontSize: 12, color: 'var(--text-muted)', marginBottom: 4, display: 'block' };
+const thStyle = { padding: '12px 16px', color: 'var(--text-muted)', whiteSpace: 'nowrap' };
+const tdStyle = { padding: '12px 16px' };
+
+/** Very old issues kept the timeline as text lines. */
+function withTimeline(i) {
+    let notes = i.processNotes || [];
+    if (typeof notes === 'string') {
+        notes = notes.split('\n').filter(Boolean).map(n => {
+            const match = n.match(/\[(.*?)\] (.*?): (.*)/);
+            return match
+                ? { timestamp: match[1], status: match[2], note: match[3], user: 'System' }
+                : { timestamp: '', status: 'Legacy Note', note: n, user: 'System' };
+        });
+    }
+    return { ...i, processNotes: notes };
+}
+
+/** "3d" age chip; red with "overdue" when past its deadline. */
+function AgeChip({ issue, now }) {
+    const days = ageDays(issue, now);
+    if (days === null) return null;
+    const late = isOverdue(issue, now);
+    return (
+        <span title={late ? 'Past its due date' : issue.status === 'Closed' ? 'Days it was open' : 'Days open'}
+            style={{ fontSize: 11, fontWeight: 700, padding: '1px 6px', borderRadius: 4, whiteSpace: 'nowrap',
+                background: late ? 'rgba(239,68,68,0.18)' : 'rgba(255,255,255,0.08)', color: late ? 'var(--danger)' : 'var(--text-muted)' }}>
+            {days}d{late ? ' · overdue' : ''}
+        </span>
+    );
+}
+
+function UrgencyBadge({ urgency, closed }) {
+    if (closed) return <span style={{ padding: '2px 6px', borderRadius: 4, background: 'rgba(255,255,255,0.1)', color: 'var(--text-muted)', fontSize: 10, fontWeight: 700 }}>CLOSED</span>;
+    return (
+        <span style={{ padding: '2px 6px', borderRadius: 4, background: URGENCY_COLORS[urgency] || URGENCY_COLORS.M, color: '#fff', fontSize: 10, fontWeight: 700 }}>
+            {(URGENCY_LABELS[urgency] || 'Medium').toUpperCase()}
+        </span>
+    );
+}
+
+function IssueCard({ issue, now, draggable, onOpen, onDragStart }) {
+    const closed = issue.status === 'Closed';
+    return (
+        <div className={`kanban-card ${issue.urgency === 'H' && !closed ? 'glow-red' : ''}`} onClick={onOpen}
+            draggable={draggable} onDragStart={onDragStart} role="button" tabIndex={0}
+            onKeyDown={(e) => { if (e.key === 'Enter') onOpen(); }}
+            style={{ borderLeft: isOverdue(issue, now) ? '3px solid var(--danger)' : undefined, cursor: draggable ? 'grab' : 'pointer' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                <div style={{ fontWeight: 700, fontSize: 14, textDecoration: closed ? 'line-through' : 'none', opacity: closed ? 0.7 : 1 }}>{issue.deviceName}</div>
+                <UrgencyBadge urgency={issue.urgency} closed={closed} />
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>📍 {issue.datacenter}{issue.rackLoc ? ` | ${issue.rackLoc}` : ''}</div>
+            {!closed && <div style={{ fontSize: 12, color: 'var(--text-primary)', marginTop: 4 }}>🔧 {issue.failedParts}</div>}
+            {closed && issue.resolution && <div style={{ fontSize: 12, color: 'var(--success)', marginTop: 4 }}>✔ {issue.resolution}</div>}
+            {issue.rmaNumber && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>RMA {issue.rmaNumber}</div>}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                    <div style={{ width: 20, height: 20, flexShrink: 0, borderRadius: '50%', background: closed ? 'var(--bg-tertiary)' : 'var(--accent-primary)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 800 }}>
+                        {initialOf(issue.assignee || issue.reporter)}
+                    </div>
+                    <span style={{ fontSize: 11, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {issue.assignee ? `→ ${issue.assignee}` : issue.reporter}
+                    </span>
+                </div>
+                <AgeChip issue={issue} now={now} />
+            </div>
+        </div>
+    );
+}
+
+export default function HardwareIssues({ onShowInRack }) {
     const { showToast } = useToast();
     const { showConfirm } = useConfirm();
     const user = JSON.parse(localStorage.getItem('user') || '{}');
     const role = user.role || 'Viewer';
+    const canWrite = role !== 'Viewer';
 
     const [hwIssues, setHwIssues] = useState([]);
     const [initialLoaded, setInitialLoaded] = useState(false);
+    const [now, setNow] = useState(() => Date.now());
 
     // UI state
     const [viewMode, setViewMode] = useState('kanban');
-    const [hwFilterStatus, setHwFilterStatus] = useState('ALL');
+    const [filters, setFilters] = useState(EMPTY_FILTERS);
+    const [showAllClosed, setShowAllClosed] = useState(false);
+    const [sort, setSort] = useState({ key: 'date', dir: 'desc' });
     const [showHWFormModal, setShowHWFormModal] = useState(false);
     const [activeDropdownId, setActiveDropdownId] = useState(null);
     const [currentHWForm, setCurrentHWForm] = useState(null);
     const [isHWFormReadOnly, setIsHWFormReadOnly] = useState(false);
+    const [statusChange, setStatusChange] = useState(null); // { issue, to } while a dragged card waits for its note
+    const [dragOver, setDragOver] = useState(null);
 
     // Process Note State inside Drawer
-    const [processType, setProcessType] = useState('Note'); // 'Processing', 'Closed', or 'Note'
+    const [processType, setProcessType] = useState('Note'); // 'Note', 'Processing', 'Closed' or 'Open' (reopen)
     const [processNote, setProcessNote] = useState('');
+    const [processResolution, setProcessResolution] = useState('');
 
     // Datacenter & Device selection state
     const [dcs, setDcs] = useState([]);
     const [formRacks, setFormRacks] = useState([]);
+    const [contracts, setContracts] = useState([]);
 
     // Spare Parts Integration State
     const [sparePartsData, setSparePartsData] = useState({ categories: [], items: [] });
@@ -52,70 +147,52 @@ export default function HardwareIssues() {
     };
 
     useEffect(() => {
-        // Fetch datacenters
         api.get('/rack/datacenters').then(res => {
             if (res.data) setDcs(res.data);
         }).catch(err => console.error('Failed to fetch datacenters:', err));
 
-        // Fetch issues
         api.get('/rack/issues').then(res => {
-            if (res.data) {
-                const parsed = res.data.map(i => {
-                    let notes = i.processNotes || [];
-                    if (typeof notes === 'string') {
-                        notes = notes.split('\n').filter(Boolean).map(n => {
-                            const match = n.match(/\[(.*?)\] (.*?): (.*)/);
-                            if (match) {
-                                return { timestamp: match[1], status: match[2], note: match[3], user: 'System' };
-                            } else {
-                                return { timestamp: '', status: 'Legacy Note', note: n, user: 'System' };
-                            }
-                        });
-                    }
-                    return { ...i, processNotes: notes };
-                });
-                setHwIssues(parsed);
-            }
+            if (res.data) setHwIssues(res.data.map(withTimeline));
             setInitialLoaded(true);
         }).catch(err => {
             console.error('Failed to fetch issues:', err);
             setInitialLoaded(true);
         });
 
-        // Fetch spare parts for dropdown
         api.get('/rack/spare-parts').then(res => {
             if (res.data) setSparePartsData(res.data);
         }).catch(err => console.error('Failed to fetch spare parts:', err));
+
+        // warranties are optional context
+        api.get('/rack/contracts').then(res => setContracts(Array.isArray(res.data) ? res.data : [])).catch(() => {});
+
         // Click outside logic for Action Menu in table view
         const closeDropdown = (e) => {
-            if (!e.target.closest('.action-dropdown-container')) {
-                setActiveDropdownId(null);
-            }
+            if (!e.target.closest('.action-dropdown-container')) setActiveDropdownId(null);
         };
         document.addEventListener('click', closeDropdown);
-        return () => document.removeEventListener('click', closeDropdown);
+        // ages and overdue marks move with the clock
+        const tick = setInterval(() => setNow(Date.now()), 60 * 1000);
+        return () => { document.removeEventListener('click', closeDropdown); clearInterval(tick); };
     }, []);
+
+    const loadRacksOf = (dcName) => {
+        const dc = dcs.find(d => d.name === dcName);
+        if (!dc) { setFormRacks([]); return; }
+        api.get(`/rack?dcId=${dc.id}`).then(res => { if (res.data) setFormRacks(res.data); }).catch(console.error);
+    };
 
     // Load racks when a DC is selected
     const handleDCChange = (dcName) => {
-        setCurrentHWForm(prev => ({ ...prev, datacenter: dcName, deviceName: '', sn: '', rackLoc: '' }));
-        const dc = dcs.find(d => d.name === dcName);
-        if (dc) {
-            api.get(`/rack?dcId=${dc.id}`).then(res => {
-                if (res.data) setFormRacks(res.data);
-            }).catch(console.error);
-        } else {
-            setFormRacks([]);
-        }
+        setCurrentHWForm(prev => ({ ...prev, datacenter: dcName, deviceName: '', deviceId: '', rackId: '', sn: '', rackLoc: '' }));
+        loadRacksOf(dcName);
     };
 
-    const availableDevices = React.useMemo(() => {
-        let devs = [];
+    const availableDevices = useMemo(() => {
+        const devs = [];
         formRacks.forEach(r => {
             (r.devices || []).forEach(d => {
-                if (!['Shelf', 'Reserve', 'PatchPanel'].includes(d.type)) {
-                    devs.push({ ...d, rackLoc: `${r.name} - U${d.u}` });
-                }
+                if (!['Shelf', 'Reserve', 'PatchPanel'].includes(d.type)) devs.push({ ...d, rackId: r.id, rackLoc: `${r.name} - U${d.u}` });
             });
         });
         return devs.sort((a, b) => (a.hostname || '').localeCompare(b.hostname || ''));
@@ -123,110 +200,8 @@ export default function HardwareIssues() {
 
     const handleDeviceChange = (deviceId) => {
         const dev = availableDevices.find(d => d.id === deviceId);
-        if (dev) {
-            setCurrentHWForm(prev => ({ ...prev, deviceName: dev.hostname, sn: dev.sn || '', rackLoc: dev.rackLoc }));
-        } else {
-            setCurrentHWForm(prev => ({ ...prev, deviceName: deviceId, sn: '', rackLoc: '' }));
-        }
-    };
-
-    const openCreateForm = () => {
-        setFormRacks([]);
-        setIsHWFormReadOnly(false);
-        setProcessNote('');
-        setProcessType('Note');
-        setUseSparePart(false);
-        setSelectedSparePartId('');
-        setSparePartQty(1);
-        setSparePartUsageId('');
-        setCurrentHWForm({
-            date: new Date().toISOString().split('T')[0],
-            datacenter: '',
-            deviceName: '',
-            sn: '',
-            rackLoc: '',
-            failedParts: '',
-            reporter: user.username || '',
-            urgency: 'M',
-            status: 'Open',
-            partsInfo: '',
-            processNotes: []
-        });
-        setShowHWFormModal(true);
-    };
-
-    const openEditForm = (issue, readOnly = false) => {
-        setIsHWFormReadOnly(readOnly);
-        setCurrentHWForm(issue);
-        setProcessNote('');
-        setProcessType('Note');
-        setUseSparePart(false);
-        setSelectedSparePartId('');
-        setSparePartQty(1);
-        setSparePartUsageId('');
-
-        // Pre-fetch racks if DC is selected
-        const dc = dcs.find(d => d.name === issue.datacenter);
-        if (dc) {
-            api.get(`/rack?dcId=${dc.id}`).then(res => {
-                if (res.data) setFormRacks(res.data);
-            }).catch(console.error);
-        } else {
-            setFormRacks([]);
-        }
-        setShowHWFormModal(true);
-    };
-
-    const applySavedIssue = (saved) => {
-        setHwIssues(prev => (prev.some(i => i.id === saved.id) ? prev.map(i => (i.id === saved.id ? saved : i)) : [...prev, saved]));
-    };
-
-    const handleSaveIssue = (e) => {
-        e.preventDefault();
-        const finalForm = {};
-        EDITABLE_FIELDS.forEach(k => { if (currentHWForm[k] !== undefined) finalForm[k] = currentHWForm[k]; });
-        if (currentHWForm.id && currentHWForm.updatedAt) finalForm.expectedUpdatedAt = currentHWForm.updatedAt;
-
-        const usesPart = useSparePart && selectedSparePartId && sparePartQty > 0;
-        if (usesPart) {
-            finalForm.sparePartUsage = { partId: selectedSparePartId, qty: sparePartQty, usageId: sparePartUsageId || newUsageId() };
-        }
-
-        if (role !== 'Viewer') {
-            const request = currentHWForm.id
-                ? api.put(`/rack/issues/${currentHWForm.id}`, finalForm)
-                : api.post('/rack/issues/single', finalForm);
-            request.then(res => {
-                applySavedIssue(res.data.issue);
-                setShowHWFormModal(false);
-                if (usesPart) reloadSpareParts();
-            }).catch(err => {
-                console.error('Failed to save issue:', err);
-                const current = err.response?.status === 409 && err.response.data && err.response.data.issue;
-                if (current) {
-                    // someone else saved first: show their version; the user applies the changes again
-                    applySavedIssue(current);
-                    setCurrentHWForm(current);
-                }
-                // otherwise keep the form (and the usageId) so a retry does not deduct twice
-                showToast(err.response?.data?.error || 'Failed to save issue.', 'error');
-            });
-            return;
-        }
-        setShowHWFormModal(false);
-    };
-
-    const handleDeleteIssue = async (id) => {
-        if (!await showConfirm('Delete this issue?')) return;
-        api.delete(`/rack/issues/${id}`).then(() => {
-            setHwIssues(hwIssues.filter(i => i.id !== id));
-            if (currentHWForm && currentHWForm.id === id) {
-                setShowHWFormModal(false);
-            }
-        }).catch(err => {
-            console.error('Failed to delete issue:', err);
-            showToast(err.response?.data?.error || 'Failed to delete issue.', 'error');
-        });
+        if (dev) setCurrentHWForm(prev => ({ ...prev, deviceName: dev.hostname, deviceId: dev.id, rackId: dev.rackId, sn: dev.sn || '', rackLoc: dev.rackLoc }));
+        else setCurrentHWForm(prev => ({ ...prev, deviceName: deviceId, deviceId: '', rackId: '', sn: '', rackLoc: '' }));
     };
 
     const resetPartSelection = () => {
@@ -236,21 +211,93 @@ export default function HardwareIssues() {
         setSparePartUsageId('');
     };
 
+    const resetTimelineInput = () => {
+        setProcessNote('');
+        setProcessType('Note');
+        setProcessResolution('');
+    };
+
+    const openCreateForm = () => {
+        setFormRacks([]);
+        setIsHWFormReadOnly(false);
+        resetTimelineInput();
+        resetPartSelection();
+        setCurrentHWForm({
+            date: new Date().toISOString().split('T')[0],
+            datacenter: '', deviceName: '', deviceId: '', rackId: '', sn: '', rackLoc: '', failedParts: '',
+            reporter: user.username || '', urgency: 'M', status: 'Open', partsInfo: '',
+            assignee: '', rmaNumber: '', dueDate: '', processNotes: []
+        });
+        setShowHWFormModal(true);
+    };
+
+    const openEditForm = (issue, readOnly = false) => {
+        setIsHWFormReadOnly(readOnly);
+        setCurrentHWForm(issue);
+        resetTimelineInput();
+        resetPartSelection();
+        loadRacksOf(issue.datacenter);
+        setShowHWFormModal(true);
+    };
+
+    const applySavedIssue = (saved) => {
+        const s = withTimeline(saved);
+        setHwIssues(prev => (prev.some(i => i.id === s.id) ? prev.map(i => (i.id === s.id ? s : i)) : [...prev, s]));
+        return s;
+    };
+
+    const handleSaveIssue = (e) => {
+        e.preventDefault();
+        if (!canWrite) { setShowHWFormModal(false); return; }
+        const finalForm = {};
+        EDITABLE_FIELDS.forEach(k => { if (currentHWForm[k] !== undefined) finalForm[k] = currentHWForm[k]; });
+        if (currentHWForm.id && currentHWForm.updatedAt) finalForm.expectedUpdatedAt = currentHWForm.updatedAt;
+
+        const usesPart = useSparePart && selectedSparePartId && sparePartQty > 0;
+        if (usesPart) {
+            finalForm.sparePartUsage = { partId: selectedSparePartId, qty: sparePartQty, usageId: sparePartUsageId || newUsageId() };
+        }
+        const request = currentHWForm.id
+            ? api.put(`/rack/issues/${currentHWForm.id}`, finalForm)
+            : api.post('/rack/issues/single', finalForm);
+        request.then(res => {
+            applySavedIssue(res.data.issue);
+            setShowHWFormModal(false);
+            if (usesPart) reloadSpareParts();
+        }).catch(err => {
+            console.error('Failed to save issue:', err);
+            const current = err.response?.status === 409 && err.response.data && err.response.data.issue;
+            // someone else saved first: show their version; the user applies the changes again
+            if (current) setCurrentHWForm(applySavedIssue(current));
+            // otherwise keep the form (and the usageId) so a retry does not deduct twice
+            showToast(err.response?.data?.error || 'Failed to save issue.', 'error');
+        });
+    };
+
+    const handleDeleteIssue = async (id) => {
+        if (!await showConfirm('Delete this issue?')) return;
+        api.delete(`/rack/issues/${id}`).then(() => {
+            setHwIssues(prev => prev.filter(i => i.id !== id));
+            if (currentHWForm && currentHWForm.id === id) setShowHWFormModal(false);
+        }).catch(err => {
+            console.error('Failed to delete issue:', err);
+            showToast(err.response?.data?.error || 'Failed to delete issue.', 'error');
+        });
+    };
+
     // Timeline entries are added by the server, which stamps the time and the user
     const handleUpdateProcessStatus = () => {
-        if (role === 'Viewer' || !currentHWForm.id) return;
+        if (!canWrite || !currentHWForm.id) return;
         const body = { type: processType, note: processNote.trim() };
+        if (processType === 'Closed' && processResolution) body.resolution = processResolution;
         const usesPart = useSparePart && selectedSparePartId && sparePartQty > 0;
         if (usesPart) {
             body.sparePartUsage = { partId: selectedSparePartId, qty: sparePartQty, usageId: sparePartUsageId || newUsageId() };
             if (!sparePartUsageId) setSparePartUsageId(body.sparePartUsage.usageId);
         }
         api.post(`/rack/issues/${currentHWForm.id}/notes`, body).then(res => {
-            const saved = res.data.issue;
-            applySavedIssue(saved);
-            setCurrentHWForm(saved);
-            setProcessNote('');
-            setProcessType('Note');
+            setCurrentHWForm(applySavedIssue(res.data.issue));
+            resetTimelineInput();
             resetPartSelection();
             if (usesPart) reloadSpareParts();
         }).catch(err => {
@@ -259,24 +306,25 @@ export default function HardwareIssues() {
         });
     };
 
+    // ---- derived lists ------------------------------------------------------------------------------------------
+    const filteredIssues = useMemo(() => filterIssues(hwIssues, filters, now), [hwIssues, filters, now]);
+    const sortedIssues = useMemo(() => sortIssues(filteredIssues, sort.key, sort.dir, now), [filteredIssues, sort, now]);
+    const kpis = useMemo(() => issueKpis(hwIssues, now), [hwIssues, now]);
+    const dcNames = useMemo(() => [...new Set([...dcs.map(d => d.name), ...hwIssues.map(i => i.datacenter).filter(Boolean)])].sort(), [dcs, hwIssues]);
+    const peopleNames = useMemo(() => [...new Set(hwIssues.flatMap(i => [i.reporter, i.assignee]).filter(Boolean))].sort(), [hwIssues]);
+    const filtersActive = JSON.stringify(filters) !== JSON.stringify(EMPTY_FILTERS);
+    const setFilter = (key, value) => setFilters(prev => ({ ...prev, [key]: value }));
+
     const exportIssuesToCSV = () => {
-        const escapeCSV = csvCell;
-        const headers = ['Date', 'Datacenter', 'Device', 'SN', 'Location', 'Failed Parts', 'Reporter', 'Urgency', 'Status', 'Closed At', 'Process Notes'];
-        const shown = hwIssues.filter(i => hwFilterStatus === 'ALL' || i.status === hwFilterStatus);
-        const rows = shown.map(i => [
-            escapeCSV(i.date),
-            escapeCSV(i.datacenter),
-            escapeCSV(i.deviceName),
-            escapeCSV(i.sn),
-            escapeCSV(i.rackLoc),
-            escapeCSV(i.failedParts),
-            escapeCSV(i.reporter),
-            escapeCSV(i.urgency),
-            escapeCSV(i.status),
-            escapeCSV(formatNoteTime(i.closedAt)),
-            escapeCSV((Array.isArray(i.processNotes) ? i.processNotes : []).map(n => `[${formatNoteTime(n.timestamp)}] ${n.user ? `${n.user} ` : ''}${n.status}: ${n.note}`).join(' | '))
-        ]);
-        const blob = new Blob(['\uFEFF' + [headers.join(','), ...rows.map(e => e.join(','))].join('\r\n')], { type: 'text/csv;charset=utf-8' });
+        const headers = ['Date', 'Datacenter', 'Device', 'SN', 'Location', 'Failed Parts', 'Reporter', 'Assignee', 'RMA / Case', 'Urgency', 'Status',
+            'Due Date', 'Days Open', 'Overdue', 'Resolution', 'Closed At', 'Process Notes'];
+        const rows = sortedIssues.map(i => [
+            i.date, i.datacenter, i.deviceName, i.sn, i.rackLoc, i.failedParts, i.reporter, i.assignee, i.rmaNumber,
+            URGENCY_LABELS[i.urgency] || i.urgency, i.status, i.dueDate, ageDays(i, now) ?? '', isOverdue(i, now) ? 'yes' : '', i.resolution,
+            formatNoteTime(i.closedAt),
+            (Array.isArray(i.processNotes) ? i.processNotes : []).map(n => `[${formatNoteTime(n.timestamp)}] ${n.user ? `${n.user} ` : ''}${n.status}: ${n.note}`).join(' | ')
+        ].map(csvCell));
+        const blob = new Blob(['﻿' + [headers.join(','), ...rows.map(e => e.join(','))].join('\r\n')], { type: 'text/csv;charset=utf-8' });
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.setAttribute('href', url);
@@ -287,220 +335,180 @@ export default function HardwareIssues() {
         setTimeout(() => URL.revokeObjectURL(url), 0);
     };
 
+    // ---- drag and drop between columns (writers) ----------------------------------------------------------------
+    const onDropTo = (status) => (e) => {
+        e.preventDefault();
+        setDragOver(null);
+        const id = e.dataTransfer.getData('text/plain');
+        const issue = hwIssues.find(i => i.id === id);
+        if (issue && issue.status !== status) setStatusChange({ issue, to: status });
+    };
+
     if (!initialLoaded) return <div style={{ padding: 40, textAlign: 'center' }}>Loading Issues...</div>;
 
-    // Filter issues for columns
-    const filteredIssues = hwIssues.filter(i => hwFilterStatus === 'ALL' || i.status === hwFilterStatus);
-    const openIssues = filteredIssues.filter(i => i.status === 'Open');
-    const processingIssues = filteredIssues.filter(i => i.status === 'Processing');
-    const closedIssues = filteredIssues.filter(i => i.status === 'Closed');
+    const columnIssues = (status) => sortIssues(filteredIssues.filter(i => i.status === status && (status !== 'Closed' || showAllClosed || closedRecently(i, now))), 'date', 'desc', now);
+    const hiddenClosed = filteredIssues.filter(i => i.status === 'Closed' && !closedRecently(i, now)).length;
+    const dcOfForm = currentHWForm ? dcs.find(d => d.name === currentHWForm.datacenter) : null;
+    const formLocked = isHWFormReadOnly || !canWrite;
 
-    const totalOpen = hwIssues.filter(i => i.status === 'Open').length;
-    const totalProcessing = hwIssues.filter(i => i.status === 'Processing').length;
-    const totalClosed = hwIssues.filter(i => i.status === 'Closed').length;
+    const kpiCards = [
+        { label: 'Open', value: kpis.open, icon: '🚨', color: '#ef4444', sub: `High ${kpis.openByUrgency.H} · Med ${kpis.openByUrgency.M} · Low ${kpis.openByUrgency.L}` },
+        { label: 'Processing', value: kpis.processing, icon: '⚙️', color: '#3b82f6' },
+        { label: 'Overdue', value: kpis.overdue, icon: '⏰', color: kpis.overdue ? '#ef4444' : '#94a3b8', sub: `High ${SLA_DAYS.H}d · Med ${SLA_DAYS.M}d · Low ${SLA_DAYS.L}d`,
+            onClick: () => setFilters({ ...EMPTY_FILTERS, overdueOnly: true }), title: 'Show the overdue issues' },
+        { label: 'Closed (30 days)', value: kpis.closed30, icon: '✅', color: '#10b981' },
+        { label: 'Avg days to close', value: kpis.avgDaysToClose ?? '-', icon: '⏱️', color: '#8b5cf6', sub: kpis.closedCounted ? `${kpis.closedCounted} closed in 90 days` : 'none closed in 90 days' },
+        { label: 'Active by DC', value: kpis.activeByDc.length, icon: '🏢', color: '#06b6d4', sub: kpis.activeByDc.slice(0, 3).map(([dc, n]) => `${dc} ${n}`).join(' · ') || 'none' },
+    ];
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
             {/* Header & Ribbon */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
-                <div>
-                    <h1 className="page-title" style={{ margin: 0, marginBottom: 16 }}>Hardware Issues & Maintenance</h1>
-
-                    {/* Metrics Ribbon */}
-                    <div style={{ display: 'flex', gap: 16 }}>
-                        <div className="glass-panel" style={{ padding: '12px 20px', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 12, minWidth: 160 }}>
-                            <div style={{ background: 'rgba(239, 68, 68, 0.2)', color: '#ef4444', width: 40, height: 40, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>🚨</div>
-                            <div>
-                                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Open Issues</div>
-                                <div style={{ fontSize: 24, fontWeight: 800 }}>{totalOpen}</div>
-                            </div>
-                        </div>
-                        <div className="glass-panel" style={{ padding: '12px 20px', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 12, minWidth: 160 }}>
-                            <div style={{ background: 'rgba(59, 130, 246, 0.2)', color: '#3b82f6', width: 40, height: 40, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>⚙️</div>
-                            <div>
-                                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Processing</div>
-                                <div style={{ fontSize: 24, fontWeight: 800 }}>{totalProcessing}</div>
-                            </div>
-                        </div>
-                        <div className="glass-panel" style={{ padding: '12px 20px', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 12, minWidth: 160 }}>
-                            <div style={{ background: 'rgba(16, 185, 129, 0.2)', color: '#10b981', width: 40, height: 40, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>✅</div>
-                            <div>
-                                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Closed</div>
-                                <div style={{ fontSize: 24, fontWeight: 800 }}>{totalClosed}</div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap', marginBottom: 16 }}>
+                <h1 className="page-title" style={{ margin: 0 }}>Hardware Issues & Maintenance</h1>
+                <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
                     <div style={{ display: 'flex', background: 'rgba(0,0,0,0.2)', padding: 4, borderRadius: 8, border: '1px solid var(--border-color)' }}>
-                        <button
-                            className={`btn ${viewMode === 'table' ? 'btn-primary' : ''}`}
-                            onClick={() => setViewMode('table')}
-                            style={{ padding: '6px 12px', background: viewMode === 'table' ? 'var(--accent-primary)' : 'transparent', color: viewMode === 'table' ? '#fff' : 'var(--text-muted)', border: 'none', boxShadow: 'none' }}>
-                            📄 Table
-                        </button>
-                        <button
-                            className={`btn ${viewMode === 'kanban' ? 'btn-primary' : ''}`}
-                            onClick={() => setViewMode('kanban')}
-                            style={{ padding: '6px 12px', background: viewMode === 'kanban' ? 'var(--accent-primary)' : 'transparent', color: viewMode === 'kanban' ? '#fff' : 'var(--text-muted)', border: 'none', boxShadow: 'none' }}>
-                            📇 Kanban
-                        </button>
+                        {[['table', '📄 Table'], ['kanban', '📇 Kanban']].map(([mode, text]) => (
+                            <button key={mode} className={`btn ${viewMode === mode ? 'btn-primary' : ''}`} onClick={() => setViewMode(mode)}
+                                style={{ padding: '6px 12px', background: viewMode === mode ? 'var(--accent-primary)' : 'transparent', color: viewMode === mode ? '#fff' : 'var(--text-muted)', border: 'none', boxShadow: 'none' }}>
+                                {text}
+                            </button>
+                        ))}
                     </div>
-
-                    <select value={hwFilterStatus} onChange={e => setHwFilterStatus(e.target.value)} aria-label="Status filter" style={{ padding: '8px 10px', borderRadius: 8 }}>
-                        {STATUS_FILTERS.map(f => <option key={f} value={f}>{f === 'ALL' ? 'All statuses' : f}</option>)}
-                    </select>
-                    <button className="btn btn-outline" onClick={exportIssuesToCSV} title="Exports the issues of the current status filter" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <button className="btn btn-outline" onClick={exportIssuesToCSV} title="Exports the issues that match the filters" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         📥 Export CSV
                     </button>
-                    {role !== 'Viewer' && (
-                        <button className="btn btn-primary" onClick={openCreateForm} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            + Report Issue
-                        </button>
+                    {canWrite && (
+                        <button className="btn btn-primary" onClick={openCreateForm} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>+ Report Issue</button>
                     )}
                 </div>
+            </div>
+
+            {/* Figures */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12, marginBottom: 16 }}>
+                {kpiCards.map(k => (
+                    <div key={k.label} className="glass-panel" onClick={k.onClick} title={k.title} role={k.onClick ? 'button' : undefined}
+                        style={{ padding: '12px 16px', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 12, cursor: k.onClick ? 'pointer' : 'default' }}>
+                        <div style={{ background: `${k.color}33`, color: k.color, width: 38, height: 38, flexShrink: 0, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>{k.icon}</div>
+                        <div style={{ minWidth: 0 }}>
+                            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{k.label}</div>
+                            <div style={{ fontSize: 22, fontWeight: 800, color: k.label === 'Overdue' && kpis.overdue ? 'var(--danger)' : undefined }}>{k.value}</div>
+                            {k.sub && <div style={{ fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{k.sub}</div>}
+                        </div>
+                    </div>
+                ))}
+            </div>
+
+            {/* Filters */}
+            <div className="glass-panel" style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', padding: '10px 14px', borderRadius: 12, marginBottom: 16 }}>
+                <input type="search" value={filters.q} onChange={e => setFilter('q', e.target.value)} aria-label="Search issues"
+                    placeholder="Search device, SN, part, reporter, assignee, RMA..." style={{ flex: '1 1 240px', padding: '8px 10px', borderRadius: 8 }} />
+                <select value={filters.dc} onChange={e => setFilter('dc', e.target.value)} aria-label="Datacenter" style={{ padding: '8px 10px', borderRadius: 8 }}>
+                    <option value="ALL">All datacenters</option>
+                    {dcNames.map(n => <option key={n} value={n}>{n}</option>)}
+                </select>
+                <select value={filters.urgency} onChange={e => setFilter('urgency', e.target.value)} aria-label="Urgency" style={{ padding: '8px 10px', borderRadius: 8 }}>
+                    <option value="ALL">All urgencies</option>
+                    {['H', 'M', 'L'].map(u => <option key={u} value={u}>{URGENCY_LABELS[u]}</option>)}
+                </select>
+                <select value={filters.status} onChange={e => setFilter('status', e.target.value)} aria-label="Status" style={{ padding: '8px 10px', borderRadius: 8 }}>
+                    <option value="ALL">All statuses</option>
+                    {COLUMNS.map(c => <option key={c.status} value={c.status}>{c.status}</option>)}
+                </select>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)' }}>
+                    From <input type="date" value={filters.from} onChange={e => setFilter('from', e.target.value)} style={{ padding: '6px 8px', borderRadius: 8 }} />
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)' }}>
+                    To <input type="date" value={filters.to} onChange={e => setFilter('to', e.target.value)} style={{ padding: '6px 8px', borderRadius: 8 }} />
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={filters.overdueOnly} onChange={e => setFilter('overdueOnly', e.target.checked)} /> Overdue only
+                </label>
+                {filtersActive && <button type="button" className="btn btn-outline" style={{ padding: '6px 12px', fontSize: 12 }} onClick={() => setFilters(EMPTY_FILTERS)}>Clear filters</button>}
+                <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--text-muted)' }}>{filteredIssues.length} of {hwIssues.length} issues</span>
             </div>
 
             {/* Views */}
             {viewMode === 'kanban' ? (
                 <div className="kanban-board">
-                {/* Column: Open */}
-                <div className="kanban-column">
-                    <div className="kanban-header">
-                        <span>🚨 Open</span>
-                        <span style={{ fontSize: 12, background: 'rgba(255,255,255,0.1)', padding: '2px 8px', borderRadius: 12 }}>{openIssues.length}</span>
-                    </div>
-                    <div className="kanban-cards">
-                        {openIssues.map(issue => (
-                            <div key={issue.id} className={`kanban-card ${issue.urgency === 'H' ? 'glow-red' : ''}`} onClick={() => openEditForm(issue, role === 'Viewer')}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                                    <div style={{ fontWeight: 700, fontSize: 14 }}>{issue.deviceName}</div>
-                                    <span style={{ padding: '2px 6px', borderRadius: 4, background: issue.urgency === 'H' ? 'var(--danger)' : issue.urgency === 'M' ? '#f59e0b' : 'var(--success)', color: '#fff', fontSize: 10, fontWeight: 700 }}>
-                                        {issue.urgency === 'H' ? 'HIGH' : issue.urgency === 'M' ? 'MED' : 'LOW'}
-                                    </span>
+                    {COLUMNS.map(col => {
+                        const list = columnIssues(col.status);
+                        return (
+                            <div key={col.status} className="kanban-column"
+                                style={{ opacity: col.status === 'Closed' ? 0.85 : 1, outline: dragOver === col.status ? '2px dashed var(--accent-primary)' : 'none', outlineOffset: -4 }}
+                                onDragOver={canWrite ? (e) => { e.preventDefault(); if (dragOver !== col.status) setDragOver(col.status); } : undefined}
+                                onDragLeave={canWrite ? (e) => { if (!e.currentTarget.contains(e.relatedTarget)) setDragOver(null); } : undefined}
+                                onDrop={canWrite ? onDropTo(col.status) : undefined}>
+                                <div className="kanban-header">
+                                    <span style={{ color: col.color }}>{col.label}</span>
+                                    <span style={{ fontSize: 12, background: 'rgba(255,255,255,0.1)', padding: '2px 8px', borderRadius: 12 }}>{list.length}</span>
                                 </div>
-                                <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>📍 {issue.datacenter} | {issue.rackLoc}</div>
-                                <div style={{ fontSize: 12, color: 'var(--text-primary)', marginTop: 4 }}>🔧 {issue.failedParts}</div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                        <div style={{ width: 20, height: 20, borderRadius: '50%', background: 'var(--accent-primary)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 800 }}>
-                                            {initialOf(issue.reporter)}
-                                        </div>
-                                        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{issue.reporter}</span>
-                                    </div>
-                                    <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{issue.date}</div>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-
-                {/* Column: Processing */}
-                <div className="kanban-column">
-                    <div className="kanban-header">
-                        <span style={{ color: '#3b82f6' }}>⚙️ Processing</span>
-                        <span style={{ fontSize: 12, background: 'rgba(255,255,255,0.1)', padding: '2px 8px', borderRadius: 12 }}>{processingIssues.length}</span>
-                    </div>
-                    <div className="kanban-cards">
-                        {processingIssues.map(issue => (
-                            <div key={issue.id} className={`kanban-card ${issue.urgency === 'H' ? 'glow-red' : ''}`} onClick={() => openEditForm(issue, role === 'Viewer')}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                                    <div style={{ fontWeight: 700, fontSize: 14 }}>{issue.deviceName}</div>
-                                    <span style={{ padding: '2px 6px', borderRadius: 4, background: issue.urgency === 'H' ? 'var(--danger)' : issue.urgency === 'M' ? '#f59e0b' : 'var(--success)', color: '#fff', fontSize: 10, fontWeight: 700 }}>
-                                        {issue.urgency === 'H' ? 'HIGH' : issue.urgency === 'M' ? 'MED' : 'LOW'}
-                                    </span>
-                                </div>
-                                <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>📍 {issue.datacenter} | {issue.rackLoc}</div>
-                                <div style={{ fontSize: 12, color: 'var(--text-primary)', marginTop: 4 }}>🔧 {issue.failedParts}</div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                        <div style={{ width: 20, height: 20, borderRadius: '50%', background: 'var(--accent-primary)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 800 }}>
-                                            {initialOf(issue.reporter)}
-                                        </div>
-                                        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{issue.reporter}</span>
-                                    </div>
-                                    <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{issue.date}</div>
+                                {col.status === 'Closed' && (hiddenClosed > 0 || showAllClosed) && (
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)', padding: '0 4px 8px', cursor: 'pointer' }}>
+                                        <input type="checkbox" checked={showAllClosed} onChange={e => setShowAllClosed(e.target.checked)} />
+                                        Show older closed issues{hiddenClosed && !showAllClosed ? ` (${hiddenClosed})` : ''}
+                                    </label>
+                                )}
+                                <div className="kanban-cards">
+                                    {list.map(issue => (
+                                        <IssueCard key={issue.id} issue={issue} now={now} draggable={canWrite}
+                                            onOpen={() => openEditForm(issue, !canWrite)}
+                                            onDragStart={(e) => { e.dataTransfer.setData('text/plain', issue.id); e.dataTransfer.effectAllowed = 'move'; }} />
+                                    ))}
+                                    {list.length === 0 && <div style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center', padding: 16 }}>{canWrite ? 'Drop a card here' : 'No issues'}</div>}
                                 </div>
                             </div>
-                        ))}
-                    </div>
-                </div>
-
-                {/* Column: Closed */}
-                <div className="kanban-column" style={{ opacity: 0.8 }}>
-                    <div className="kanban-header">
-                        <span style={{ color: 'var(--success)' }}>✅ Closed</span>
-                        <span style={{ fontSize: 12, background: 'rgba(255,255,255,0.1)', padding: '2px 8px', borderRadius: 12 }}>{closedIssues.length}</span>
-                    </div>
-                    <div className="kanban-cards">
-                        {closedIssues.map(issue => (
-                            <div key={issue.id} className="kanban-card" onClick={() => openEditForm(issue, role === 'Viewer')}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                                    <div style={{ fontWeight: 700, fontSize: 14, textDecoration: 'line-through', opacity: 0.7 }}>{issue.deviceName}</div>
-                                    <span style={{ padding: '2px 6px', borderRadius: 4, background: 'rgba(255,255,255,0.1)', color: 'var(--text-muted)', fontSize: 10, fontWeight: 700 }}>
-                                        CLOSED
-                                    </span>
-                                </div>
-                                <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>📍 {issue.datacenter} | {issue.rackLoc}</div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                        <div style={{ width: 20, height: 20, borderRadius: '50%', background: 'var(--bg-tertiary)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 800 }}>
-                                            {initialOf(issue.reporter)}
-                                        </div>
-                                        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{issue.reporter}</span>
-                                    </div>
-                                    <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{issue.date}</div>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
+                        );
+                    })}
                 </div>
             ) : (
                 <div style={{ flex: 1, overflow: 'auto', background: 'var(--bg-glass)', border: '1px solid var(--border-color)', borderRadius: 12, minHeight: '300px' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                         <thead style={{ position: 'sticky', top: 0, background: 'var(--bg-primary)', zIndex: 10 }}>
                             <tr style={{ borderBottom: '1px solid var(--border-color)', textAlign: 'left' }}>
-                                <th style={{ padding: '12px 16px', color: 'var(--text-muted)' }}>Date</th>
-                                <th style={{ padding: '12px 16px', color: 'var(--text-muted)' }}>Datacenter</th>
-                                <th style={{ padding: '12px 16px', color: 'var(--text-muted)' }}>Device / SN</th>
-                                <th style={{ padding: '12px 16px', color: 'var(--text-muted)' }}>Location</th>
-                                <th style={{ padding: '12px 16px', color: 'var(--text-muted)' }}>Failed Parts</th>
-                                <th style={{ padding: '12px 16px', color: 'var(--text-muted)' }}>Urgency</th>
-                                <th style={{ padding: '12px 16px', color: 'var(--text-muted)' }}>Status</th>
-                                <th style={{ padding: '12px 16px', color: 'var(--text-muted)' }}>Action</th>
+                                {SORTABLE.map(([key, text]) => (
+                                    <th key={text} style={{ ...thStyle, cursor: key ? 'pointer' : 'default' }}
+                                        aria-sort={key && sort.key === key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : undefined}
+                                        onClick={key ? () => setSort(prev => ({ key, dir: prev.key === key && prev.dir === 'desc' ? 'asc' : 'desc' })) : undefined}>
+                                        {text}{key && sort.key === key ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : ''}
+                                    </th>
+                                ))}
                             </tr>
                         </thead>
                         <tbody>
-                            {filteredIssues.map(issue => (
-                                <tr key={issue.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
-                                    <td style={{ padding: '12px 16px', whiteSpace: 'nowrap', color: 'var(--text-secondary)' }}>{issue.date}</td>
-                                    <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>{issue.datacenter}</td>
-                                    <td style={{ padding: '12px 16px', cursor: 'pointer' }} onClick={() => openEditForm(issue, role === 'Viewer')}>
+                            {sortedIssues.map(issue => (
+                                <tr key={issue.id} style={{ borderBottom: '1px solid var(--border-color)', background: isOverdue(issue, now) ? 'rgba(239,68,68,0.06)' : undefined }}>
+                                    <td style={{ ...tdStyle, whiteSpace: 'nowrap', color: 'var(--text-secondary)' }}>{issue.date}</td>
+                                    <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>{issue.datacenter}</td>
+                                    <td style={{ ...tdStyle, cursor: 'pointer' }} onClick={() => openEditForm(issue, !canWrite)}>
                                         <span style={{ color: 'var(--accent-primary)', textDecoration: 'underline' }}>{issue.deviceName}</span>
                                         <br />
                                         <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>SN: {issue.sn}</span>
                                     </td>
-                                    <td style={{ padding: '12px 16px', whiteSpace: 'nowrap', color: 'var(--text-primary)' }}>{issue.rackLoc}</td>
-                                    <td style={{ padding: '12px 16px', color: 'var(--text-secondary)' }}>{issue.failedParts}</td>
-                                    <td style={{ padding: '12px 16px' }}>
-                                        <span style={{ padding: '4px 8px', borderRadius: 4, background: issue.urgency === 'H' ? 'var(--danger)' : issue.urgency === 'M' ? '#f59e0b' : 'var(--success)', color: '#fff', fontSize: 11, fontWeight: 700 }}>{issue.urgency}</span>
+                                    <td style={{ ...tdStyle, whiteSpace: 'nowrap', color: 'var(--text-primary)' }}>{issue.rackLoc}</td>
+                                    <td style={{ ...tdStyle, color: 'var(--text-secondary)' }}>{issue.failedParts}</td>
+                                    <td style={tdStyle}>
+                                        <span style={{ padding: '4px 8px', borderRadius: 4, background: URGENCY_COLORS[issue.urgency] || URGENCY_COLORS.M, color: '#fff', fontSize: 11, fontWeight: 700 }}>{URGENCY_LABELS[issue.urgency] || issue.urgency}</span>
                                     </td>
-                                    <td style={{ padding: '12px 16px', whiteSpace: 'nowrap', fontWeight: 700, color: issue.status === 'Closed' ? 'var(--success)' : issue.status === 'Processing' ? '#3b82f6' : 'var(--text-primary)' }}>{issue.status}</td>
-                                    <td style={{ padding: '12px 16px' }}>
+                                    <td style={{ ...tdStyle, whiteSpace: 'nowrap', fontWeight: 700, color: STATUS_COLORS[issue.status] || 'var(--text-primary)' }}>
+                                        {issue.status}
+                                        {issue.status === 'Closed' && issue.resolution && <div style={{ fontSize: 11, fontWeight: 400, color: 'var(--text-muted)' }}>{issue.resolution}</div>}
+                                    </td>
+                                    <td style={tdStyle}><AgeChip issue={issue} now={now} /></td>
+                                    <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>{issue.assignee || <span style={{ color: 'var(--text-muted)' }}>-</span>}{issue.rmaNumber && <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>RMA {issue.rmaNumber}</div>}</td>
+                                    <td style={tdStyle}>
                                         <div className="action-dropdown-container" style={{ position: 'relative', display: 'inline-block' }}>
                                             <button className="btn btn-outline" style={{ padding: '4px 12px', fontSize: 12 }} onClick={() => setActiveDropdownId(activeDropdownId === issue.id ? null : issue.id)}>Actions ▾</button>
                                             {activeDropdownId === issue.id && (
                                                 <div className="action-dropdown-menu glass-panel" style={{
                                                     position: 'absolute', right: 0, top: '100%', bottom: 'auto', marginTop: '4px', zIndex: 100, display: 'flex', flexDirection: 'column', gap: 2, padding: 8, minWidth: 150, boxShadow: '0 8px 16px rgba(0,0,0,0.4)', border: '1px solid var(--border-color)', borderRadius: 8, textAlign: 'left'
                                                 }}>
-                                                    <button className="dropdown-item-btn" style={{ background: 'transparent', border: 'none', color: 'var(--text-primary)', padding: 8, textAlign: 'left', cursor: 'pointer', borderRadius: 4, fontSize: 12, display: 'flex', alignItems: 'center', gap: 8 }} onClick={() => openEditForm(issue, role === 'Viewer')}>
-                                                        {role === 'Viewer' ? <><span style={{width: 16}}>👁️</span> View</> : <><span style={{width: 16}}>✏️</span> View / Edit</>}
+                                                    <button className="dropdown-item-btn" style={{ background: 'transparent', border: 'none', color: 'var(--text-primary)', padding: 8, textAlign: 'left', cursor: 'pointer', borderRadius: 4, fontSize: 12, display: 'flex', alignItems: 'center', gap: 8 }} onClick={() => openEditForm(issue, !canWrite)}>
+                                                        {canWrite ? <><span style={{ width: 16 }}>✏️</span> View / Edit</> : <><span style={{ width: 16 }}>👁️</span> View</>}
                                                     </button>
-                                                    {role !== 'Viewer' && (
+                                                    {canWrite && (
                                                         <button className="dropdown-item-btn" style={{ background: 'transparent', border: 'none', color: 'var(--danger)', padding: 8, textAlign: 'left', cursor: 'pointer', borderRadius: 4, fontSize: 12, borderTop: '1px solid var(--border-color)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 8 }} onClick={() => handleDeleteIssue(issue.id)}>
-                                                            <span style={{width: 16}}>🗑️</span> Delete
+                                                            <span style={{ width: 16 }}>🗑️</span> Delete
                                                         </button>
                                                     )}
                                                 </div>
@@ -509,17 +517,24 @@ export default function HardwareIssues() {
                                     </td>
                                 </tr>
                             ))}
-                            {filteredIssues.length === 0 && (
-                                <tr><td colSpan="8" style={{ textAlign: 'center', padding: 32, color: 'var(--text-muted)' }}>No issues reported.</td></tr>
+                            {sortedIssues.length === 0 && (
+                                <tr><td colSpan={SORTABLE.length} style={{ textAlign: 'center', padding: 32, color: 'var(--text-muted)' }}>{filtersActive ? 'No issues match the filters.' : 'No issues reported.'}</td></tr>
                             )}
                         </tbody>
                     </table>
                 </div>
             )}
 
+            {statusChange && (
+                <HwStatusChangeModal issue={statusChange.issue} to={statusChange.to}
+                    onCancel={() => setStatusChange(null)}
+                    onSaved={(saved) => { applySavedIssue(saved); setStatusChange(null); }}
+                    onError={(msg) => showToast(msg, 'error')} />
+            )}
+
             {/* Slide-out Drawer Panel */}
             {showHWFormModal && currentHWForm && (
-                <div className="drawer-overlay" onClick={async (e) => { if (e.target.className === 'drawer-overlay') setShowHWFormModal(false); }}>
+                <div className="drawer-overlay" onClick={(e) => { if (e.target.className === 'drawer-overlay') setShowHWFormModal(false); }}>
                     <div className="drawer-panel">
                         <div className="drawer-header">
                             <h2 style={{ color: 'var(--accent-primary)', margin: 0, fontSize: 20 }}>
@@ -532,22 +547,22 @@ export default function HardwareIssues() {
                             <div className="drawer-body">
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
                                     <div className="form-group">
-                                        <label style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4, display: 'block' }}>Date</label>
-                                        <input type="date" value={currentHWForm.date} onChange={e => setCurrentHWForm({ ...currentHWForm, date: e.target.value })} disabled={isHWFormReadOnly || role === 'Viewer'} required style={{ width: '100%', padding: 10, background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 6 }} />
+                                        <label style={labelStyle}>Date</label>
+                                        <input type="date" value={currentHWForm.date || ''} onChange={e => setCurrentHWForm({ ...currentHWForm, date: e.target.value })} disabled={formLocked} required style={inputStyle} />
                                     </div>
                                     <div className="form-group">
-                                        <label style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4, display: 'block' }}>Reporter</label>
-                                        <input type="text" value={currentHWForm.reporter} onChange={e => setCurrentHWForm({ ...currentHWForm, reporter: e.target.value })} disabled={isHWFormReadOnly || role === 'Viewer'} required style={{ width: '100%', padding: 10, background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 6 }} />
+                                        <label style={labelStyle}>Reporter</label>
+                                        <input type="text" value={currentHWForm.reporter || ''} onChange={e => setCurrentHWForm({ ...currentHWForm, reporter: e.target.value })} disabled={formLocked} required style={inputStyle} />
                                     </div>
                                 </div>
 
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 16, marginBottom: 16 }}>
                                     <div className="form-group">
-                                        <label style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4, display: 'block' }}>Datacenter</label>
+                                        <label style={labelStyle}>Datacenter</label>
                                         {isHWFormReadOnly ? (
-                                            <div style={{ width: '100%', padding: 10, background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 6 }}>{currentHWForm.datacenter || 'N/A'}</div>
+                                            <div style={inputStyle}>{currentHWForm.datacenter || 'N/A'}</div>
                                         ) : (
-                                            <select value={currentHWForm.datacenter} onChange={e => handleDCChange(e.target.value)} required style={{ width: '100%', padding: 10, background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 6 }}>
+                                            <select value={currentHWForm.datacenter || ''} onChange={e => handleDCChange(e.target.value)} required style={inputStyle}>
                                                 <option value="">Select DC</option>
                                                 {dcs.map(dc => <option key={dc.id} value={dc.name}>{dc.name}</option>)}
                                                 {currentHWForm.datacenter && !dcs.find(d => d.name === currentHWForm.datacenter) && <option value={currentHWForm.datacenter}>{currentHWForm.datacenter} (Legacy)</option>}
@@ -556,14 +571,14 @@ export default function HardwareIssues() {
                                     </div>
 
                                     <div className="form-group">
-                                        <label style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4, display: 'block' }}>Device</label>
+                                        <label style={labelStyle}>Device</label>
                                         {isHWFormReadOnly ? (
-                                            <div style={{ width: '100%', padding: 10, background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 6 }}>{currentHWForm.deviceName || 'N/A'}</div>
+                                            <div style={inputStyle}>{currentHWForm.deviceName || 'N/A'}{currentHWForm.sn ? ` (SN ${currentHWForm.sn})` : ''}</div>
                                         ) : (
-                                            <select value={availableDevices.find(d => d.hostname === currentHWForm.deviceName)?.id || currentHWForm.deviceName} onChange={e => handleDeviceChange(e.target.value)} required style={{ width: '100%', padding: 10, background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 6 }}>
+                                            <select value={availableDevices.find(d => d.id === currentHWForm.deviceId || d.hostname === currentHWForm.deviceName)?.id || currentHWForm.deviceName || ''} onChange={e => handleDeviceChange(e.target.value)} required style={inputStyle}>
                                                 <option value="">Select Device</option>
                                                 {availableDevices.map(d => <option key={d.id} value={d.id}>{d.hostname} {d.sn ? `(${d.sn})` : ''}</option>)}
-                                                {currentHWForm.deviceName && !availableDevices.find(d => d.hostname === currentHWForm.deviceName) && <option value={currentHWForm.deviceName}>{currentHWForm.deviceName} (Manual/Legacy)</option>}
+                                                {currentHWForm.deviceName && !availableDevices.find(d => d.id === currentHWForm.deviceId || d.hostname === currentHWForm.deviceName) && <option value={currentHWForm.deviceName}>{currentHWForm.deviceName} (Manual/Legacy)</option>}
                                             </select>
                                         )}
                                     </div>
@@ -571,36 +586,68 @@ export default function HardwareIssues() {
 
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 16, marginBottom: 16 }}>
                                     <div className="form-group">
-                                        <label style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4, display: 'block' }}>Location</label>
-                                        <input type="text" value={currentHWForm.rackLoc} onChange={e => setCurrentHWForm({ ...currentHWForm, rackLoc: e.target.value })} disabled={isHWFormReadOnly || role === 'Viewer'} placeholder="e.g. Rack A - U10" required style={{ width: '100%', padding: 10, background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 6 }} />
+                                        <label style={labelStyle}>Location</label>
+                                        <input type="text" value={currentHWForm.rackLoc || ''} onChange={e => setCurrentHWForm({ ...currentHWForm, rackLoc: e.target.value })} disabled={formLocked} placeholder="e.g. Rack A - U10" required style={inputStyle} />
                                     </div>
                                     <div className="form-group">
-                                        <label style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4, display: 'block' }}>Failed Parts</label>
-                                        <input type="text" value={currentHWForm.failedParts} onChange={e => setCurrentHWForm({ ...currentHWForm, failedParts: e.target.value })} disabled={isHWFormReadOnly || role === 'Viewer'} required style={{ width: '100%', padding: 10, background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 6 }} />
+                                        <label style={labelStyle}>Failed Parts</label>
+                                        <input type="text" value={currentHWForm.failedParts || ''} onChange={e => setCurrentHWForm({ ...currentHWForm, failedParts: e.target.value })} disabled={formLocked} required style={inputStyle} />
                                     </div>
                                 </div>
 
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
                                     <div className="form-group">
-                                        <label style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4, display: 'block' }}>Urgency</label>
-                                        <select value={currentHWForm.urgency} onChange={e => setCurrentHWForm({ ...currentHWForm, urgency: e.target.value })} disabled={isHWFormReadOnly || role === 'Viewer'} style={{ width: '100%', padding: 10, background: 'var(--bg-primary)', border: '1px solid var(--border-color)', color: currentHWForm.urgency === 'H' ? 'var(--danger)' : currentHWForm.urgency === 'M' ? '#f59e0b' : 'var(--success)', borderRadius: 6 }}>
+                                        <label style={labelStyle}>Urgency</label>
+                                        <select value={currentHWForm.urgency || 'M'} onChange={e => setCurrentHWForm({ ...currentHWForm, urgency: e.target.value })} disabled={formLocked} style={{ ...inputStyle, color: URGENCY_COLORS[currentHWForm.urgency] || 'var(--text-primary)' }}>
                                             <option value="H" style={{ color: 'var(--danger)' }}>High</option>
                                             <option value="M" style={{ color: 'var(--text-primary)' }}>Medium</option>
                                             <option value="L" style={{ color: 'var(--success)' }}>Low</option>
                                         </select>
                                     </div>
-                                    <div className="form-group" title={currentHWForm.id ? 'Change the status from the Process Timeline below' : undefined}>
-                                        <label style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4, display: 'block' }}>Status</label>
-                                        <select value={currentHWForm.status} onChange={e => setCurrentHWForm({ ...currentHWForm, status: e.target.value })} disabled={isHWFormReadOnly || role === 'Viewer' || currentHWForm.id} style={{ width: '100%', padding: 10, background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 6 }}>
-                                            <option value="Open">Open</option>
-                                            <option value="Processing">Processing</option>
-                                            <option value="Closed">Closed</option>
+                                    <div className="form-group" title={currentHWForm.id ? 'Change the status from the Process Timeline below, or drag the card' : undefined}>
+                                        <label style={labelStyle}>Status</label>
+                                        <select value={currentHWForm.status || 'Open'} onChange={e => setCurrentHWForm({ ...currentHWForm, status: e.target.value })} disabled={formLocked || !!currentHWForm.id} style={inputStyle}>
+                                            {COLUMNS.map(c => <option key={c.status} value={c.status}>{c.status}</option>)}
                                         </select>
                                     </div>
                                 </div>
 
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+                                    <div className="form-group">
+                                        <label style={labelStyle}>Assignee</label>
+                                        <input type="text" list="hw-people" value={currentHWForm.assignee || ''} onChange={e => setCurrentHWForm({ ...currentHWForm, assignee: e.target.value })} disabled={formLocked} maxLength={100} placeholder="Who handles it" style={inputStyle} />
+                                        <datalist id="hw-people">{peopleNames.map(n => <option key={n} value={n} />)}</datalist>
+                                    </div>
+                                    <div className="form-group">
+                                        <label style={labelStyle}>RMA / vendor case no.</label>
+                                        <input type="text" value={currentHWForm.rmaNumber || ''} onChange={e => setCurrentHWForm({ ...currentHWForm, rmaNumber: e.target.value })} disabled={formLocked} maxLength={100} style={inputStyle} />
+                                    </div>
+                                </div>
+
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>
+                                    <div className="form-group">
+                                        <label style={labelStyle}>Due date</label>
+                                        <input type="date" value={currentHWForm.dueDate || ''} onChange={e => setCurrentHWForm({ ...currentHWForm, dueDate: e.target.value })} disabled={formLocked} style={inputStyle} />
+                                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>Empty: {SLA_DAYS.H} / {SLA_DAYS.M} / {SLA_DAYS.L} days for High / Medium / Low.</div>
+                                    </div>
+                                    {currentHWForm.status === 'Closed' && (
+                                        <div className="form-group">
+                                            <label style={labelStyle}>Resolution</label>
+                                            <select value={currentHWForm.resolution || ''} onChange={e => setCurrentHWForm({ ...currentHWForm, resolution: e.target.value })} disabled={formLocked} style={inputStyle}>
+                                                <option value="">(not specified)</option>
+                                                {RESOLUTIONS.map(r => <option key={r} value={r}>{r}</option>)}
+                                            </select>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {(currentHWForm.id || currentHWForm.deviceName) && (
+                                    <HwIssueLinked issue={currentHWForm} contracts={contracts} spareItems={sparePartsData.items} now={now} dc={dcOfForm}
+                                        onShowInRack={onShowInRack ? (dcId, rackId) => { setShowHWFormModal(false); onShowInRack(dcId, rackId); } : null} />
+                                )}
+
                                 {/* Spare Parts Integration Option */}
-                                {!isHWFormReadOnly && role !== 'Viewer' && (
+                                {!formLocked && (
                                     <div style={{ background: 'rgba(59,130,246,0.05)', padding: 16, borderRadius: 8, marginBottom: 24, border: '1px solid rgba(59,130,246,0.2)' }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: useSparePart ? 12 : 0 }}>
                                             <input type="checkbox" id="useSparePart" checked={useSparePart} onChange={e => setUseSparePart(e.target.checked)} style={{ cursor: 'pointer' }} />
@@ -609,8 +656,8 @@ export default function HardwareIssues() {
                                         {useSparePart && (
                                             <div style={{ display: 'flex', gap: 12, marginTop: 12 }}>
                                                 <div style={{ flex: 1 }}>
-                                                    <label style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4, display: 'block' }}>Select Spare Part</label>
-                                                    <select value={selectedSparePartId} onChange={e => { setSelectedSparePartId(e.target.value); setSparePartUsageId(e.target.value ? newUsageId() : ''); }} required={useSparePart} style={{ width: '100%', padding: 8, background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 6, color: 'var(--text-primary)' }}>
+                                                    <label style={{ ...labelStyle, fontSize: 11 }}>Select Spare Part</label>
+                                                    <select value={selectedSparePartId} onChange={e => { setSelectedSparePartId(e.target.value); setSparePartUsageId(e.target.value ? newUsageId() : ''); }} required={useSparePart} style={{ ...inputStyle, padding: 8, color: 'var(--text-primary)' }}>
                                                         <option value="">-- Choose Part --</option>
                                                         {(sparePartsData.items || []).map(item => (
                                                             <option key={item.id} value={item.id} disabled={!(item.quantity > 0)}>
@@ -620,8 +667,8 @@ export default function HardwareIssues() {
                                                     </select>
                                                 </div>
                                                 <div style={{ width: '80px' }}>
-                                                    <label style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4, display: 'block' }}>Qty</label>
-                                                    <input type="number" min="1" value={sparePartQty} onChange={e => setSparePartQty(parseInt(e.target.value) || 1)} required={useSparePart} style={{ width: '100%', padding: 8, background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 6, color: 'var(--text-primary)' }} />
+                                                    <label style={{ ...labelStyle, fontSize: 11 }}>Qty</label>
+                                                    <input type="number" min="1" value={sparePartQty} onChange={e => setSparePartQty(parseInt(e.target.value) || 1)} required={useSparePart} style={{ ...inputStyle, padding: 8, color: 'var(--text-primary)' }} />
                                                 </div>
                                             </div>
                                         )}
@@ -630,7 +677,7 @@ export default function HardwareIssues() {
 
                                 {/* Process Timeline Integration in Drawer */}
                                 <div className="form-group" style={{ marginBottom: 24 }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
                                         <label style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>Process Timeline</label>
                                         {currentHWForm.id && (
                                             <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
@@ -641,21 +688,28 @@ export default function HardwareIssues() {
                                         )}
                                     </div>
 
-                                    {!isHWFormReadOnly && role !== 'Viewer' && currentHWForm.id && (
+                                    {!formLocked && currentHWForm.id && (
                                         <div style={{ background: 'rgba(0,0,0,0.2)', padding: 16, borderRadius: 8, marginBottom: 16, border: '1px solid rgba(255,255,255,0.05)' }}>
-                                            <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-                                                <select value={processType} onChange={e => setProcessType(e.target.value)} style={{ padding: 8, borderRadius: 6, background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', width: 120 }}>
+                                            <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+                                                <select value={processType} onChange={e => setProcessType(e.target.value)} style={{ padding: 8, borderRadius: 6, background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', width: 130 }}>
                                                     <option value="Note">📝 Note</option>
                                                     <option value="Processing">⚙️ Process</option>
                                                     <option value="Closed">✅ Close</option>
                                                     {currentHWForm.status === 'Closed' && <option value="Open">↩️ Reopen</option>}
                                                 </select>
+                                                {processType === 'Closed' && (
+                                                    <select value={processResolution} onChange={e => setProcessResolution(e.target.value)} aria-label="Resolution" style={{ padding: 8, borderRadius: 6, background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}>
+                                                        <option value="">Resolution...</option>
+                                                        {RESOLUTIONS.map(r => <option key={r} value={r}>{r}</option>)}
+                                                    </select>
+                                                )}
                                                 <input
                                                     type="text"
                                                     value={processNote}
                                                     onChange={e => setProcessNote(e.target.value)}
                                                     placeholder="Add an update note..."
-                                                    style={{ flex: 1, padding: 8, borderRadius: 6, background: 'var(--bg-primary)', border: '1px solid var(--border-color)' }}
+                                                    maxLength={2000}
+                                                    style={{ flex: 1, minWidth: 180, padding: 8, borderRadius: 6, background: 'var(--bg-primary)', border: '1px solid var(--border-color)' }}
                                                 />
                                             </div>
                                             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
@@ -689,10 +743,10 @@ export default function HardwareIssues() {
                             </div>
 
                             <div className="drawer-footer">
-                                {!isHWFormReadOnly && role !== 'Viewer' && currentHWForm.id && (
+                                {!formLocked && currentHWForm.id && (
                                     <button type="button" className="btn btn-outline" style={{ color: 'var(--danger)', borderColor: 'var(--danger)', marginRight: 'auto' }} onClick={() => handleDeleteIssue(currentHWForm.id)}>Delete</button>
                                 )}
-                                {isHWFormReadOnly || role === 'Viewer' ? (
+                                {formLocked ? (
                                     <button type="button" className="btn btn-primary" onClick={() => setShowHWFormModal(false)}>Close</button>
                                 ) : (
                                     <>

@@ -71,7 +71,7 @@ const DataCenterHub = ({ activeTab = 'server-rack', setActiveView }) => {
             case 'spare-parts':
                 return <SpareParts />;
             case 'hardware-issues':
-                return <HardwareIssues />;
+                return <HardwareIssues onShowInRack={(dcId, rackId) => handleSelectDC(dcId, rackId)} />;
             case 'contracts':
                 return <ContractsWarranties />;
             default:

@@ -113,7 +113,7 @@ export default function DeviceModal({ role, racks, activeDeviceTab, setActiveDev
                         {['Compute', 'Network', 'Storage', 'Other'].map(cat => (
                           <optgroup key={cat} label={cat}>
                             {DEVICE_TYPES.filter(t => t.category === cat).map(t => (
-                              <option key={t.id} value={t.id}>{t.icon} {t.label}</option>
+                              <option key={t.id} value={t.id}>{t.label}</option>
                             ))}
                           </optgroup>
                         ))}

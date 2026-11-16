@@ -1,26 +1,27 @@
 // Constants and helpers shared by the Server Rack screen and its rack components.
 
+// Device types of the rack layout; their icons are in deviceTypeIcons.js
 export const DEVICE_TYPES = [
-  { id: 'Server', label: 'Server', icon: '🖥️', category: 'Compute' },
-  { id: 'Nutanix', label: 'Nutanix', icon: '🏢', category: 'Compute' },
-  { id: 'BladeChassis', label: 'Blade Chassis', icon: '🗄️', category: 'Compute' },
-  { id: 'Switch', label: 'Switch', icon: '🔀', category: 'Network' },
-  { id: 'Router', label: 'Router', icon: '🌐', category: 'Network' },
-  { id: 'Firewall', label: 'Firewall', icon: '🔥', category: 'Network' },
-  { id: 'LoadBalancer', label: 'Load Balancer', icon: '🖧', category: 'Network' },
-  { id: 'Proxy', label: 'Proxy', icon: '🛡️', category: 'Network' },
-  { id: 'ISE', label: 'ISE', icon: '🔑', category: 'Network' },
-  { id: 'Storage', label: 'Storage Array', icon: '💽', category: 'Storage' },
-  { id: 'NAS', label: 'NAS', icon: '💾', category: 'Storage' },
-  { id: 'TapeLibrary', label: 'Tape Library', icon: '📼', category: 'Storage' },
-  { id: 'PatchPanel', label: 'Patch Panel', icon: '🎛️', category: 'Other' },
-  { id: 'PowerBar', label: 'PowerBar / PDU', icon: '🔌', category: 'Other' },
-  { id: 'UPS', label: 'UPS', icon: '🔋', category: 'Other' },
-  { id: 'KVM', label: 'KVM Switch', icon: '⌨️', category: 'Other' },
-  { id: 'CableManagement', label: 'Cable Management (理線架)', icon: '⇄', category: 'Other' },
-  { id: 'Shelf', label: 'Shelf (層板)', icon: '📥', category: 'Other' },
-  { id: 'Reserve', label: 'Reserve (預留)', icon: '🚧', category: 'Other' },
-  { id: 'KuaiKuai', label: 'Kuai Kuai (乖乖)', icon: '💚', category: 'Other' }
+  { id: 'Server', label: 'Server', category: 'Compute' },
+  { id: 'Nutanix', label: 'Nutanix', category: 'Compute' },
+  { id: 'BladeChassis', label: 'Blade Chassis', category: 'Compute' },
+  { id: 'Switch', label: 'Switch', category: 'Network' },
+  { id: 'Router', label: 'Router', category: 'Network' },
+  { id: 'Firewall', label: 'Firewall', category: 'Network' },
+  { id: 'LoadBalancer', label: 'Load Balancer', category: 'Network' },
+  { id: 'Proxy', label: 'Proxy', category: 'Network' },
+  { id: 'ISE', label: 'ISE', category: 'Network' },
+  { id: 'Storage', label: 'Storage Array', category: 'Storage' },
+  { id: 'NAS', label: 'NAS', category: 'Storage' },
+  { id: 'TapeLibrary', label: 'Tape Library', category: 'Storage' },
+  { id: 'PatchPanel', label: 'Patch Panel', category: 'Other' },
+  { id: 'PowerBar', label: 'PowerBar / PDU', category: 'Other' },
+  { id: 'UPS', label: 'UPS', category: 'Other' },
+  { id: 'KVM', label: 'KVM Switch', category: 'Other' },
+  { id: 'CableManagement', label: 'Cable Management (理線架)', category: 'Other' },
+  { id: 'Shelf', label: 'Shelf (層板)', category: 'Other' },
+  { id: 'Reserve', label: 'Reserve (預留)', category: 'Other' },
+  { id: 'KuaiKuai', label: 'Kuai Kuai (乖乖)', category: 'Other' }
 ];
 
 export const DEVICE_TYPE_BY_ID = new Map(DEVICE_TYPES.map(t => [t.id, t]));

@@ -24,10 +24,6 @@ const DataCenters = ({ onSelectDC }) => {
     const [dcRacks, setDcRacks] = useState([]);
     const [loadingRacks, setLoadingRacks] = useState(false);
 
-    useEffect(() => {
-        fetchDataCenters();
-    }, []);
-
     const fetchDataCenters = async ({ silent = false } = {}) => {
         if (!silent) setLoading(true);
         try {
@@ -41,6 +37,14 @@ const DataCenters = ({ onSelectDC }) => {
             if (!silent) setLoading(false);
         }
     };
+
+    // First load (`loading` starts true; setState only in the callbacks)
+    useEffect(() => {
+        api.get('/rack/datacenters')
+            .then(res => setDataCenters(res.data || []))
+            .catch(err => console.error('Failed to load Data Centers:', err))
+            .finally(() => setLoading(false));
+    }, []);
 
     const openTopDownView = async (dc) => {
         setSelectedDCForTopDown(dc);
@@ -508,7 +512,7 @@ const DataCenters = ({ onSelectDC }) => {
                                                                         sessionStorage.setItem('dc_target_rack_id', rack.id);
                                                                         localStorage.setItem('dc_selected_dc_id', selectedDCForTopDown.id);
                                                                         localStorage.setItem('dc_target_rack_id', rack.id);
-                                                                    } catch (e) {}
+                                                                    } catch { /* storage unavailable */ }
                                                                     if (onSelectDC) onSelectDC(selectedDCForTopDown.id, rack.id);
                                                                 }}
                                                                 style={{ 

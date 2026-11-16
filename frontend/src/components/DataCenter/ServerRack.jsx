@@ -12,15 +12,13 @@ import SysAlertModal from './SysAlertModal';
 import SysConfirmModal from './SysConfirmModal';
 import PrintRacksModal from './PrintRacksModal';
 import MoveDeviceModal from './MoveDeviceModal';
-import RackPrintLayout from './RackPrintLayout';
 import RackExportLayout from './RackExportLayout';
-import { capacitySummary, findFreeSpace, isSideMounted, shareUnchanged, stepIndex, typeFilterKey } from './rackUtils';
+import { capacitySummary, findFreeSpace, isSideMounted, REPORT_REQUEST_KEY, shareUnchanged, stepIndex, typeFilterKey } from './rackUtils';
 import { DEVICE_TYPES, getSplitLocation } from './rackShared';
 import api from '../../api';
 import * as htmlToImage from 'html-to-image';
 import { useToast } from '../../contexts/ToastContext';
 import { TbSearch, TbServer2 } from 'react-icons/tb';
-
 
 
 
@@ -76,15 +74,15 @@ const revisionFromResponse = (res) => {
  * Manages the layout, devices, network ports, and power links within datacenters and racks.
  * @component
  * @param {Object} props
- * @param {Object} props.selectedDC - The currently selected DataCenter object
- * @param {Array} props.dataCenters - Array of all DataCenters
- * @param {Function} props.setDataCenters - State setter for DataCenters
+ * @param {string} props.selectedDCId - Data center to show (else the last one picked, else the first)
  * @param {string} props.initialTargetRackId - Optional ID of a rack to highlight initially
- * @param {Function} props.triggerRefresh - Callback to refresh related data (e.g. issues, spare parts)
+ * @param {Object} props.editRequest - Optional { device, defaultTab } to open in the device dialog (other pages)
+ * @param {Function} props.onClearEdit - Called when that device dialog closes
+ * @param {Function} props.onReportIssue - Opens Hardware Issues after "Report HW issue" stored its request
  */
 const DEFAULT_SNMP_FORM = { enabled: false, version: 'v2c', community: '', port: 161 };
 
-export default function ServerRack({ selectedDCId, initialTargetRackId, editRequest, onClearEdit }) {
+export default function ServerRack({ selectedDCId, initialTargetRackId, editRequest, onClearEdit, onReportIssue }) {
   const { showToast } = useToast();
   const user = JSON.parse(localStorage.getItem('user') || '{}');
   const role = user.role || 'Viewer';
@@ -93,14 +91,21 @@ export default function ServerRack({ selectedDCId, initialTargetRackId, editRequ
 
   // Data Center states
   const [dataCenters, setDataCenters] = useState([]);
-  const [selectedDC, setSelectedDC] = useState(null);
-  const [showDCModal, setShowDCModal] = useState(false);
-  const [currentDCForm, setCurrentDCForm] = useState(null);
-  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  // The data center shown: the requested one (prop or the last one picked), else the first
+  const selectedDC = useMemo(() => {
+    if (!dataCenters.length) return null;
+    let targetDcId = selectedDCId;
+    if (!targetDcId) {
+      try { targetDcId = sessionStorage.getItem('dc_selected_dc_id') || localStorage.getItem('dc_selected_dc_id'); } catch { /* storage unavailable */ }
+    }
+    return (targetDcId && dataCenters.find(d => d.id === targetDcId)) || dataCenters[0];
+  }, [selectedDCId, dataCenters]);
   const [zoomLevel, setZoomLevel] = useState(100);
   const [hiddenTypes, setHiddenTypes] = useState(() => new Set()); // device types dimmed in the layout
   const [fitSize, setFitSize] = useState(0);        // free-space finder: U height looked for (0 = off)
   const [searchIndex, setSearchIndex] = useState(-1); // search result picked with Enter / Shift+Enter
+  const searchIndexRef = useRef(-1); // the same, read by key presses (fast repeats come before a re-render)
+  const pickSearchIndex = (i) => { searchIndexRef.current = i; setSearchIndex(i); };
 
   // Layout Direction & Orientation (Read-only from DataCenter settings)
   const rackOrder = selectedDC?.rackOrder || 'asc'; // 'asc' (L-to-R) | 'desc' (R-to-L)
@@ -140,7 +145,6 @@ export default function ServerRack({ selectedDCId, initialTargetRackId, editRequ
   // Print selector states
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [selectedPrintRacks, setSelectedPrintRacks] = useState({});
-  const [isPrinting, setIsPrinting] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [expandedPrintRows, setExpandedPrintRows] = useState({});
 
@@ -180,14 +184,10 @@ export default function ServerRack({ selectedDCId, initialTargetRackId, editRequ
   };
 
   // HW Report Modal states
-  const [showHWTableModal, setShowHWTableModal] = useState(false);
-  const [showHWFormModal, setShowHWFormModal] = useState(false);
-  const [currentHWForm, setCurrentHWForm] = useState(null);
 
   // Action Modal states
   const [showActionModal, setShowActionModal] = useState(false);
   const [currentActionDevice, setCurrentActionDevice] = useState(null);
-  const [initialLoaded, setInitialLoaded] = useState(false);
 
   // Rack save bookkeeping (refs: read in async save callbacks, never during render)
   const racksRef = useRef([]);          // latest racks, also updated synchronously by saveRacks
@@ -201,40 +201,36 @@ export default function ServerRack({ selectedDCId, initialTargetRackId, editRequ
     racksRef.current = racks;
   }, [racks]);
 
-  const fetchDataCenters = () => api.get('/rack/datacenters').then(res => {
-    setDataCenters(res.data);
-    return res.data;
-  });
-
   useEffect(() => {
     api.get('/rack/datacenters').then(res => {
       setDataCenters(res.data);
     }).catch(console.error);
   }, []);
 
-  // Handle cross-tab edit requests
-  useEffect(() => {
-    if (editRequest && racks.length > 0) {
-      let foundDevice = null;
-      let foundRackId = null;
-      for (let r of racks) {
-        for (let d of (r.devices || [])) {
-          if (d.id === editRequest.device.id) {
-            foundDevice = d;
-            foundRackId = r.id;
-            break;
-          }
+  // Handle cross-tab edit requests: once per request, when the racks are there (an effect on [editRequest, racks]
+  // re-ran on every rack change while the dialog was open and reset unsaved edits)
+  const [handledEditRequest, setHandledEditRequest] = useState(null);
+  if (editRequest && editRequest !== handledEditRequest && racks.length > 0) {
+    setHandledEditRequest(editRequest);
+    let foundDevice = null;
+    let foundRackId = null;
+    for (let r of racks) {
+      for (let d of (r.devices || [])) {
+        if (d.id === editRequest.device.id) {
+          foundDevice = d;
+          foundRackId = r.id;
+          break;
         }
-        if (foundDevice) break;
       }
-      if (foundDevice) {
-        setTargetRackId(foundRackId);
-        setCurrentDevice({ ...foundDevice });
-        if (editRequest.defaultTab) setActiveDeviceTab(editRequest.defaultTab);
-        setShowDeviceModal(true);
-      }
+      if (foundDevice) break;
     }
-  }, [editRequest, racks]);
+    if (foundDevice) {
+      setTargetRackId(foundRackId);
+      setCurrentDevice({ ...foundDevice });
+      if (editRequest.defaultTab) setActiveDeviceTab(editRequest.defaultTab);
+      setShowDeviceModal(true);
+    }
+  }
 
   const closeDeviceModal = () => {
     setShowDeviceModal(false);
@@ -242,21 +238,9 @@ export default function ServerRack({ selectedDCId, initialTargetRackId, editRequ
   };
 
   useEffect(() => {
-    if (dataCenters.length > 0) {
-      const targetDcId = selectedDCId || sessionStorage.getItem('dc_selected_dc_id') || localStorage.getItem('dc_selected_dc_id');
-      if (targetDcId) {
-        setSelectedDC(dataCenters.find(d => d.id === targetDcId) || dataCenters[0]);
-      } else {
-        setSelectedDC(dataCenters[0]);
-      }
-    }
-  }, [selectedDCId, dataCenters]);
-
-  useEffect(() => {
     if (selectedDC) {
       const dc = selectedDC;
       activeDcIdRef.current = dc.id;
-      setInitialLoaded(false);
       api.get(`/rack?dcId=${encodeURIComponent(dc.id)}`).then(res => {
         if (activeDcIdRef.current !== dc.id) return;
         revisionsRef.current[dc.id] = revisionFromResponse(res);
@@ -264,10 +248,8 @@ export default function ServerRack({ selectedDCId, initialTargetRackId, editRequ
         const next = res.data && res.data.length > 0 ? normalizeLoadedRacks(res.data) : defaultRacksFor(dc);
         racksRef.current = next;
         setRacks(next);
-        setInitialLoaded(true);
       }).catch(err => {
         console.error('Failed to load DC data:', err);
-        setInitialLoaded(true);
       });
     }
   }, [selectedDC]);
@@ -325,7 +307,7 @@ export default function ServerRack({ selectedDCId, initialTargetRackId, editRequ
           try {
             sessionStorage.removeItem('dc_target_rack_id');
             localStorage.removeItem('dc_target_rack_id');
-          } catch (e) {}
+          } catch { /* storage unavailable */ }
         } else if (attempts >= maxAttempts) {
           clearInterval(interval);
         }
@@ -384,60 +366,6 @@ export default function ServerRack({ selectedDCId, initialTargetRackId, editRequ
     });
   };
 
-  const openDCManager = () => {
-    setCurrentDCForm({ ...selectedDC });
-    setDeleteConfirmText('');
-    setShowDCModal(true);
-  };
-
-  const saveDCInfo = async (e) => {
-    e.preventDefault();
-    const isExisting = !!currentDCForm.id && dataCenters.some(dc => dc.id === currentDCForm.id);
-    // id goes in the URL; usedRacks is computed by the server on read and never saved
-    const payload = { ...currentDCForm };
-    delete payload.id;
-    delete payload.usedRacks;
-    try {
-      const res = isExisting
-        ? await api.put(`/rack/datacenters/${encodeURIComponent(currentDCForm.id)}`, payload)
-        : await api.post('/rack/datacenters/item', payload);
-      const savedId = res.data?.dataCenter?.id || currentDCForm.id;
-      const fresh = await fetchDataCenters();
-      setSelectedDC(fresh.find(dc => dc.id === savedId) || fresh[0] || null);
-      setShowDCModal(false);
-    } catch (err) {
-      console.error('Failed to save DC:', err);
-      showToast(`Failed to save Data Center: ${err.response?.data?.error || err.message}`, 'error');
-      fetchDataCenters().catch(console.error);
-    }
-  };
-
-  const addNewDC = () => {
-    // no id: the server assigns one on create
-    setCurrentDCForm({
-      name: 'New Data Center',
-      address: '',
-      contact: '',
-      contactNumber: '',
-      acl: []
-    });
-  };
-
-  const updateACL = (idx, field, val) => {
-    const newACL = [...(currentDCForm.acl || [])];
-    if (!newACL[idx]) newACL[idx] = { name: '', phone: '' };
-    newACL[idx][field] = val;
-    setCurrentDCForm({ ...currentDCForm, acl: newACL });
-  };
-
-  const addACLRow = () => {
-    setCurrentDCForm({ ...currentDCForm, acl: [...(currentDCForm.acl || []), { name: '', phone: '' }] });
-  };
-
-  const removeACLRow = (idx) => {
-    setCurrentDCForm({ ...currentDCForm, acl: currentDCForm.acl.filter((_, i) => i !== idx) });
-  };
-
   const handleOpenPrintModal = () => {
     const initialSelected = {};
     racks.forEach(r => {
@@ -448,15 +376,6 @@ export default function ServerRack({ selectedDCId, initialTargetRackId, editRequ
     setSelectedPrintRacks(initialSelected);
     setExpandedPrintRows({}); // Collapse all rows by default
     setShowPrintModal(true);
-  };
-
-  const handleTriggerPrint = () => {
-    setIsPrinting(true);
-    setShowPrintModal(false);
-    setTimeout(() => {
-      window.print();
-      setIsPrinting(false);
-    }, 500);
   };
 
   const handleTriggerExport = () => {
@@ -527,7 +446,6 @@ export default function ServerRack({ selectedDCId, initialTargetRackId, editRequ
       }
     }, 800);
   };
-
 
   // Rack Handlers
   const autofillRackFromRow = (rackObj, targetRow) => {
@@ -1006,14 +924,6 @@ export default function ServerRack({ selectedDCId, initialTargetRackId, editRequ
     setCurrentDevice({ ...currentDevice, nodes: newNodes });
   };
 
-  const jumpToDeviceLocation = (deviceId) => {
-    const foundRack = racks.find(r => r.devices?.some(d => d.id === deviceId));
-    if (foundRack) {
-      setShowHWTableModal(false);
-      handleResultClick({ type: 'device', rack: foundRack, device: foundRack.devices.find(d => d.id === deviceId) });
-    }
-  };
-
   const searchResults = React.useMemo(() => {
     if (!searchQuery) return [];
     const q = searchQuery.toLowerCase();
@@ -1072,30 +982,18 @@ export default function ServerRack({ selectedDCId, initialTargetRackId, editRequ
   const openReportForm = (device, rackId, nodeInfo = null) => {
     setShowActionModal(false);
     const rack = racks.find(r => r.id === rackId);
-    let reporterName = '';
-    try {
-      reporterName = JSON.parse(localStorage.getItem('user'))?.username || '';
-    } catch (e) { }
-
-    const deviceNameStr = nodeInfo ? `Node: ${nodeInfo.hostname || 'Unknown'} (${device.hostname || device.type})` : (device.hostname || device.type);
-    const snStr = nodeInfo && nodeInfo.sn ? nodeInfo.sn : (device.sn || '');
-
-    setCurrentHWForm({
-      id: Date.now().toString(36) + Math.random().toString(36).substring(2),
-      deviceId: device.id,
-      deviceName: deviceNameStr,
-      sn: snStr,
+    const request = {
+      dcId: selectedDC?.id || '',
       datacenter: selectedDC?.name || '',
+      deviceId: device.id,
+      deviceName: nodeInfo ? `Node: ${nodeInfo.hostname || 'Unknown'} (${device.hostname || device.type})` : (device.hostname || device.type),
+      sn: nodeInfo && nodeInfo.sn ? nodeInfo.sn : (device.sn || ''),
+      rackId: rackId || '',
       rackLoc: `${rack?.name || ''} (${getSplitLocation(rack, device.startU)})`,
-      date: new Date().toISOString().split('T')[0],
-      failedParts: '',
-      partsInfo: '',
-      reporter: reporterName,
-      urgency: 'M',
-      status: 'Open',
-      processNotes: []
-    });
-    setShowHWFormModal(true);
+    };
+    // Hardware Issues is another page (its own component instance): the request goes through sessionStorage
+    try { sessionStorage.setItem(REPORT_REQUEST_KEY, JSON.stringify(request)); } catch { /* storage unavailable */ }
+    if (onReportIssue) onReportIssue();
   };
 
   const frontRacksOnly = racks.filter(r => !r.isBack);
@@ -1115,14 +1013,6 @@ export default function ServerRack({ selectedDCId, initialTargetRackId, editRequ
       }
     });
     return list;
-  };
-
-  const chunkArray = (arr, size) => {
-    const res = [];
-    for (let i = 0; i < arr.length; i += size) {
-      res.push(arr.slice(i, i + size));
-    }
-    return res;
   };
 
   return (
@@ -1160,12 +1050,12 @@ export default function ServerRack({ selectedDCId, initialTargetRackId, editRequ
               type="text"
               placeholder="Search Racks or Devices by Name, IP, SN..."
               value={searchQuery}
-              onChange={(e) => { setSearchQuery(e.target.value); setSearchIndex(-1); }}
+              onChange={(e) => { setSearchQuery(e.target.value); pickSearchIndex(-1); }}
               onKeyDown={(e) => {
                 if (e.key !== 'Enter' || !searchResults.length) return;
                 e.preventDefault();
-                const next = stepIndex(searchIndex, searchResults.length, e.shiftKey ? -1 : 1);
-                setSearchIndex(next);
+                const next = stepIndex(searchIndexRef.current, searchResults.length, e.shiftKey ? -1 : 1);
+                pickSearchIndex(next);
                 handleResultClick(searchResults[next]);
               }}
               title="Enter: next result, Shift+Enter: previous"
@@ -1182,7 +1072,7 @@ export default function ServerRack({ selectedDCId, initialTargetRackId, editRequ
                   <div
                     key={i}
                     className={`search-result-item${i === searchIndex ? ' is-current' : ''}`}
-                    onClick={() => { setSearchIndex(i); handleResultClick(res); }}
+                    onClick={() => { pickSearchIndex(i); handleResultClick(res); }}
                   >
                     {res.type === 'rack' ? (
                       <>
@@ -1388,17 +1278,6 @@ export default function ServerRack({ selectedDCId, initialTargetRackId, editRequ
           saveChainRef={saveChainRef}
           closeDeviceModal={closeDeviceModal}
           reloadRacks={reloadRacks}
-        />
-      )}
-
-      {/* Print Only Layout */}
-      {isPrinting && (
-        <RackPrintLayout
-          racks={racks}
-          selectedDC={selectedDC}
-          uOrder={uOrder}
-          noop={noop}
-          getSelectedRacksList={getSelectedRacksList}
         />
       )}
 

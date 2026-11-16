@@ -129,3 +129,6 @@ export function stepIndex(current, count, delta) {
   if (current < 0) return delta < 0 ? count - 1 : 0;
   return (((current + delta) % count) + count) % count;
 }
+
+/** sessionStorage key of a "Report HW issue" request from Server Rack, read by Hardware Issues. */
+export const REPORT_REQUEST_KEY = 'dc_report_request';

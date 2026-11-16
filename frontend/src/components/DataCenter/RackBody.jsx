@@ -1,5 +1,6 @@
 import React from 'react';
-import { DEVICE_TYPE_BY_ID, generateUs, getDisplayU } from './rackShared';
+import { generateUs, getDisplayU } from './rackShared';
+import { deviceTypeIcon } from './deviceTypeIcons';
 import { freeRanges, occupiedUs } from './rackUtils';
 
 // One face of a rack: rails, U slots and the devices. Pure and memoized: it re-renders only when its rack, the U
@@ -54,7 +55,6 @@ function RackBody({ rack, uOrder, canAdd, matched = '', simple = false, typeKey 
         ))}
 
         {sideDevices.map(device => {
-          const icon = DEVICE_TYPE_BY_ID.get(device.type)?.icon || '🖥️';
           
           // Positioning calculation based on uOrder:
           const posStyle = isUOrderAsc ? {
@@ -293,7 +293,7 @@ function RackBody({ rack, uOrder, canAdd, matched = '', simple = false, typeKey 
               }}
                 onMouseEnter={onTipShow ? (e) => onTipShow({ device, rack, rect: e.currentTarget.getBoundingClientRect() }) : undefined}
                 onMouseLeave={onTipHide}>
-                {device.type !== 'Shelf' && icon}
+                {device.type !== 'Shelf' && React.createElement(deviceTypeIcon(device.type))}
               </div>
             </div>
           )

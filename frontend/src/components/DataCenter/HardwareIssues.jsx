@@ -14,6 +14,8 @@ import { URGENCY_TONE, STATUS_META, entryTone } from './hwIssueTheme';
 import { UrgencyBadge, StatusBadge, AgeChip } from './HwIssueParts';
 import HwStatusChangeModal from './HwStatusChangeModal';
 import HwIssueLinked from './HwIssueLinked';
+import { REPORT_REQUEST_KEY } from './rackUtils';
+import { getSplitLocation } from './rackShared';
 import './hwIssues.css';
 
 // One id per spare-part selection: the server deducts stock once per usageId even if the save is retried
@@ -85,9 +87,24 @@ export default function HardwareIssues({ onShowInRack }) {
     const [filters, setFilters] = useState(EMPTY_FILTERS);
     const [showAllClosed, setShowAllClosed] = useState(false);
     const [sort, setSort] = useState({ key: 'date', dir: 'desc' });
-    const [showHWFormModal, setShowHWFormModal] = useState(false);
+    // "Report HW issue" in Server Rack stores the device in sessionStorage and opens this page: start with the
+    // new-issue form for it (read once, on mount; removed in the first effect)
+    const [reportRequest] = useState(() => {
+        if (!canWrite) return null;
+        try {
+            const r = JSON.parse(sessionStorage.getItem(REPORT_REQUEST_KEY) || 'null');
+            return r && typeof r === 'object' && r.deviceId ? r : null;
+        } catch { return null; }
+    });
+    const [showHWFormModal, setShowHWFormModal] = useState(!!reportRequest);
     const [activeDropdownId, setActiveDropdownId] = useState(null);
-    const [currentHWForm, setCurrentHWForm] = useState(null);
+    const [currentHWForm, setCurrentHWForm] = useState(() => (reportRequest ? {
+        date: new Date().toISOString().split('T')[0],
+        datacenter: reportRequest.datacenter || '', deviceName: reportRequest.deviceName || '', deviceId: reportRequest.deviceId,
+        rackId: reportRequest.rackId || '', sn: reportRequest.sn || '', rackLoc: reportRequest.rackLoc || '', failedParts: '',
+        reporter: user.username || '', urgency: 'M', status: 'Open', partsInfo: '',
+        assignee: '', rmaNumber: '', dueDate: '', processNotes: []
+    } : null));
     const [isHWFormReadOnly, setIsHWFormReadOnly] = useState(false);
     const [statusChange, setStatusChange] = useState(null); // { issue, to } while a dragged card waits for its note
     const [dragOver, setDragOver] = useState(null);
@@ -116,6 +133,11 @@ export default function HardwareIssues({ onShowInRack }) {
     };
 
     useEffect(() => {
+        try { sessionStorage.removeItem(REPORT_REQUEST_KEY); } catch { /* storage unavailable */ }
+        // the device list of the form of a "Report HW issue" request
+        if (reportRequest && reportRequest.dcId) {
+            api.get(`/rack?dcId=${encodeURIComponent(reportRequest.dcId)}`).then(res => { if (res.data) setFormRacks(res.data); }).catch(console.error);
+        }
         api.get('/rack/datacenters').then(res => {
             if (res.data) setDcs(res.data);
         }).catch(err => console.error('Failed to fetch datacenters:', err));
@@ -143,7 +165,7 @@ export default function HardwareIssues({ onShowInRack }) {
         // ages and overdue marks move with the clock
         const tick = setInterval(() => setNow(Date.now()), 60 * 1000);
         return () => { document.removeEventListener('click', closeDropdown); clearInterval(tick); };
-    }, []);
+    }, [reportRequest]); // reportRequest never changes: runs once
 
     const loadRacksOf = (dcName) => {
         const dc = dcs.find(d => d.name === dcName);
@@ -161,7 +183,7 @@ export default function HardwareIssues({ onShowInRack }) {
         const devs = [];
         formRacks.forEach(r => {
             (r.devices || []).forEach(d => {
-                if (!['Shelf', 'Reserve', 'PatchPanel'].includes(d.type)) devs.push({ ...d, rackId: r.id, rackLoc: `${r.name} - U${d.u}` });
+                if (!['Shelf', 'Reserve', 'PatchPanel'].includes(d.type)) devs.push({ ...d, rackId: r.id, rackLoc: `${r.name} (${getSplitLocation(r, d.startU)})` });
             });
         });
         return devs.sort((a, b) => (a.hostname || '').localeCompare(b.hostname || ''));

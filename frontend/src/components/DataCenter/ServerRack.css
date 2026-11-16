@@ -1481,3 +1481,22 @@
   display: inline-flex;
   align-items: center;
 }
+
+/* Device type icons (deviceTypeIcons.js) on the devices and in the type filter */
+.device-type-icon svg {
+  display: block;
+  width: 0.85em;
+  height: 0.85em;
+  color: #fff;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.85));
+}
+
+.device-inner.device-type-KuaiKuai ~ .device-type-icon svg {
+  color: #4ade80;
+}
+
+.rack-type-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}

@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { TbArrowsVertical, TbFilter, TbLayoutGrid, TbServer2, TbX } from 'react-icons/tb';
 import { DEVICE_TYPES, getSplitLocation } from './rackShared';
 import { usageLevel } from './rackUtils';
+import { deviceTypeIcon } from './deviceTypeIcons';
 
 const CATEGORIES = ['Compute', 'Network', 'Storage', 'Other'];
 const FIT_SIZES = [1, 2, 3, 4, 5, 6, 8, 10];
@@ -128,7 +129,7 @@ export default function RackToolbar({ summary, simple, fitSize, onFitSize, freeL
                       {types.map(t => (
                         <label key={t.id} className="rack-check">
                           <input type="checkbox" checked={!hiddenTypes.has(t.id)} onChange={() => toggleType(t.id)} />
-                          <span>{t.icon} {t.label}</span>
+                          <span className="rack-type-label">{React.createElement(deviceTypeIcon(t.id))} {t.label}</span>
                         </label>
                       ))}
                     </div>

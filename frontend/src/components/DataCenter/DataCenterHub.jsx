@@ -65,7 +65,7 @@ const DataCenterHub = ({ activeTab = 'server-rack', setActiveView }) => {
             case 'data-centers':
                 return <DataCenters onSelectDC={handleSelectDC} />;
             case 'server-rack':
-                return <ServerRack selectedDCId={selectedDCId} initialTargetRackId={targetRackId} editRequest={editRequest} onClearEdit={handleClearEdit} />;
+                return <ServerRack selectedDCId={selectedDCId} initialTargetRackId={targetRackId} editRequest={editRequest} onClearEdit={handleClearEdit} onReportIssue={() => { if (setActiveView) setActiveView('DC_ISSUES'); }} />;
             case 'topology-map':
                 return <TopologyMap selectedDCId={selectedDCId} onEditDevice={(device, defaultTab, opts) => handleEditDevice(device, defaultTab, 'topology-map', opts && opts.dcId)} />;
             case 'spare-parts':

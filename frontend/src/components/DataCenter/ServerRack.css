@@ -1161,3 +1161,293 @@
   overflow: visible;
 }
 
+
+/* ---------- Toolbar: capacity, free-space finder, type filter (RackToolbar.jsx) ---------- */
+.rack-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+  margin: -0.75rem 0 1rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-glass);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+}
+
+.rack-cap {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.rack-cap b {
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.rack-cap-icon {
+  font-size: 1.1rem;
+  color: var(--accent-primary);
+}
+
+.rack-cap-sep {
+  width: 1px;
+  height: 14px;
+  background: var(--border-color);
+}
+
+.rack-usage-bar {
+  display: inline-block;
+  width: 90px;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.rack-usage-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--success);
+}
+
+.rack-usage-bar.is-warn > span { background: var(--warning); }
+.rack-usage-bar.is-full > span { background: var(--danger); }
+
+.rack-info-row .rack-usage-bar { width: 60px; }
+
+.rack-cap-pct { font-weight: 700; color: var(--success); }
+.rack-cap-pct.is-warn { color: var(--warning); }
+.rack-cap-pct.is-full { color: var(--danger); }
+
+.rack-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.rack-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.rack-chip.is-info {
+  color: var(--accent-primary);
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(59, 130, 246, 0.35);
+}
+
+.rack-pop-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.rack-tool-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 5px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.rack-tool-btn:hover { background: rgba(255, 255, 255, 0.08); }
+
+.rack-tool-btn.is-active {
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+}
+
+.rack-tool-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 2px;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.rack-tool-clear:hover { color: var(--danger); background: rgba(255, 255, 255, 0.06); }
+
+.rack-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 2500;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border-radius: 10px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+}
+
+.rack-fit-pop { width: 340px; }
+.rack-type-pop { width: 320px; max-height: 70vh; overflow-y: auto; }
+
+.rack-pop-title {
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+}
+
+.rack-fit-sizes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.rack-size-btn {
+  min-width: 40px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.rack-size-btn.is-active {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+  color: #fff;
+}
+
+.rack-fit-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.rack-fit-item {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 6px 8px;
+  border: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rack-fit-item:hover { background: rgba(255, 255, 255, 0.06); }
+.rack-fit-name { font-weight: 600; color: var(--accent-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rack-fit-loc { color: var(--text-secondary); font-size: 0.75rem; }
+.rack-fit-len { color: var(--success); font-weight: 700; font-size: 0.75rem; }
+
+.rack-type-group {
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.rack-type-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.rack-type-items {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px 0.5rem;
+  padding: 0.25rem 0 0 1.4rem;
+}
+
+.rack-check {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+  color: var(--text-primary);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rack-check input { margin: 0; }
+
+.rack-link-btn {
+  align-self: flex-start;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent-primary);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* Free slots that fit the height looked for */
+.u-slot.is-fit {
+  background: rgba(16, 185, 129, 0.16);
+  box-shadow: inset 3px 0 0 var(--success);
+}
+
+.u-slot.is-fit:hover:not(.is-occupied) {
+  background: rgba(16, 185, 129, 0.3);
+  color: var(--success);
+}
+
+/* Device types left out by the type filter */
+.device-block.is-dimmed {
+  opacity: 0.15;
+  filter: grayscale(1);
+}
+
+/* Overview at 50% zoom or less: no ports / outlets, names large enough to read */
+.rack-body.is-simple .device-name {
+  font-size: 1.5rem;
+  line-height: 1.1;
+}
+
+.rack-body.is-simple .device-ip {
+  display: none;
+}
+
+/* Search counter inside the search box; the result picked with Enter */
+.rack-search-count {
+  position: absolute;
+  right: 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  pointer-events: none;
+}
+
+.search-result-item.is-current {
+  background: rgba(59, 130, 246, 0.18);
+}

@@ -1,18 +1,29 @@
 import React from 'react';
 import { DEVICE_TYPE_BY_ID, generateUs, getDisplayU } from './rackShared';
+import { freeRanges, occupiedUs } from './rackUtils';
 
 // One face of a rack: rails, U slots and the devices. Pure and memoized: it re-renders only when its rack, the U
 // order, its search matches (`matched`: "|id|id|" of the matching devices) or a callback changes. Callbacks: onAddDevice(rackId, u), onDeviceClick(rackId,
 // device), onPortClick(device), onTipShow({ device, rack, rect }) / onTipHide() (left out in print / export).
-function RackBody({ rack, uOrder, canAdd, matched = '', onAddDevice, onDeviceClick, onPortClick, onTipShow, onTipHide }) {
+// Optional: simple (overview at low zoom: no ports / outlets, larger names), typeKey ("|Type|..." of the types shown,
+// '' = all; other devices are dimmed), fitSize (U height being looked for: free ranges that fit are highlighted and a
+// click there adds a device of that height, onAddDevice(rackId, startU, sizeU)).
+function RackBody({ rack, uOrder, canAdd, matched = '', simple = false, typeKey = '', fitSize = 0, onAddDevice, onDeviceClick, onPortClick, onTipShow, onTipHide }) {
   const sideDevices = rack.devices || [];
   const isUOrderAsc = uOrder === 'asc'; // 1U at top, 42U at bottom
   const us = generateUs(rack.height, uOrder);
-  const occupied = new Set();
-  for (const d of sideDevices) for (let u = d.startU; u < d.startU + d.sizeU; u++) occupied.add(u);
+  const occupied = occupiedUs(rack);
+  const fits = fitSize > 0 ? freeRanges(rack, fitSize) : [];
+  const fitAt = (u) => fits.find(r => u >= r.from && u <= r.to);
+  const addAt = (u) => {
+    const r = fitAt(u);
+    // inside a highlighted range: a device of the wanted height, moved down if it would run past the range
+    if (r) onAddDevice(rack.id, Math.min(u, r.to - fitSize + 1), fitSize);
+    else onAddDevice(rack.id, u);
+  };
 
   return (
-    <div className="rack-body">
+    <div className={`rack-body${simple ? ' is-simple' : ''}`}>
       {/* Left Rail */}
       <div className="rack-rail left">
         {us.map(u => (
@@ -30,8 +41,8 @@ function RackBody({ rack, uOrder, canAdd, matched = '', onAddDevice, onDeviceCli
         {us.map(u => (
           <React.Fragment key={u}>
             <div
-              className={`u-slot ${occupied.has(u) ? 'is-occupied' : ''}`}
-              onClick={occupied.has(u) || !canAdd ? undefined : () => onAddDevice(rack.id, u)}
+              className={`u-slot ${occupied.has(u) ? 'is-occupied' : ''}${fits.length && fitAt(u) ? ' is-fit' : ''}`}
+              onClick={occupied.has(u) || !canAdd ? undefined : () => addAt(u)}
             >
             </div>
             {rack.isSplitDesign && u === rack.lowerU + 1 && (
@@ -58,7 +69,7 @@ function RackBody({ rack, uOrder, canAdd, matched = '', onAddDevice, onDeviceCli
             <div
               id={`device-${rack.id}-${device.id}`}
               key={device.id}
-              className={`device-block ${matched && matched.includes(`|${device.id}|`) ? 'search-highlight' : ''}`}
+              className={`device-block ${matched && matched.includes(`|${device.id}|`) ? 'search-highlight' : ''}${typeKey && !typeKey.includes(`|${device.type}|`) ? ' is-dimmed' : ''}`}
               style={{
                 ...posStyle,
                 height: `${device.sizeU * 38 + (rack.isSplitDesign && device.startU <= rack.lowerU && (device.startU + device.sizeU - 1) > rack.lowerU ? 24 : 0)}px`,
@@ -74,7 +85,7 @@ function RackBody({ rack, uOrder, canAdd, matched = '', onAddDevice, onDeviceCli
             >
               <div className={`device-inner device-type-${device.type}`}>
                 {/* Kuai Kuai (乖乖) Visual Rendering */}
-                {device.type === 'KuaiKuai' && (
+                {device.type === 'KuaiKuai' && !simple && (
                   <div style={{
                     position: 'absolute',
                     top: '50%',
@@ -164,7 +175,7 @@ function RackBody({ rack, uOrder, canAdd, matched = '', onAddDevice, onDeviceCli
                   </div>
                 )}
               </div>
-              {device.type === 'PowerBar' && (
+              {device.type === 'PowerBar' && !simple && (
                 <div className={`powerbar-render-area ${device.orientation}`} style={{ width: '100%', height: '100%', position: 'absolute', top: 0, left: 0 }}>
                   {device.orientation === 'vertical' ? (
                     <>
@@ -214,7 +225,7 @@ function RackBody({ rack, uOrder, canAdd, matched = '', onAddDevice, onDeviceCli
                 </div>
               )}
 
-              {['Switch', 'Firewall', 'Router', 'LoadBalancer', 'Server', 'Storage', 'Proxy', 'ISE', 'NAS', 'TapeLibrary'].includes(device.type) && device.ports > 0 && (() => {
+              {!simple && ['Switch', 'Firewall', 'Router', 'LoadBalancer', 'Server', 'Storage', 'Proxy', 'ISE', 'NAS', 'TapeLibrary'].includes(device.type) && device.ports > 0 && (() => {
                 const actualPorts = device.ports || (['PatchPanel', 'CableManagement'].includes(device.type) ? 24 : 8);
                 const autoRows = actualPorts > 10 ? 2 : (device.rows || 1);
                 const displayPorts = Math.min(actualPorts, 24);

@@ -3,6 +3,8 @@ import './ServerRack.css';
 import RackCard from './RackCard';
 import RackBody from './RackBody';
 import RackTooltip from './RackTooltip';
+import RackToolbar from './RackToolbar';
+import { capacitySummary, findFreeSpace, shareUnchanged, stepIndex, typeFilterKey } from './rackUtils';
 import { DEVICE_TYPES, generateUs, getSplitLocation } from './rackShared';
 import api from '../../api';
 import * as htmlToImage from 'html-to-image';
@@ -86,6 +88,9 @@ export default function ServerRack({ selectedDCId, initialTargetRackId, editRequ
   const [currentDCForm, setCurrentDCForm] = useState(null);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [zoomLevel, setZoomLevel] = useState(100);
+  const [hiddenTypes, setHiddenTypes] = useState(() => new Set()); // device types dimmed in the layout
+  const [fitSize, setFitSize] = useState(0);        // free-space finder: U height looked for (0 = off)
+  const [searchIndex, setSearchIndex] = useState(-1); // search result picked with Enter / Shift+Enter
 
   // Layout Direction & Orientation (Read-only from DataCenter settings)
   const rackOrder = selectedDC?.rackOrder || 'asc'; // 'asc' (L-to-R) | 'desc' (R-to-L)
@@ -264,7 +269,8 @@ export default function ServerRack({ selectedDCId, initialTargetRackId, editRequ
       revisionsRef.current[dc.id] = revisionFromResponse(res);
       serverRackIdsRef.current[dc.id] = new Set((res.data || []).map(r => r.id));
       if (activeDcIdRef.current !== dc.id) return;
-      const next = res.data && res.data.length > 0 ? normalizeLoadedRacks(res.data) : defaultRacksFor(dc);
+      const loaded = res.data && res.data.length > 0 ? normalizeLoadedRacks(res.data) : defaultRacksFor(dc);
+      const next = shareUnchanged(racksRef.current, loaded).racks; // racks the reload did not change are not redrawn
       racksRef.current = next;
       setRacks(next);
     } catch (err) {
@@ -326,7 +332,8 @@ export default function ServerRack({ selectedDCId, initialTargetRackId, editRequ
     const prev = racksRef.current;
     // Updaters may mutate nested objects (port sync), so they work on a copy and `prev` stays the diff baseline
     const working = JSON.parse(JSON.stringify(prev));
-    const newRacks = typeof updater === 'function' ? updater(working) : updater;
+    // Unchanged racks keep their previous object, so only the racks this change touched re-render
+    const { racks: newRacks, changed } = shareUnchanged(prev, typeof updater === 'function' ? updater(working) : updater);
     racksRef.current = newRacks;
     setRacks(newRacks);
 
@@ -334,10 +341,7 @@ export default function ServerRack({ selectedDCId, initialTargetRackId, editRequ
 
     let patchData = null;
     if (newRacks.length === prev.length) {
-      patchData = newRacks.filter(nr => {
-        const old = prev.find(pr => pr.id === nr.id);
-        return JSON.stringify(nr) !== JSON.stringify(old);
-      });
+      patchData = changed;
       if (patchData.length === 0) return; // nothing changed
     }
 
@@ -637,7 +641,7 @@ export default function ServerRack({ selectedDCId, initialTargetRackId, editRequ
   };
 
   // Device Handlers
-  const openAddDevice = (rackId, uNumber) => {
+  const openAddDevice = (rackId, uNumber, sizeU = 1) => {
     setActiveDeviceTab('detail');
     setTargetRackId(rackId);
     setTargetU(uNumber);
@@ -645,7 +649,7 @@ export default function ServerRack({ selectedDCId, initialTargetRackId, editRequ
       id: `dev-${Date.now()}`,
       type: 'Server',
       startU: uNumber,
-      sizeU: 1,
+      sizeU,
       hostname: '',
       ip: '',
       iloIp: '',
@@ -943,7 +947,7 @@ export default function ServerRack({ selectedDCId, initialTargetRackId, editRequ
       toggleView: (rackId) => toggleRackView(rackId),
       exportRack: (rackId) => handleExportSingleRack(rackId),
       editRack: (rack) => openEditRack(rack),
-      addDevice: (rackId, u) => openAddDevice(rackId, u),
+      addDevice: (rackId, u, sizeU) => openAddDevice(rackId, u, sizeU),
       deviceClick: (rackId, device) => openActionModal(rackId, device),
       portClick: (device) => { setPortStatusDevice(device); setShowPortStatusModal(true); },
     };
@@ -969,6 +973,20 @@ export default function ServerRack({ selectedDCId, initialTargetRackId, editRequ
     return out;
   }, [racks, searchQuery, isMatched]);
   const noop = useCallback(() => {}, []);
+
+  // Capacity, free-space finder, type filter, overview mode (see RackToolbar)
+  const capacity = useMemo(() => capacitySummary(racks), [racks]);
+  const freeList = useMemo(() => (fitSize ? findFreeSpace(racks, fitSize) : []), [racks, fitSize]);
+  const typeKey = useMemo(() => typeFilterKey(hiddenTypes, DEVICE_TYPES.map(t => t.id)), [hiddenTypes]);
+  const simpleView = zoomLevel <= 50;
+  const jumpToFreeSpace = (entry) => {
+    setRacks(prev => prev.map(r => r.id === entry.rack.id && r.viewMode === 'back' ? { ...r, viewMode: 'front' } : r));
+    const turns = racks.find(r => r.id === entry.rack.id)?.viewMode === 'back';
+    setTimeout(() => {
+      const el = document.getElementById(`rack-container-${entry.rack.id}`);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+    }, turns ? 500 : 0);
+  };
 
   const handleNodeChange = (idx, field, val) => {
     const newNodes = [...(currentDevice.nodes || [])];
@@ -1012,11 +1030,13 @@ export default function ServerRack({ selectedDCId, initialTargetRackId, editRequ
     const rack = racks.find(r => r.id === rackId);
     if (!rack) return;
 
+    const frontId = rack.isBack ? rack.partnerId : rack.id;
+    const turns = (racks.find(r => r.id === frontId)?.viewMode === 'back') !== !!rack.isBack;
     if (rack.isBack) {
       const parentRackId = rack.partnerId;
-      setRacks(prev => prev.map(r => r.id === parentRackId ? { ...r, viewMode: 'back' } : r));
+      setRacks(prev => prev.map(r => r.id === parentRackId && r.viewMode !== 'back' ? { ...r, viewMode: 'back' } : r));
     } else {
-      setRacks(prev => prev.map(r => r.id === rackId ? { ...r, viewMode: 'front' } : r));
+      setRacks(prev => prev.map(r => r.id === rackId && r.viewMode === 'back' ? { ...r, viewMode: 'front' } : r));
     }
 
     // Wait for flip animation before scrolling
@@ -1035,7 +1055,7 @@ export default function ServerRack({ selectedDCId, initialTargetRackId, editRequ
           el.style.boxShadow = originalBoxShadow;
         }, 3000);
       }
-    }, 850);
+    }, turns ? 500 : 0);
   };
 
   const openReportForm = (device, rackId, nodeInfo = null) => {
@@ -1136,16 +1156,29 @@ export default function ServerRack({ selectedDCId, initialTargetRackId, editRequ
               type="text"
               placeholder="Search Racks or Devices by Name, IP, SN..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              style={{ width: '350px' }}
+              onChange={(e) => { setSearchQuery(e.target.value); setSearchIndex(-1); }}
+              onKeyDown={(e) => {
+                if (e.key !== 'Enter' || !searchResults.length) return;
+                e.preventDefault();
+                const next = stepIndex(searchIndex, searchResults.length, e.shiftKey ? -1 : 1);
+                setSearchIndex(next);
+                handleResultClick(searchResults[next]);
+              }}
+              title="Enter: next result, Shift+Enter: previous"
+              style={{ width: '350px', paddingRight: searchQuery ? '84px' : undefined }}
             />
+            {searchQuery && (
+              <span className="rack-search-count">
+                {searchResults.length ? `${searchIndex >= 0 ? searchIndex + 1 : '–'} / ${searchResults.length}` : '0 found'}
+              </span>
+            )}
             {searchQuery && searchResults.length > 0 && (
               <div className="search-dropdown glass-panel">
                 {searchResults.map((res, i) => (
                   <div
                     key={i}
-                    className="search-result-item"
-                    onClick={() => handleResultClick(res)}
+                    className={`search-result-item${i === searchIndex ? ' is-current' : ''}`}
+                    onClick={() => { setSearchIndex(i); handleResultClick(res); }}
                   >
                     {res.type === 'rack' ? (
                       <>
@@ -1155,7 +1188,7 @@ export default function ServerRack({ selectedDCId, initialTargetRackId, editRequ
                     ) : (
                       <>
                         <span className="res-name">{res.device.type === 'Reserve' ? (res.device.note || 'Reserved') : (res.device.hostname || res.device.type)}</span>
-                        <span className="res-loc">{res.rack.name} (U{res.device.startU})</span>
+                        <span className="res-loc">{res.rack.name} ({getSplitLocation(res.rack, res.device.startU)})</span>
                       </>
                     )}
                   </div>
@@ -1182,6 +1215,10 @@ export default function ServerRack({ selectedDCId, initialTargetRackId, editRequ
         </div>
       </div>
 
+      <RackToolbar
+        summary={capacity} simple={simpleView} fitSize={fitSize} onFitSize={setFitSize} freeList={freeList}
+        onJump={jumpToFreeSpace} hiddenTypes={hiddenTypes} onHiddenTypes={setHiddenTypes}
+      />
       <RackTooltip ref={tipRef} />
       <div className="rack-container" style={{ display: 'flex', flexDirection: 'column', gap: '3rem', flexWrap: 'nowrap', zoom: zoomLevel / 100 }}>
         {(() => {
@@ -1213,7 +1250,7 @@ export default function ServerRack({ selectedDCId, initialTargetRackId, editRequ
                   {sortedRacksInRow.map((rack) => (
                     <RackCard
                       key={rack.id} rack={rack} partner={rack.partnerId ? racks.find(r => r.id === rack.partnerId) || null : null}
-                      uOrder={uOrder} role={role} actions={rackActions}
+                      uOrder={uOrder} role={role} actions={rackActions} simple={simpleView} typeKey={typeKey} fitSize={fitSize}
                       matchedFront={matchedByRack.get(rack.id) || ''} matchedBack={matchedByRack.get(rack.partnerId) || ''}
                     />
                   ))}

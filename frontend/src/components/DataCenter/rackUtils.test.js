@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  shareUnchanged, occupiedUs, rackUsage, usageLevel, freeRanges, rangeUs, capacitySummary, findFreeSpace, typeFilterKey,
+  shareUnchanged, isSideMounted, occupiedUs, rackUsage, usageLevel, freeRanges, rangeUs, capacitySummary, findFreeSpace, typeFilterKey,
   stepIndex,
 } from './rackUtils.js';
 
@@ -31,6 +31,15 @@ test('occupiedUs and rackUsage count distinct U inside the rack', () => {
   assert.deepEqual(rackUsage(rack), { total: 10, used: 4, free: 6, pct: 40 });
   assert.deepEqual(rackUsage({ height: 0 }), { total: 0, used: 0, free: 0, pct: 0 });
   assert.deepEqual(rackUsage({ height: 4, devices: [dev('x', '1', '2')] }), { total: 4, used: 2, free: 2, pct: 50 });
+});
+
+test('side-mounted (vertical) PowerBars take no U', () => {
+  const pdu = { id: 'p', type: 'PowerBar', orientation: 'vertical', startU: 1, sizeU: 10 };
+  assert.equal(isSideMounted(pdu), true);
+  assert.equal(isSideMounted({ ...pdu, orientation: 'horizontal' }), false);
+  const rack = { height: 10, devices: [pdu, dev('a', 1, 2)] };
+  assert.deepEqual(rackUsage(rack), { total: 10, used: 2, free: 8, pct: 20 });
+  assert.deepEqual(freeRanges(rack, 1), [{ from: 3, to: 10, length: 8 }]);
 });
 
 test('usageLevel thresholds', () => {

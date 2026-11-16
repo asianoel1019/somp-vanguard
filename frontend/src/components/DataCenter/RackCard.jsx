@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import RackBody from './RackBody';
 import { rackBodyHeight } from './rackShared';
 import { rackUsage, usageLevel } from './rackUtils';
+import { TbArrowsExchange, TbBolt, TbDownload, TbPencil, TbServer2 } from 'react-icons/tb';
 
 // One rack of the layout: header and the face being viewed. Only that face is rendered (the other one is not in the
 // page); a flip plays a short 2D turn on this rack alone, swapping the face half way. Memoized: typing in a dialog
@@ -41,12 +42,12 @@ function RackCard({ rack, partner, uOrder, role, matchedFront, matchedBack, simp
       <div className="rack-header">
         <div className="rack-header-main">
           <div className="rack-title-row">
-            <span className="rack-type-icon">🖴</span>
+            <span className="rack-type-icon"><TbServer2 /></span>
             <h3 className="rack-name">
               {view === 'back' ? (<>{rack.name} <span style={{ color: 'var(--danger)' }}>(Back)</span></>) : rack.name}
             </h3>
             <div className="rack-power-badge">
-              <span className={`lightning-icon ${(rack.amps || rack.volts) ? 'active' : ''}`} title={(rack.amps || rack.volts) ? 'Power configured' : 'No power info'}>⚡</span>
+              <span className={`lightning-icon ${(rack.amps || rack.volts) ? 'active' : ''}`} title={(rack.amps || rack.volts) ? 'Power configured' : 'No power info'}><TbBolt /></span>
               {(rack.amps || rack.volts) && (
                 <span className="rack-power-text">
                   {rack.amps && <span>{rack.amps}A</span>}
@@ -67,10 +68,10 @@ function RackCard({ rack, partner, uOrder, role, matchedFront, matchedBack, simp
         </div>
         <div className="rack-header-actions">
           <div className="flex gap-2">
-            <button className="btn-icon" title="Flip View" onClick={() => actions.toggleView(rack.id)}>🔄</button>
-            <button className="btn-icon" title="Export to PNG Image" onClick={() => actions.exportRack(rack.id)}>📥</button>
+            <button className="btn-icon" title="Flip View" onClick={() => actions.toggleView(rack.id)}><TbArrowsExchange /></button>
+            <button className="btn-icon" title="Export to PNG Image" onClick={() => actions.exportRack(rack.id)}><TbDownload /></button>
             {role === 'SuperAdmin' && (
-              <button className="btn-icon" title="Edit Rack" onClick={() => actions.editRack(view === 'back' ? backRack : rack)}>🖊️</button>
+              <button className="btn-icon" title="Edit Rack" onClick={() => actions.editRack(view === 'back' ? backRack : rack)}><TbPencil /></button>
             )}
           </div>
         </div>

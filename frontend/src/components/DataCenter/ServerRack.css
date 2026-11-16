@@ -1451,3 +1451,33 @@
 .search-result-item.is-current {
   background: rgba(59, 130, 246, 0.18);
 }
+
+/* react-icons in buttons and labels of the Server Rack screen and its dialogs */
+.rack-ico {
+  flex-shrink: 0;
+  margin-right: 0.4rem;
+  vertical-align: -0.15em;
+}
+
+.btn-icon svg {
+  font-size: 1.05rem;
+  color: var(--text-primary);
+}
+
+.btn-icon:hover svg {
+  color: var(--accent-primary);
+}
+
+.rack-type-icon svg,
+.lightning-icon svg {
+  display: block;
+}
+
+.lightning-icon.active svg {
+  filter: drop-shadow(0 0 4px rgba(245, 158, 11, 0.6));
+}
+
+.search-icon {
+  display: inline-flex;
+  align-items: center;
+}

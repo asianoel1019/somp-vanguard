@@ -4,12 +4,22 @@ import RackCard from './RackCard';
 import RackBody from './RackBody';
 import RackTooltip from './RackTooltip';
 import RackToolbar from './RackToolbar';
-import { capacitySummary, findFreeSpace, shareUnchanged, stepIndex, typeFilterKey } from './rackUtils';
-import { DEVICE_TYPES, generateUs, getSplitLocation } from './rackShared';
+import RackFormModal from './RackFormModal';
+import DeviceModal from './DeviceModal';
+import DeviceActionModal from './DeviceActionModal';
+import PortStatusModal from './PortStatusModal';
+import SysAlertModal from './SysAlertModal';
+import SysConfirmModal from './SysConfirmModal';
+import PrintRacksModal from './PrintRacksModal';
+import MoveDeviceModal from './MoveDeviceModal';
+import RackPrintLayout from './RackPrintLayout';
+import RackExportLayout from './RackExportLayout';
+import { capacitySummary, findFreeSpace, isSideMounted, shareUnchanged, stepIndex, typeFilterKey } from './rackUtils';
+import { DEVICE_TYPES, getSplitLocation } from './rackShared';
 import api from '../../api';
 import * as htmlToImage from 'html-to-image';
 import { useToast } from '../../contexts/ToastContext';
-import { canOpenInNetworkDevice, openInNetworkDevice } from '../../utils/networkDeviceLink.js';
+import { TbSearch, TbServer2 } from 'react-icons/tb';
 
 
 
@@ -807,8 +817,9 @@ export default function ServerRack({ selectedDCId, initialTargetRackId, editRequ
         setSysAlert({ message: '設備不可跨越上下分離 (Split) 的分界！' });
         return;
       }
-      const hasCollision = (targetRack.devices || []).some(dev => {
-        if (dev.id === cleaned.id) return false;
+      // side-mounted (vertical) PowerBars take no U: same rule as the server
+      const hasCollision = !isSideMounted(cleaned) && (targetRack.devices || []).some(dev => {
+        if (dev.id === cleaned.id || isSideMounted(dev)) return false;
         const devEnd = dev.startU + dev.sizeU - 1;
         return Math.max(newStart, dev.startU) <= Math.min(newEnd, devEnd);
       });
@@ -1087,13 +1098,6 @@ export default function ServerRack({ selectedDCId, initialTargetRackId, editRequ
     setShowHWFormModal(true);
   };
 
-  const s = {
-    modalOverlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' },
-    modal: { background: '#1e293b', border: '1px solid #334155', borderRadius: 8, boxShadow: '0 10px 25px rgba(0,0,0,0.5)' },
-    btnPrimary: { background: 'var(--accent-primary)', color: '#000', border: 'none', padding: '8px 24px', borderRadius: 4, fontWeight: 'bold', cursor: 'pointer' },
-    portGrid: (cols) => ({ display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: 10 })
-  };
-
   const frontRacksOnly = racks.filter(r => !r.isBack);
   const rowsGroup = {};
   frontRacksOnly.forEach(r => {
@@ -1151,7 +1155,7 @@ export default function ServerRack({ selectedDCId, initialTargetRackId, editRequ
             </h1>
           </div>
           <div className="search-box" style={{ margin: 0 }}>
-            <span className="search-icon">🔍</span>
+            <span className="search-icon"><TbSearch /></span>
             <input
               type="text"
               placeholder="Search Racks or Devices by Name, IP, SN..."
@@ -1182,7 +1186,7 @@ export default function ServerRack({ selectedDCId, initialTargetRackId, editRequ
                   >
                     {res.type === 'rack' ? (
                       <>
-                        <span className="res-name">🖴 {res.rack.name} <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>(Rack)</span></span>
+                        <span className="res-name"><TbServer2 className="rack-ico" />{res.rack.name} <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>(Rack)</span></span>
                         <span className="res-loc">ROW {res.rack.rowNumber || 1}</span>
                       </>
                     ) : (
@@ -1263,1382 +1267,150 @@ export default function ServerRack({ selectedDCId, initialTargetRackId, editRequ
 
       {/* Rack Modal */}
       {showRackModal && (
-        <div className="modal-overlay">
-          <div className="modal-content glass-panel" style={{ maxWidth: '500px', height: 'auto', padding: '2rem' }}>
-            <button className="modal-close" onClick={() => setShowRackModal(false)}>×</button>
-            <h2 style={{ color: 'var(--accent-primary)', marginBottom: '1.5rem' }}>
-              {currentRack.id.startsWith('rack-') && currentRack.name === '' ? 'Add Server Rack' : 'Edit Server Rack'}
-            </h2>
-            <form onSubmit={saveRack}>
-              <div className="form-grid-3">
-                <div className="form-group span-2">
-                  <label>Rack Name</label>
-                  <input required type="text" value={currentRack.name} onChange={e => setCurrentRack({ ...currentRack, name: e.target.value })} placeholder="e.g. Rack-A01" />
-                </div>
-
-                <div className="form-group span-3" style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px dashed var(--border-color)' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', marginBottom: currentRack.isSplitDesign ? '12px' : '0' }}>
-                    <div style={{ position: 'relative', width: '40px', height: '22px' }}>
-                      <input type="checkbox" checked={currentRack.isSplitDesign || false} onChange={e => {
-                        const isSplit = e.target.checked;
-                        if (isSplit) {
-                          setCurrentRack({ ...currentRack, isSplitDesign: true, upperU: 20, lowerU: 22, height: 42 });
-                        } else {
-                          setCurrentRack({ ...currentRack, isSplitDesign: false });
-                        }
-                      }} style={{ opacity: 0, width: 0, height: 0, position: 'absolute' }} />
-                      <span style={{
-                        position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
-                        backgroundColor: currentRack.isSplitDesign ? 'var(--accent-primary)' : 'rgba(255,255,255,0.2)',
-                        transition: '.4s', borderRadius: '34px'
-                      }}>
-                        <span style={{
-                          position: 'absolute', height: '16px', width: '16px', left: '3px', bottom: '3px',
-                          backgroundColor: 'white', transition: '.4s', borderRadius: '50%',
-                          transform: currentRack.isSplitDesign ? 'translateX(18px)' : 'none'
-                        }}></span>
-                      </span>
-                    </div>
-                    <span style={{ fontWeight: 'bold', color: 'var(--accent-primary)' }}>Top/Bottom Split Design (上下櫃)</span>
-                  </label>
-
-                  {currentRack.isSplitDesign ? (
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                      <div className="form-group">
-                        <label>Upper Section (U)</label>
-                        <input required type="number" min="1" max="100" value={currentRack.upperU || ''} onChange={e => setCurrentRack({ ...currentRack, upperU: parseInt(e.target.value), height: parseInt(e.target.value) + (currentRack.lowerU || 0) })} />
-                      </div>
-                      <div className="form-group">
-                        <label>Lower Section (U)</label>
-                        <input required type="number" min="1" max="100" value={currentRack.lowerU || ''} onChange={e => setCurrentRack({ ...currentRack, lowerU: parseInt(e.target.value), height: (currentRack.upperU || 0) + parseInt(e.target.value) })} />
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="form-group" style={{ marginTop: '12px' }}>
-                      <label>Rack Height (U)</label>
-                      <input required type="number" min="1" max="100" value={currentRack.height} onChange={e => setCurrentRack({ ...currentRack, height: parseInt(e.target.value) })} />
-                    </div>
-                  )}
-                </div>
-
-                <div className="form-group">
-                  <label>Assign to Row</label>
-                  <select
-                    className="input-field"
-                    style={{ background: 'var(--bg-glass)', border: '1px solid var(--border-color)', color: 'white', padding: '0.75rem', borderRadius: '4px', width: '100%', height: '42px' }}
-                    value={currentRack.rowNumber || 1}
-                    onChange={e => {
-                      const val = e.target.value;
-                      if (val === 'new') {
-                        const existingRows = Array.from(new Set(racks.map(r => r.rowNumber || 1)));
-                        const maxRow = Math.max(0, ...existingRows);
-                        setCurrentRack({ ...currentRack, rowNumber: maxRow + 1 });
-                      } else {
-                        const targetRow = parseInt(val);
-                        // If it's a new rack, autofill settings from the target row
-                        if (currentRack.id.startsWith('rack-') && currentRack.name === '') {
-                          setCurrentRack(autofillRackFromRow(currentRack, targetRow));
-                        } else {
-                          setCurrentRack({ ...currentRack, rowNumber: targetRow });
-                        }
-                      }
-                    }}
-                  >
-                    {(() => {
-                      const existingRows = Array.from(new Set(racks.map(r => r.rowNumber || 1)));
-                      if (currentRack.rowNumber && !existingRows.includes(currentRack.rowNumber)) {
-                        existingRows.push(currentRack.rowNumber);
-                      }
-                      return existingRows.sort((a, b) => a - b).map(num => (
-                        <option key={num} value={num}>Row {num}</option>
-                      ));
-                    })()}
-                    <option value="new">+ Create New Row</option>
-                  </select>
-                </div>
-                <div className="form-group span-2">
-                  <label>Floor (樓層)</label>
-                  <input type="text" value={currentRack.floor} onChange={e => setCurrentRack({ ...currentRack, floor: e.target.value })} placeholder="e.g. 2F" />
-                </div>
-
-                <div className="form-group">
-                  <label>Amps (A)</label>
-                  <input type="text" value={currentRack.amps || ''} onChange={e => setCurrentRack({ ...currentRack, amps: e.target.value })} placeholder="e.g. 40" />
-                </div>
-                <div className="form-group">
-                  <label>Volts (V)</label>
-                  <input type="text" value={currentRack.volts || ''} onChange={e => setCurrentRack({ ...currentRack, volts: e.target.value })} placeholder="e.g. 220" />
-                </div>
-              </div>
-              <div className="flex justify-between mt-4">
-                <div className="flex gap-2">
-                  {!currentRack.id.startsWith('rack-') || currentRack.name !== '' ? (
-                    <button type="button" className="btn btn-danger" onClick={() => removeRack(currentRack.id)}>🗑️ Remove</button>
-                  ) : null}
-                </div>
-                <div className="flex gap-2">
-                  <button type="button" className="btn btn-outline" onClick={() => setShowRackModal(false)}>Cancel</button>
-                  <button type="submit" className="btn btn-primary">Save Rack</button>
-                </div>
-              </div>
-            </form>
-          </div>
-        </div>
+        <RackFormModal
+          racks={racks}
+          setShowRackModal={setShowRackModal}
+          currentRack={currentRack}
+          setCurrentRack={setCurrentRack}
+          autofillRackFromRow={autofillRackFromRow}
+          saveRack={saveRack}
+          removeRack={removeRack}
+        />
       )}
 
       {/* Device Modal */}
       {showDeviceModal && (
-        <div className="modal-overlay">
-          <div className="modal-content glass-panel" style={{ maxWidth: '700px', height: 'auto', padding: '0', display: 'flex', flexDirection: 'column', maxHeight: '90vh' }}>
-            <div style={{ padding: '1.5rem 2rem 0' }}>
-              <button className="modal-close" onClick={() => closeDeviceModal()}>×</button>
-              <h2 style={{ color: 'var(--accent-primary)', margin: 0 }}>
-                {currentDevice.id.startsWith('dev-') && !currentDevice.hostname ? `Add Device at ${getSplitLocation(racks.find(r => r.id === targetRackId), targetU)}` : 'Edit Device'}
-              </h2>
-              {!(currentDevice.id.startsWith('dev-') && !currentDevice.hostname) && canOpenInNetworkDevice(currentDevice) && (
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  style={{ marginTop: '0.75rem', padding: '6px 12px', fontSize: '0.85rem' }}
-                  title="Status, interfaces, policies and backups of this device (changes not saved here are discarded)"
-                  onClick={() => openInNetworkDevice(currentDevice.id)}
-                >
-                  🖧 Open in Network Device
-                </button>
-              )}
-            </div>
-
-            {/* Tabs */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.1)', padding: '1rem 2rem 0', marginTop: '1rem' }}>
-              <div style={{ display: 'flex', gap: '1rem' }}>
-                <button
-                  type="button"
-                  style={{ background: 'none', border: 'none', color: activeDeviceTab === 'detail' ? 'var(--accent-primary)' : '#94a3b8', borderBottom: activeDeviceTab === 'detail' ? '2px solid var(--accent-primary)' : '2px solid transparent', padding: '0.5rem 1rem', cursor: 'pointer', fontWeight: 'bold' }}
-                  onClick={() => setActiveDeviceTab('detail')}
-                >
-                  Device Detail
-                </button>
-                {!['PatchPanel', 'CableManagement', 'Shelf', 'Reserve'].includes(currentDevice.type) && (
-                  <button
-                    type="button"
-                    style={{ background: 'none', border: 'none', color: activeDeviceTab === 'portsCables' ? 'var(--accent-primary)' : '#94a3b8', borderBottom: activeDeviceTab === 'portsCables' ? '2px solid var(--accent-primary)' : '2px solid transparent', padding: '0.5rem 1rem', cursor: 'pointer', fontWeight: 'bold' }}
-                    onClick={() => {
-                      setActiveDeviceTab('portsCables');
-                      setEditingPort(null);
-                      if (snmpLive && !pollData) pollCurrentDevice();
-                    }}
-                  >
-                    {snmpLive ? 'Live Port Status' : 'Ports & Cables'}
-                  </button>
-                )}
-                {currentDevice.type === 'PowerBar' && (
-                  <button
-                    type="button"
-                    style={{ background: 'none', border: 'none', color: activeDeviceTab === 'powerLinks' ? 'var(--accent-primary)' : '#94a3b8', borderBottom: activeDeviceTab === 'powerLinks' ? '2px solid var(--accent-primary)' : '2px solid transparent', padding: '0.5rem 1rem', cursor: 'pointer', fontWeight: 'bold' }}
-                    onClick={() => setActiveDeviceTab('powerLinks')}
-                  >
-                    Power Links
-                  </button>
-                )}
-                {['Switch', 'Router', 'Firewall', 'LoadBalancer', 'Proxy', 'ISE', 'NAS', 'TapeLibrary'].includes(currentDevice.type) && (
-                  <button
-                    type="button"
-                    style={{ background: 'none', border: 'none', color: activeDeviceTab === 'snmp' ? 'var(--accent-primary)' : '#94a3b8', borderBottom: activeDeviceTab === 'snmp' ? '2px solid var(--accent-primary)' : '2px solid transparent', padding: '0.5rem 1rem', cursor: 'pointer', fontWeight: 'bold' }}
-                    onClick={() => setActiveDeviceTab('snmp')}
-                  >
-                    SNMP Config
-                  </button>
-                )}
-              </div>
-
-              {/* Right Aligned: Move Device Button */}
-              {role !== 'Viewer' && currentDevice.id && !(currentDevice.id.startsWith('dev-') && !currentDevice.hostname) && (
-                <button
-                  type="button"
-                  className="btn btn-outline"
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    fontSize: '0.85rem',
-                    padding: '0.35rem 0.9rem',
-                    borderColor: 'var(--accent-primary)',
-                    color: 'var(--accent-primary)',
-                    marginBottom: '4px',
-                    fontWeight: 'bold',
-                    borderRadius: '20px',
-                    cursor: 'pointer'
-                  }}
-                  onClick={openMoveModal}
-                  title="Migrate this device to another rack or U slot"
-                >
-                  <span>📦</span> Move Device
-                </button>
-              )}
-            </div>
-
-            <form onSubmit={saveDevice} style={{ padding: '2rem', overflowY: 'auto', flex: 1 }}>
-              {/* --- DETAIL TAB --- */}
-              {activeDeviceTab === 'detail' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                  <div className="form-row">
-                    <div className="form-group">
-                      <label>Device Type</label>
-                      <select value={currentDevice.type} onChange={e => {
-                        const newType = e.target.value;
-                        let defaultPorts = currentDevice.ports || 24;
-                        if (['Firewall', 'Router', 'LoadBalancer', 'Server', 'Storage', 'Nutanix', 'BladeChassis', 'NAS', 'TapeLibrary', 'Proxy', 'ISE'].includes(newType)) {
-                          defaultPorts = 4;
-                        }
-                        setCurrentDevice({ ...currentDevice, type: newType, ports: defaultPorts });
-                      }}>
-                        {['Compute', 'Network', 'Storage', 'Other'].map(cat => (
-                          <optgroup key={cat} label={cat}>
-                            {DEVICE_TYPES.filter(t => t.category === cat).map(t => (
-                              <option key={t.id} value={t.id}>{t.icon} {t.label}</option>
-                            ))}
-                          </optgroup>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="form-group flex gap-2">
-                      <div style={{ flex: 1 }}>
-                        <label>Start U</label>
-                        <input required type="number" min="1" value={currentDevice.startU} onChange={e => setCurrentDevice({ ...currentDevice, startU: parseInt(e.target.value) })} />
-                      </div>
-                      <div style={{ flex: 1 }}>
-                        <label>Size (U)</label>
-                        <input
-                          required
-                          type="number"
-                          min={currentDevice.type === 'PowerBar' && currentDevice.orientation === 'vertical' ? 5 : 1}
-                          value={currentDevice.sizeU}
-                          onChange={e => setCurrentDevice({ ...currentDevice, sizeU: parseInt(e.target.value) })}
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {currentDevice.type === 'Shelf' ? (
-                    <div style={{ padding: '2rem', textAlign: 'center', background: 'rgba(255,255,255,0.05)', borderRadius: '8px', border: '1px dashed rgba(255,255,255,0.2)' }}>
-                      <p style={{ color: 'var(--accent-primary)', fontWeight: 'bold', marginBottom: '0.5rem' }}>Structural Shelf (層板)</p>
-                      <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>This item represents a physical rack shelf. No configuration data is required.</p>
-                    </div>
-                  ) : currentDevice.type === 'KuaiKuai' ? (
-                    <div className="form-group" style={{ padding: '1rem', background: 'rgba(74, 222, 128, 0.05)', borderRadius: '8px', border: '1px solid rgba(74, 222, 128, 0.2)' }}>
-                      <label style={{ color: '#4ade80', fontWeight: 'bold' }}>Expiration Date (過期日)</label>
-                      <input 
-                        required
-                        type="date" 
-                        value={currentDevice.expiryDate || ''} 
-                        onChange={e => setCurrentDevice({ ...currentDevice, expiryDate: e.target.value, hostname: 'Kuai Kuai (乖乖)' })} 
-                        style={{ background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: '6px', color: '#fff', padding: '8px', width: '100%' }}
-                      />
-                      <span style={{ fontSize: 11, color: '#4ade80', marginTop: 8, display: 'block', opacity: 0.9 }}>
-                        💡 綠色椰子乖乖小提醒：過期會失去不當機法力，請務必定期更新更換唷！
-                      </span>
-                    </div>
-                  ) : currentDevice.type === 'Reserve' ? (
-                    <div className="form-group">
-                      <label>Note</label>
-                      <input type="text" value={currentDevice.note || ''} onChange={e => setCurrentDevice({ ...currentDevice, note: e.target.value })} placeholder="Reserved for future expansion..." />
-                    </div>
-                  ) : ['PatchPanel', 'CableManagement'].includes(currentDevice.type) ? (
-                    <>
-                      <div className="form-group">
-                        <label>Device Name</label>
-                        <input type="text" value={currentDevice.hostname || ''} onChange={e => setCurrentDevice({ ...currentDevice, hostname: e.target.value })} placeholder="Optional name" />
-                      </div>
-                      <div className="form-group">
-                        <label>Model</label>
-                        <input type="text" value={currentDevice.model || ''} onChange={e => setCurrentDevice({ ...currentDevice, model: e.target.value })} placeholder="e.g. APC PDU" />
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      {/* Hostname & Model / PDU specs */}
-                      {currentDevice.type === 'PowerBar' ? (
-                        <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr 1fr', gap: '1rem' }}>
-                          <div className="form-group">
-                            <label>PDU Label</label>
-                            <input required type="text" value={currentDevice.hostname || ''} onChange={e => setCurrentDevice({ ...currentDevice, hostname: e.target.value })} placeholder="PDU-A-1" />
-                          </div>
-                          <div className="form-group">
-                            <label>Model</label>
-                            <input type="text" value={currentDevice.model || ''} onChange={e => setCurrentDevice({ ...currentDevice, model: e.target.value })} placeholder="e.g. APC AP8853" />
-                          </div>
-                          <div className="form-group">
-                            <label>Current (A)</label>
-                            <input type="text" value={currentDevice.amps || ''} onChange={e => setCurrentDevice({ ...currentDevice, amps: e.target.value })} placeholder="e.g. 16A / 32A" />
-                          </div>
-                          <div className="form-group">
-                            <label>Voltage (V)</label>
-                            <input type="text" value={currentDevice.volts || ''} onChange={e => setCurrentDevice({ ...currentDevice, volts: e.target.value })} placeholder="e.g. 220V / 110V" />
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="form-row">
-                          <div className="form-group">
-                            <label>Hostname</label>
-                            <input required type="text" value={currentDevice.hostname || ''} onChange={e => setCurrentDevice({ ...currentDevice, hostname: e.target.value })} placeholder="HQ-SW-01" />
-                          </div>
-                          <div className="form-group">
-                            <label>Model</label>
-                            <input type="text" value={currentDevice.model || ''} onChange={e => setCurrentDevice({ ...currentDevice, model: e.target.value })} placeholder="e.g. Cisco C9200" />
-                          </div>
-                          <div className="form-group">
-                            <label>Serial Number</label>
-                            <input type="text" value={currentDevice.sn || ''} onChange={e => setCurrentDevice({ ...currentDevice, sn: e.target.value })} placeholder="SN1234567890" />
-                          </div>
-                        </div>
-                      )}
-
-                      {/* IP Addresses */}
-                      {currentDevice.type !== 'PowerBar' && !(['Nutanix', 'BladeChassis'].includes(currentDevice.type) && currentDevice.isChassis) && (
-                        <div className="form-row" style={{ display: 'grid', gridTemplateColumns: ['Nutanix', 'BladeChassis'].includes(currentDevice.type) ? '1fr 1fr 1fr' : '1fr 1fr', gap: '1rem' }}>
-                          <div className="form-group">
-                            <label>IP Address</label>
-                            <input type="text" value={currentDevice.ip || ''} onChange={e => setCurrentDevice({ ...currentDevice, ip: e.target.value })} placeholder="10.10.10.10" />
-                          </div>
-                          {['Nutanix', 'BladeChassis'].includes(currentDevice.type) && (
-                            <div className="form-group">
-                              <label>CVM IP</label>
-                              <input type="text" value={currentDevice.cvmIp || ''} onChange={e => setCurrentDevice({ ...currentDevice, cvmIp: e.target.value })} placeholder="10.10.10.10" />
-                            </div>
-                          )}
-                          <div className="form-group">
-                            <label>iLO / OOB IP</label>
-                            <input type="text" value={currentDevice.iloIp || ''} onChange={e => setCurrentDevice({ ...currentDevice, iloIp: e.target.value })} placeholder="10.10.10.10" />
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Nutanix Chassis */}
-                      {['Nutanix', 'BladeChassis'].includes(currentDevice.type) && (
-                        <div className="form-row align-items-center" style={{ marginBottom: '1rem', background: 'rgba(255,255,255,0.05)', padding: '0.5rem', borderRadius: '4px' }}>
-                          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', margin: 0 }}>
-                            <input type="checkbox" style={{ width: 'auto', margin: 0 }} checked={currentDevice.isChassis || false} onChange={e => setCurrentDevice({ ...currentDevice, isChassis: e.target.checked, nodes: e.target.checked ? Array.from({ length: currentDevice.nodeCount || 1 }).map((_, i) => (currentDevice.nodes && currentDevice.nodes[i]) || { hostname: '', ip: '', cvmIp: '', iloIp: '', sn: '', model: '', ports: 4, portLinks: {} }) : [] })} />
-                            <span style={{ fontWeight: 'bold', color: 'var(--accent-primary)' }}>Is Chassis (Multi-Node)</span>
-                          </label>
-                          {currentDevice.isChassis && (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginLeft: '1.5rem' }}>
-                              <label style={{ margin: 0 }}>Node Count:</label>
-                              <input type="number" min="1" max="4" style={{ width: '80px', padding: '0.2rem 0.5rem', background: 'rgba(0,0,0,0.3)', border: '1px solid #444', color: '#fff' }} value={currentDevice.nodeCount || 1} onChange={e => {
-                                const count = parseInt(e.target.value);
-                                const nodes = Array.from({ length: count }).map((_, i) => (currentDevice.nodes && currentDevice.nodes[i]) || { hostname: '', ip: '', cvmIp: '', iloIp: '', sn: '', model: '', ports: 4, portLinks: {} });
-                                setCurrentDevice({ ...currentDevice, nodeCount: count, nodes });
-                              }} />
-                            </div>
-                          )}
-                        </div>
-                      )}
-
-                      {['Nutanix', 'BladeChassis'].includes(currentDevice.type) && currentDevice.isChassis && (
-                        <div style={{ paddingRight: '10px', marginTop: '1rem', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '1rem' }}>
-                          <h4 style={{ marginTop: 0, marginBottom: '1rem', color: 'var(--accent-primary)', fontSize: '1rem' }}>Chassis Nodes ({currentDevice.nodeCount || 1})</h4>
-                          {Array.from({ length: currentDevice.nodeCount || 1 }).map((_, idx) => {
-                            const node = (currentDevice.nodes && currentDevice.nodes[idx]) || { hostname: '', ip: '', cvmIp: '', iloIp: '', sn: '', model: '', ports: 4, portLinks: {} };
-                            return (
-                              <div key={idx} style={{ border: '1px solid rgba(255,255,255,0.2)', padding: '1rem', marginBottom: '1.5rem', borderRadius: '8px', background: 'rgba(0,0,0,0.3)' }}>
-                                <h4 style={{ marginTop: 0, marginBottom: '0.8rem', color: 'var(--accent-primary)', fontSize: '0.9rem', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '0.3rem' }}>Node {idx + 1}</h4>
-                                <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
-                                  <div className="form-group">
-                                    <label style={{ fontSize: '0.75rem' }}>Hostname</label>
-                                    <input type="text" style={{ padding: '0.4rem' }} placeholder="e.g. NTNX-Node-01" value={node.hostname || ''} onChange={e => handleNodeChange(idx, 'hostname', e.target.value)} />
-                                  </div>
-                                  <div className="form-group">
-                                    <label style={{ fontSize: '0.75rem' }}>Serial Number (SN)</label>
-                                    <input type="text" style={{ padding: '0.4rem' }} placeholder="e.g. 19SM12345678" value={node.sn || ''} onChange={e => handleNodeChange(idx, 'sn', e.target.value)} />
-                                  </div>
-                                </div>
-                                <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem' }}>
-                                  <div className="form-group">
-                                    <label style={{ fontSize: '0.75rem' }}>IP Address</label>
-                                    <input type="text" style={{ padding: '0.4rem' }} placeholder="10.10.10.11" value={node.ip || ''} onChange={e => handleNodeChange(idx, 'ip', e.target.value)} />
-                                  </div>
-                                  <div className="form-group">
-                                    <label style={{ fontSize: '0.75rem' }}>CVM IP</label>
-                                    <input type="text" style={{ padding: '0.4rem' }} placeholder="10.10.10.21" value={node.cvmIp || ''} onChange={e => handleNodeChange(idx, 'cvmIp', e.target.value)} />
-                                  </div>
-                                  <div className="form-group">
-                                    <label style={{ fontSize: '0.75rem' }}>iLO / OOB IP</label>
-                                    <input type="text" style={{ padding: '0.4rem' }} placeholder="10.10.10.31" value={node.iloIp || ''} onChange={e => handleNodeChange(idx, 'iloIp', e.target.value)} />
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </>
-                  )}
-                </div>
-              )}
-
-              {/* --- PORTS & CABLES TAB --- */}
-              {activeDeviceTab === 'portsCables' && snmpLive ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <h3 style={{ color: 'var(--accent-primary)', margin: 0 }}>Live Port Status (via SNMP)</h3>
-                    <button type="button" className="btn btn-outline" disabled={pollLoading} onClick={pollCurrentDevice}>
-                      {pollLoading ? 'Polling...' : 'Refresh'}
-                    </button>
-                  </div>
-                  {pollLoading && <p style={{ color: 'var(--text-secondary)' }}>Querying device, please wait...</p>}
-                  {!pollLoading && !pollData && <p style={{ color: 'var(--text-secondary)' }}>No data. Click refresh to poll device.</p>}
-
-                  {pollData && (
-                    <div>
-                      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${pollData.ports.length > 10 ? Math.ceil(pollData.ports.length / 2) : pollData.ports.length}, 1fr)`, gap: '10px' }}>
-                        {pollData.ports.map((p, i) => {
-                          const isUp = p.status === 'Up' || p.value === '1'; // 1=Up in SNMP
-                          return (
-                            <div key={i} style={{
-                              aspectRatio: '1', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                              background: isUp ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)',
-                              border: `1px solid ${isUp ? 'var(--success)' : 'var(--danger)'}`,
-                              borderRadius: '4px', color: isUp ? 'var(--success)' : 'var(--danger)',
-                              fontSize: '11px', fontWeight: 'bold'
-                            }} title={`Port ${p.name || p.port || i + 1} - ${p.speed || 'Unknown'}`}>
-                              {p.name || p.port || i + 1}
-                            </div>
-                          )
-                        })}
-                      </div>
-                      <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '1rem' }}>Manual Ports & Cables are disabled because SNMP is active. Data is fetched automatically.</p>
-                    </div>
-                  )}
-                </div>
-              ) : activeDeviceTab === 'portsCables' ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                  {editingPort ? (
-                    <div style={{ background: 'rgba(15, 23, 42, 0.9)', border: '1px solid var(--accent-primary)', padding: '1.5rem', borderRadius: '8px', boxShadow: '0 4px 12px rgba(0,0,0,0.5)' }}>
-                      <h3 style={{ marginTop: 0, color: 'var(--accent-primary)' }}>Edit Connection for Port {editingPort.portIndex + 1}</h3>
-                      <div className="form-group">
-                        <label>Target Device</label>
-                        <select
-                          value={editingPort.target}
-                          onChange={e => setEditingPort({ ...editingPort, target: e.target.value, targetPort: '' })}
-                          style={{ width: '100%' }}
-                        >
-                          <option value="">-- Disconnected --</option>
-                          {allDevicesInDC.map(d => (
-                            <option key={d.id} value={d.hostname || d.name}>{d.hostname || d.name} ({d.type})</option>
-                          ))}
-                        </select>
-                      </div>
-
-                      {editingPort.target && (() => {
-                        const targetDev = allDevicesInDC.find(d => (d.hostname || d.name) === editingPort.target);
-                        const tPorts = targetDev ? (targetDev.ports || 0) : 0;
-                        return (
-                          <div className="form-group">
-                            <label>Target Port</label>
-                            {tPorts > 0 ? (
-                              <select
-                                value={editingPort.targetPort}
-                                onChange={e => setEditingPort({ ...editingPort, targetPort: e.target.value })}
-                                style={{ width: '100%' }}
-                              >
-                                <option value="">-- Select Port --</option>
-                                {Array.from({ length: tPorts }).map((_, i) => (
-                                  <option key={i} value={`P${i + 1}`}>P{i + 1}</option>
-                                ))}
-                              </select>
-                            ) : (
-                              <input
-                                type="text"
-                                placeholder="e.g. Eth1/1"
-                                value={editingPort.targetPort}
-                                onChange={e => setEditingPort({ ...editingPort, targetPort: e.target.value })}
-                                style={{ width: '100%' }}
-                              />
-                            )}
-                          </div>
-                        );
-                      })()}
-
-                      {editingPort.target && (
-                        <div className="form-group">
-                          <label>Cable Color</label>
-                          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                            {Object.entries(CABLE_COLORS).map(([colorName, colorHex]) => (
-                              <div
-                                key={colorName}
-                                onClick={() => setEditingPort({ ...editingPort, cableColor: colorName })}
-                                style={{
-                                  width: '30px', height: '30px', borderRadius: '50%', background: colorHex,
-                                  cursor: 'pointer', border: editingPort.cableColor === colorName ? '3px solid #fff' : '2px solid transparent',
-                                  boxShadow: editingPort.cableColor === colorName ? '0 0 10px rgba(255,255,255,0.5)' : 'none'
-                                }}
-                                title={colorName}
-                              />
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
-                        <button type="button" className="btn btn-secondary" onClick={() => setEditingPort(null)}>Cancel</button>
-                        <button type="button" className="btn btn-primary" onClick={() => {
-                          const newLinks = { ...(currentDevice.portLinks || {}) };
-                          if (!editingPort.target) {
-                            delete newLinks[editingPort.portIndex];
-                          } else {
-                            newLinks[editingPort.portIndex] = {
-                              target: editingPort.target,
-                              targetPort: editingPort.targetPort,
-                              cableColor: editingPort.cableColor
-                            };
-                          }
-                          setCurrentDevice({ ...currentDevice, portLinks: newLinks });
-                          setEditingPort(null);
-                        }}>
-                          Apply
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="form-group" style={{ background: 'rgba(255,255,255,0.05)', padding: '1rem', borderRadius: '8px', display: 'flex', gap: '2rem' }}>
-                        <div>
-                          <label style={{ color: 'var(--accent-primary)', fontSize: '1rem', display: 'block', marginBottom: '0.5rem' }}>Total Ports</label>
-                          <input type="number" min="0" max="96" value={currentDevice.ports || 0} onChange={e => setCurrentDevice({ ...currentDevice, ports: parseInt(e.target.value) })} style={{ maxWidth: '150px' }} />
-                        </div>
-                        {['Switch', 'Firewall', 'Router', 'LoadBalancer', 'PatchPanel', 'CableManagement', 'Server', 'Proxy', 'ISE', 'NAS', 'TapeLibrary'].includes(currentDevice.type) && (
-                          <div>
-                            <label style={{ color: 'var(--accent-primary)', fontSize: '1rem', display: 'block', marginBottom: '0.5rem' }}>Rows (Display)</label>
-                            <select value={currentDevice.rows || 1} onChange={e => setCurrentDevice({ ...currentDevice, rows: parseInt(e.target.value) })} style={{ maxWidth: '150px' }}>
-                              <option value={1}>1 Row</option>
-                              <option value={2}>2 Rows</option>
-                            </select>
-                          </div>
-                        )}
-                      </div>
-
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '1rem' }}>
-                        {Array.from({ length: currentDevice.ports || 0 }).map((_, pi) => {
-                          const link = currentDevice.portLinks?.[pi];
-                          let targetHostname = '';
-                          let cableColor = 'Blue';
-                          let targetPort = '';
-                          if (typeof link === 'string') {
-                            targetHostname = link;
-                          } else if (link && typeof link === 'object') {
-                            targetHostname = link.target || '';
-                            targetPort = link.targetPort || '';
-                            cableColor = link.cableColor || 'Blue';
-                          }
-
-                          return (
-                            <div key={pi} style={{ border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(0,0,0,0.3)', borderRadius: '8px', padding: '0.8rem', position: 'relative' }}>
-                              <div style={{ fontWeight: 'bold', fontSize: '1.1rem', marginBottom: '0.5rem', color: '#f1f5f9' }}>Port {pi + 1}</div>
-                              {targetHostname ? (
-                                <div style={{ fontSize: '0.8rem', color: '#cbd5e1', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                    <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: CABLE_COLORS[cableColor] || CABLE_COLORS.Blue, display: 'inline-block' }}></span>
-                                    <span>To: <strong>{targetHostname}</strong></span>
-                                  </div>
-                                  {targetPort && <div>Port: {targetPort}</div>}
-                                  <button type="button" onClick={() => openPortEditor(pi, link)} style={{ marginTop: '0.5rem', padding: '0.2rem 0.5rem', background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', borderRadius: '4px', cursor: 'pointer', fontSize: '0.7rem' }}>Edit Connection</button>
-                                </div>
-                              ) : (
-                                <button type="button" onClick={() => openPortEditor(pi, null)} style={{ padding: '0.4rem 0.8rem', background: 'var(--accent-primary)', border: 'none', color: '#000', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 'bold', width: '100%' }}>+ Connect</button>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </>
-                  )}
-                </div>
-              ) : null}
-
-              {/* --- POWER LINKS TAB --- */}
-              {activeDeviceTab === 'powerLinks' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                  {currentDevice.type === 'PowerBar' ? (
-                    <>
-                      <div className="form-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '1rem' }}>
-                        <div className="form-group">
-                          <label>Orientation</label>
-                          <select value={currentDevice.orientation || 'horizontal'} onChange={e => setCurrentDevice({ ...currentDevice, orientation: e.target.value })}>
-                            <option value="horizontal">Horizontal (Rack Mount)</option>
-                            <option value="vertical">Vertical (Side Mount)</option>
-                          </select>
-                        </div>
-                        {currentDevice.orientation === 'vertical' && (
-                          <div className="form-group">
-                            <label>Side</label>
-                            <select value={currentDevice.side || 'left'} onChange={e => setCurrentDevice({ ...currentDevice, side: e.target.value })}>
-                              <option value="left">Left Side</option>
-                              <option value="right">Right Side</option>
-                              <option value="both">Both Sides</option>
-                            </select>
-                          </div>
-                        )}
-                        <div className="form-group">
-                          <label>Ways (Outlets)</label>
-                          <input type="number" min="1" max="42" value={currentDevice.ways || 8} onChange={e => setCurrentDevice({ ...currentDevice, ways: parseInt(e.target.value) })} />
-                        </div>
-                        <div className="form-group">
-                          <label>Rows</label>
-                          <select value={currentDevice.rows || 1} onChange={e => setCurrentDevice({ ...currentDevice, rows: parseInt(e.target.value) })}>
-                            <option value={1}>1 Row</option>
-                            <option value={2}>2 Rows</option>
-                            <option value={3}>3 Rows</option>
-                          </select>
-                        </div>
-                        <div className="form-group">
-                          <label>Current (A)</label>
-                          <input type="text" value={currentDevice.amps || ''} onChange={e => setCurrentDevice({ ...currentDevice, amps: e.target.value })} placeholder="e.g. 16A" />
-                        </div>
-                        <div className="form-group">
-                          <label>Voltage (V)</label>
-                          <input type="text" value={currentDevice.volts || ''} onChange={e => setCurrentDevice({ ...currentDevice, volts: e.target.value })} placeholder="e.g. 220V" />
-                        </div>
-                      </div>
-
-                      <div style={{ background: 'rgba(255,255,255,0.05)', padding: '1rem', borderRadius: '8px' }}>
-                        <label style={{ color: 'var(--accent-primary)', marginBottom: '1rem', display: 'block', fontWeight: 'bold' }}>Outlet Connections</label>
-                        <div style={{ display: 'grid', gridTemplateColumns: currentDevice.rows === 3 ? '1fr 1fr 1fr' : ((currentDevice.rows === 2 || currentDevice.side === 'both') ? '1fr 1fr' : '1fr'), gap: '0.8rem' }}>
-                          {(() => {
-                            const items = [];
-                            const wayCount = currentDevice.ways || 8;
-                            if (currentDevice.orientation === 'vertical') {
-                              if (currentDevice.side === 'both') {
-                                for (let i = 0; i < wayCount; i++) items.push({ key: `L${i}`, label: `Left Way ${i + 1}` });
-                                for (let i = 0; i < wayCount; i++) items.push({ key: `R${i}`, label: `Right Way ${i + 1}` });
-                              } else if (currentDevice.side === 'right') {
-                                for (let i = 0; i < wayCount; i++) items.push({ key: `R${i}`, label: `Way ${i + 1}` });
-                              } else {
-                                for (let i = 0; i < wayCount; i++) items.push({ key: `L${i}`, label: `Way ${i + 1}` });
-                              }
-                            } else {
-                              for (let i = 0; i < wayCount; i++) items.push({ key: i, label: `Way ${i + 1}` });
-                            }
-                            return items.map((item) => {
-                              const link = currentDevice.wayLinks?.[item.key];
-                              let targetHostname = '';
-                              if (typeof link === 'string') targetHostname = link;
-                              else if (link && link.target) targetHostname = link.target;
-
-                              return (
-                                <div key={item.key} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'rgba(0,0,0,0.3)', padding: '0.5rem', borderRadius: '6px' }}>
-                                  <span style={{ fontSize: '0.8rem', width: '80px', color: '#cbd5e1' }}>{item.label}</span>
-                                  <input
-                                    type="text"
-                                    style={{ flex: 1, padding: '0.3rem 0.5rem', fontSize: '0.8rem', background: '#0f172a', border: '1px solid #334155' }}
-                                    placeholder="Connect to..."
-                                    value={targetHostname}
-                                    onChange={e => {
-                                      const newLinks = { ...(currentDevice.wayLinks || {}) };
-                                      newLinks[item.key] = { target: e.target.value, cableColor: 'Yellow' };
-                                      setCurrentDevice({ ...currentDevice, wayLinks: newLinks });
-                                    }}
-                                  />
-                                </div>
-                              );
-                            });
-                          })()}
-                        </div>
-                      </div>
-                    </>
-                  ) : (
-                    <div style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>
-                      <p>This tab allows configuring upstream power connections (e.g. connecting PSU 1 to PDU-A).</p>
-                      <p style={{ fontStyle: 'italic' }}>(Feature coming soon for non-PDU devices)</p>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* --- SNMP CONFIG TAB --- */}
-              {activeDeviceTab === 'snmp' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxWidth: '500px' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 'bold', cursor: role === 'Viewer' ? 'default' : 'pointer' }}>
-                    <input type="checkbox" checked={!!snmpForm.enabled} disabled={role === 'Viewer'} onChange={e => setSnmpForm({ ...snmpForm, enabled: e.target.checked })} />
-                    啟用 SNMP 查詢
-                  </label>
-                  {!snmpForm.enabled && (
-                    <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>停用時不會對此設備進行 SNMP 查詢 (Ports &amp; Cables 改為手動維護)，下方設定可先不填。</p>
-                  )}
-                  <div className="form-group">
-                    <label>SNMP Version</label>
-                    <select value={snmpForm.version} onChange={e => setSnmpForm({ ...snmpForm, version: e.target.value })}>
-                      <option value="v1">v1</option>
-                      <option value="v2c">v2c</option>
-                      <option value="v3">v3</option>
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label>Port</label>
-                    <input type="number" value={snmpForm.port} onChange={e => setSnmpForm({ ...snmpForm, port: e.target.value })} />
-                  </div>
-                  {(snmpForm.version === 'v2c' || snmpForm.version === 'v1') && (
-                    <div className="form-group">
-                      <label>Community String</label>
-                      <input type="password" value={snmpForm.community || ''} onChange={e => setSnmpForm({ ...snmpForm, community: e.target.value })} />
-                    </div>
-                  )}
-                  {snmpForm.version === 'v3' && (
-                    <>
-                      <div className="form-group">
-                        <label>Security Name (User)</label>
-                        <input type="text" value={snmpForm.v3User || ''} onChange={e => setSnmpForm({ ...snmpForm, v3User: e.target.value })} />
-                      </div>
-                      <div className="form-group">
-                        <label>Auth Password (SHA)</label>
-                        <input type="password" value={snmpForm.v3AuthPass || ''} onChange={e => setSnmpForm({ ...snmpForm, v3AuthPass: e.target.value })} />
-                      </div>
-                      <div className="form-group">
-                        <label>Priv Password (AES)</label>
-                        <input type="password" value={snmpForm.v3PrivPass || ''} onChange={e => setSnmpForm({ ...snmpForm, v3PrivPass: e.target.value })} />
-                      </div>
-                    </>
-                  )}
-                  {role !== 'Viewer' && (
-                    <button type="button" className="btn btn-primary" onClick={() => {
-                      const payload = { ...snmpForm, enabled: !!snmpForm.enabled };
-                      api.post(`/network-device/${currentDevice.id}/snmp`, payload).then(() => {
-                        setSnmpSavedEnabled(payload.enabled);
-                        setPollData(null);
-                        setSysAlert({ message: payload.enabled
-                          ? 'SNMP Settings Saved. The Ports & Cables tab will now show live SNMP status.'
-                          : 'SNMP Settings Saved. SNMP 查詢已停用，不會對此設備進行查詢。' });
-                      }).catch(err => setSysAlert({ message: 'Failed: ' + (err.response?.data?.error || err.message) }));
-                    }}>Save SNMP Settings</button>
-                  )}
-                </div>
-              )}
-
-
-              <div className="modal-actions" style={{ display: 'flex', justifyContent: 'space-between', marginTop: '2rem', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '1.5rem' }}>
-                <button type="button" className="btn btn-danger" onClick={removeDevice} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <span>🗑️</span> Remove
-                </button>
-                <div style={{ display: 'flex', gap: '1rem' }}>
-                  <button type="button" className="btn btn-secondary" onClick={() => closeDeviceModal()}>Cancel</button>
-                  <button type="submit" className="btn btn-primary">Save Device</button>
-                </div>
-              </div>
-            </form>
-          </div>
-        </div>
+        <DeviceModal
+          role={role}
+          racks={racks}
+          activeDeviceTab={activeDeviceTab}
+          setActiveDeviceTab={setActiveDeviceTab}
+          editingPort={editingPort}
+          setEditingPort={setEditingPort}
+          snmpForm={snmpForm}
+          setSnmpForm={setSnmpForm}
+          setSnmpSavedEnabled={setSnmpSavedEnabled}
+          pollData={pollData}
+          setPollData={setPollData}
+          pollLoading={pollLoading}
+          setSysAlert={setSysAlert}
+          CABLE_COLORS={CABLE_COLORS}
+          currentDevice={currentDevice}
+          setCurrentDevice={setCurrentDevice}
+          targetRackId={targetRackId}
+          targetU={targetU}
+          allDevicesInDC={allDevicesInDC}
+          openPortEditor={openPortEditor}
+          closeDeviceModal={closeDeviceModal}
+          pollCurrentDevice={pollCurrentDevice}
+          snmpLive={snmpLive}
+          openMoveModal={openMoveModal}
+          saveDevice={saveDevice}
+          removeDevice={removeDevice}
+          handleNodeChange={handleNodeChange}
+        />
       )}
 
       {/* Action Modal */}
       {showActionModal && currentActionDevice && (
-        <div className="modal-overlay">
-          <div className="modal-content glass-panel" style={{ width: 'max-content', minWidth: '220px', height: 'auto', padding: '2rem' }}>
-            <button className="modal-close" onClick={() => setShowActionModal(false)}>×</button>
-            <h2 style={{ color: 'var(--accent-primary)', marginBottom: '1.5rem', fontSize: '1.2rem', textAlign: 'center' }}>
-              {currentActionDevice.type === 'Reserve' ? 'Reserved Space' : (currentActionDevice.hostname || currentActionDevice.type)}
-            </h2>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              {role !== 'Viewer' && (
-                <button
-                  className="btn btn-outline"
-                  style={{ justifyContent: 'center', fontSize: '1rem', padding: '0.8rem 1rem' }}
-                  onClick={() => {
-                    setShowActionModal(false);
-                    openEditDevice(targetRackId, currentActionDevice);
-                  }}
-                >
-                  ✏️ Edit Device
-                </button>
-              )}
-
-              {currentActionDevice.type !== 'Reserve' && (
-                <button
-                  className="btn btn-outline"
-                  style={{ justifyContent: 'center', fontSize: '1rem', padding: '0.8rem 1rem' }}
-                  onClick={() => openReportForm(currentActionDevice, targetRackId)}
-                >
-                  ⚠️ Report HW issue
-                </button>
-              )}
-
-              {currentActionDevice.iloIp && (
-                <button
-                  className="btn btn-outline"
-                  style={{ justifyContent: 'center', fontSize: '1rem', padding: '0.8rem 1rem' }}
-                  onClick={() => window.open(`https://${currentActionDevice.iloIp}`, '_blank')}
-                >
-                  🚀 Launch iLO
-                </button>
-              )}
-
-              {['Nutanix', 'BladeChassis'].includes(currentActionDevice.type) && currentActionDevice.isChassis && currentActionDevice.nodes && currentActionDevice.nodes.length > 0 && (
-                <div style={{ marginTop: '1rem', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '1rem' }}>
-                  <h4 style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>Nodes</h4>
-                  <ul style={{ listStyle: 'none', padding: 0, fontSize: '0.8rem' }}>
-                    {currentActionDevice.nodes.map((n, i) => (
-                      <li key={i} style={{ marginBottom: '0.6rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.03)', padding: '6px 10px', borderRadius: '6px' }}>
-                        <div>
-                          <div style={{ fontWeight: 600, color: '#fff' }}>Node {i + 1}: {n.hostname || 'Unknown'}</div>
-                          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                            {n.ip && <span>IP: {n.ip}</span>}
-                            {n.sn && <span style={{ marginLeft: 8, color: '#93c5fd' }}>SN: {n.sn}</span>}
-                          </div>
-                        </div>
-                        <button className="btn btn-outline" style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem', borderColor: 'var(--accent-primary)', color: 'var(--accent-primary)' }} onClick={() => openReportForm(currentActionDevice, targetRackId, n)}>⚠️ Report</button>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+        <DeviceActionModal
+          role={role}
+          targetRackId={targetRackId}
+          setShowActionModal={setShowActionModal}
+          currentActionDevice={currentActionDevice}
+          openEditDevice={openEditDevice}
+          openReportForm={openReportForm}
+        />
       )}
 
       {/* Port Status Modal (Read-only View) */}
       {showPortStatusModal && portStatusDevice && (
-        <div className="modal-overlay" onClick={() => setShowPortStatusModal(false)} style={{ zIndex: 9999 }}>
-          <div className="modal-content glass-panel" style={{ width: '80%', maxWidth: '800px', height: 'auto', maxHeight: '80vh', padding: '2rem', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '1rem' }}>
-              <h2 style={{ color: 'var(--accent-primary)', margin: 0, fontSize: '1.5rem' }}>
-                {portStatusDevice.hostname || portStatusDevice.type} - Port Status
-              </h2>
-              <button onClick={() => setShowPortStatusModal(false)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '28px', lineHeight: 1 }}>&times;</button>
-            </div>
-
-            <div style={portStatusDevice && portStatusDevice._actualPorts > 0 ? s.portGrid(Math.min(Math.ceil(portStatusDevice._actualPorts / 2), 12)) : {}}>
-              {Array.from({ length: portStatusDevice._actualPorts }).map((_, i) => {
-                let label = `P${i + 1}`;
-                let liveClass = '';
-                let isUp = false;
-                if (portStatusDevice.livePorts && portStatusDevice.livePorts[i]) {
-                  isUp = portStatusDevice.livePorts[i].status === 'Up' || portStatusDevice.livePorts[i].value === '1';
-                  liveClass = isUp ? ' snmp-up' : ' snmp-down';
-                  label = portStatusDevice.livePorts[i].name || label;
-                } else {
-                  isUp = !!portStatusDevice.portLinks?.[i];
-                }
-
-                let tooltip = label;
-                if (portStatusDevice.portLinks?.[i]) {
-                  const link = portStatusDevice.portLinks[i];
-                  tooltip = `Connected to: ${typeof link === 'object' ? link.target : link}`;
-                }
-                if (portStatusDevice.livePorts && portStatusDevice.livePorts[i]) {
-                  tooltip += ` | SNMP: ${portStatusDevice.livePorts[i].status || portStatusDevice.livePorts[i].value}`;
-                }
-
-                return (
-                  <div key={i} style={{
-                    aspectRatio: '1', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    background: isUp ? 'rgba(34,197,94,0.1)' : (portStatusDevice.livePorts ? 'rgba(239,68,68,0.1)' : 'rgba(255,255,255,0.05)'),
-                    border: `1px solid ${isUp ? 'var(--success)' : (portStatusDevice.livePorts ? 'var(--danger)' : 'rgba(255,255,255,0.2)')}`,
-                    borderRadius: '4px', color: isUp ? 'var(--success)' : (portStatusDevice.livePorts ? 'var(--danger)' : '#fff'),
-                    fontSize: '11px', fontWeight: 'bold'
-                  }} title={tooltip}>
-                    {label}
-                  </div>
-                )
-              })}
-            </div>
-            {portStatusDevice.livePorts && (
-              <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '1.5rem', textAlign: 'center' }}>
-                * SNMP Live Status is active.
-              </p>
-            )}
-          </div>
-        </div>
+        <PortStatusModal
+          setShowPortStatusModal={setShowPortStatusModal}
+          portStatusDevice={portStatusDevice}
+        />
       )}
 
       {/* Custom Alert Modal */}
       {sysAlert && (
-        <div style={s.modalOverlay}>
-          <div style={{ ...s.modal, maxWidth: 400, padding: 24, textAlign: 'center' }}>
-            <h3 style={{ fontSize: 18, marginBottom: 16 }}>Notice</h3>
-            <p style={{ marginBottom: 24, color: 'var(--text-secondary)' }}>{sysAlert.message}</p>
-            <button style={s.btnPrimary} onClick={() => setSysAlert(null)}>OK</button>
-          </div>
-        </div>
+        <SysAlertModal
+          sysAlert={sysAlert}
+          setSysAlert={setSysAlert}
+        />
       )}
 
       {/* Custom Confirm Modal */}
       {sysConfirm && (
-        <div style={s.modalOverlay}>
-          <div style={{ ...s.modal, maxWidth: 400, padding: 24, textAlign: 'center' }}>
-            <h3 style={{ fontSize: 18, marginBottom: 16 }}>Confirm Action</h3>
-            <p style={{ marginBottom: 24, color: 'var(--text-secondary)' }}>{sysConfirm.message}</p>
-            <div style={{ display: 'flex', justifyContent: 'center', gap: 12 }}>
-              <button style={{ ...s.btnPrimary, background: 'var(--bg-tertiary)', color: 'var(--text-primary)' }} onClick={() => setSysConfirm(null)}>Cancel</button>
-              <button style={{ ...s.btnPrimary, background: 'var(--danger)' }} onClick={() => { sysConfirm.onConfirm(); setSysConfirm(null); }}>Confirm</button>
-            </div>
-          </div>
-        </div>
+        <SysConfirmModal
+          sysConfirm={sysConfirm}
+          setSysConfirm={setSysConfirm}
+        />
       )}
 
       {/* Print Racks Modal */}
       {showPrintModal && (
-        <div className="modal-overlay">
-          <div className="modal-content glass-panel" style={{ maxWidth: '600px', width: '90%', height: 'auto', maxHeight: '85vh', padding: '2.5rem', overflowY: 'auto' }}>
-            <button className="modal-close" onClick={() => setShowPrintModal(false)}>×</button>
-            <h2 style={{ color: 'var(--accent-primary)', marginBottom: '1.5rem', fontSize: '1.4rem' }}>
-              Output PNG
-            </h2>
-            <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem' }}>
-              <button className="btn btn-outline" type="button" style={{ padding: '0.4rem 1rem', fontSize: '0.85rem' }} onClick={() => {
-                const allSel = {};
-                racks.forEach(r => { if(!r.isBack) allSel[r.id] = true; });
-                setSelectedPrintRacks(allSel);
-              }}>Select All</button>
-              <button className="btn btn-outline" type="button" style={{ padding: '0.4rem 1rem', fontSize: '0.85rem' }} onClick={() => setSelectedPrintRacks({})}>Clear All</button>
-            </div>
-            
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '2rem' }}>
-              {sortedRowNumbers.map(rowNum => {
-                const rowRacks = rowsGroup[rowNum];
-                const isExpanded = !!expandedPrintRows[rowNum];
-                const isRowAllSelected = rowRacks.every(r => selectedPrintRacks[r.id]);
-                const isRowAnySelected = rowRacks.some(r => selectedPrintRacks[r.id]);
-                const isRowPartiallySelected = isRowAnySelected && !isRowAllSelected;
-
-                return (
-                  <div key={rowNum} style={{ background: 'rgba(255,255,255,0.02)', padding: '12px 16px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-                    <div 
-                      onClick={() => setExpandedPrintRows(prev => ({ ...prev, [rowNum]: !prev[rowNum] }))}
-                      style={{ 
-                        display: 'flex', 
-                        alignItems: 'center', 
-                        justifyContent: 'space-between', 
-                        cursor: 'pointer',
-                        userSelect: 'none'
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center' }}>
-                        <input 
-                          type="checkbox"
-                          checked={isRowAllSelected}
-                          ref={el => {
-                            if (el) el.indeterminate = isRowPartiallySelected;
-                          }}
-                          onChange={e => {
-                            const checked = e.target.checked;
-                            setSelectedPrintRacks(prev => {
-                              const next = { ...prev };
-                              rowRacks.forEach(r => { next[r.id] = checked; });
-                              return next;
-                            });
-                          }}
-                          onClick={e => e.stopPropagation()}
-                          style={{ cursor: 'pointer', width: '15px', height: '15px', marginRight: '8px' }}
-                        />
-                        <span style={{ fontWeight: 'bold', color: 'var(--accent-primary)', fontSize: '0.9rem' }}>
-                          ROW {rowNum}
-                        </span>
-                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: '8px' }}>
-                          ({rowRacks.filter(r => selectedPrintRacks[r.id]).length}/{rowRacks.length} selected)
-                        </span>
-                      </div>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                        {isExpanded ? '▲' : '▼'}
-                      </span>
-                    </div>
-
-                    {isExpanded && (
-                      <div style={{ 
-                        display: 'grid', 
-                        gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', 
-                        gap: '6px 12px', 
-                        marginTop: '12px',
-                        borderTop: '1px solid rgba(255,255,255,0.05)',
-                        paddingTop: '10px'
-                      }}>
-                        {rowRacks.map(rack => (
-                          <label key={rack.id} style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', fontSize: '0.85rem', userSelect: 'none' }}>
-                            <input 
-                              type="checkbox" 
-                              checked={!!selectedPrintRacks[rack.id]} 
-                              onChange={e => {
-                                setSelectedPrintRacks(prev => ({ ...prev, [rack.id]: e.target.checked }));
-                              }}
-                              style={{ width: '13px', height: '13px', cursor: 'pointer', margin: 0 }}
-                            />
-                            <span style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }} title={rack.name}>
-                              {rack.name}
-                            </span>
-                          </label>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
-              <button className="btn btn-outline" onClick={() => setShowPrintModal(false)}>Cancel</button>
-              <button className="btn btn-primary" onClick={handleTriggerExport} disabled={!Object.values(selectedPrintRacks).some(Boolean)}>
-                Output PNG
-              </button>
-            </div>
-          </div>
-        </div>
+        <PrintRacksModal
+          racks={racks}
+          setShowPrintModal={setShowPrintModal}
+          selectedPrintRacks={selectedPrintRacks}
+          setSelectedPrintRacks={setSelectedPrintRacks}
+          expandedPrintRows={expandedPrintRows}
+          setExpandedPrintRows={setExpandedPrintRows}
+          handleTriggerExport={handleTriggerExport}
+          rowsGroup={rowsGroup}
+          sortedRowNumbers={sortedRowNumbers}
+        />
       )}
 
       {/* Move Device Modal */}
       {showMoveModal && currentDevice && (
-        <div className="modal-overlay" style={{ zIndex: 3000 }}>
-          <div className="modal-content glass-panel" style={{ maxWidth: '540px', padding: '2rem', borderRadius: '16px' }}>
-            <button className="modal-close" onClick={() => setShowMoveModal(false)}>×</button>
-            <h2 style={{ color: 'var(--accent-primary)', marginTop: 0, marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '1.4rem' }}>
-              <span>📦</span> Move Device
-            </h2>
-            <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.5rem', lineHeight: '1.4' }}>
-              Migrate device "<strong style={{ color: 'var(--text-primary)' }}>{currentDevice.hostname || currentDevice.name || currentDevice.type}</strong>" ({currentDevice.sizeU}U) to a new rack and U position.
-            </p>
-
-            {moveError && (
-              <div style={{ padding: '0.75rem 1rem', background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.4)', borderRadius: '8px', color: '#ef4444', fontSize: '0.85rem', marginBottom: '1rem' }}>
-                {moveError}
-              </div>
-            )}
-
-            {(() => {
-              const frontRacks = racks.filter(r => !r.isBack);
-              const selectedBaseFrontRack = frontRacks.find(r => r.id === moveTargetRackId) || frontRacks[0];
-              if (!selectedBaseFrontRack) return null;
-
-              // Determine effective destination rack (Front or Back)
-              let targetRack = selectedBaseFrontRack;
-              if (moveTargetToBack) {
-                const backPartner = racks.find(r => r.isBack && (r.partnerId === selectedBaseFrontRack.id || r.id === selectedBaseFrontRack.partnerId || r.id === `${selectedBaseFrontRack.id}-back`));
-                if (backPartner) {
-                  targetRack = backPartner;
-                }
-              }
-
-              const isSplit = !!targetRack.isSplitDesign;
-              const actualStartU = isSplit && moveTargetSection === 'Up'
-                ? ((targetRack.lowerU || 0) + parseInt(moveTargetU || 1, 10))
-                : parseInt(moveTargetU || 1, 10);
-              const actualEndU = actualStartU + (parseInt(currentDevice.sizeU, 10) || 1) - 1;
-
-              // Collision & Boundary validation
-              let collisionMsg = null;
-              let isCollision = false;
-
-              if (actualEndU > targetRack.height) {
-                isCollision = true;
-                collisionMsg = `Device height (${currentDevice.sizeU}U) exceeds target rack height (${targetRack.height}U)`;
-              } else if (isSplit && moveTargetSection === 'Down' && actualEndU > targetRack.lowerU) {
-                isCollision = true;
-                collisionMsg = `Device height (${currentDevice.sizeU}U) exceeds Down section limit (D${targetRack.lowerU}U)`;
-              } else {
-                const collidingDev = (targetRack.devices || []).find(d => {
-                  if (d.id === currentDevice.id && targetRack.id === targetRackId) return false;
-                  const dStart = parseInt(d.startU, 10) || 1;
-                  const dEnd = dStart + (parseInt(d.sizeU, 10) || 1) - 1;
-                  return Math.max(actualStartU, dStart) <= Math.min(actualEndU, dEnd);
-                });
-                if (collidingDev) {
-                  isCollision = true;
-                  collisionMsg = `Space Conflict: Overlaps with "${collidingDev.hostname || collidingDev.name || collidingDev.type}" (${getSplitLocation(targetRack, collidingDev.startU)})!`;
-                }
-              }
-
-              const handleExecuteMove = async () => {
-                if (isCollision) return;
-                setMoveLoading(true);
-                setMoveError('');
-                try {
-                  // let queued rack saves finish first so the reload below includes them
-                  await saveChainRef.current;
-                  const dcId = selectedDC?.id || 'default';
-                  const res = await api.post('/rack/move-device', {
-                    dcId,
-                    deviceId: currentDevice.id,
-                    sourceRackId: targetRackId,
-                    targetRackId: targetRack.id,
-                    targetU: actualStartU
-                  });
-                  if (res.data.success) {
-                    showToast(res.data.message || 'Device moved successfully!', 'success');
-                    if (Number.isInteger(res.data.revision)) revisionsRef.current[dcId] = res.data.revision;
-                    // Refresh rack list (and revision) from backend
-                    if (selectedDC) await reloadRacks(selectedDC);
-                    setShowMoveModal(false);
-                    closeDeviceModal();
-                  }
-                } catch (err) {
-                  setMoveError(err.response?.data?.error || err.message || 'Failed to move device');
-                } finally {
-                  setMoveLoading(false);
-                }
-              };
-
-              return (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-                  {/* Current Location Info */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.75rem 1rem', background: 'rgba(255,255,255,0.03)', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)', fontSize: '0.85rem' }}>
-                    <span style={{ color: 'var(--text-muted)' }}>📍 Current Location:</span>
-                    <span style={{ fontWeight: 'bold', color: 'var(--text-primary)' }}>
-                      [{racks.find(r => r.id === targetRackId)?.name || 'Unknown'}] {getSplitLocation(racks.find(r => r.id === targetRackId), currentDevice.startU)}
-                    </span>
-                  </div>
-
-                  {/* Target Rack Selection */}
-                  <div className="form-group">
-                    <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.85rem', fontWeight: 'bold', color: 'var(--text-primary)' }}>
-                      Target Rack (目標機櫃)
-                    </label>
-                    <select
-                      className="form-control"
-                      value={moveTargetRackId}
-                      onChange={e => {
-                        const newRackId = e.target.value;
-                        setMoveTargetRackId(newRackId);
-                        setMoveTargetSection('Down');
-                        setMoveTargetU(1);
-                      }}
-                      style={{ width: '100%', padding: '0.6rem 0.8rem', borderRadius: '8px', background: 'rgba(0,0,0,0.3)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', outline: 'none' }}
-                    >
-                      {frontRacks.map(r => (
-                        <option key={r.id} value={r.id}>
-                          {r.name} (Row {r.rowNumber || 1}) - {r.isSplitDesign ? `Split Rack (Up ${r.upperU}U / Down ${r.lowerU}U)` : `Standard Rack (${r.height}U)`}
-                        </option>
-                      ))}
-                    </select>
-
-                    {/* Move to Back Checkbox */}
-                    <div style={{ marginTop: '0.75rem' }}>
-                      <label style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                        cursor: 'pointer',
-                        fontSize: '0.85rem',
-                        color: 'var(--text-primary)',
-                        userSelect: 'none',
-                        background: moveTargetToBack ? 'rgba(59, 130, 246, 0.15)' : 'rgba(255, 255, 255, 0.03)',
-                        padding: '6px 12px',
-                        borderRadius: '6px',
-                        border: `1px solid ${moveTargetToBack ? '#3b82f6' : 'var(--border-color)'}`,
-                        transition: 'all 0.2s ease'
-                      }}>
-                        <input
-                          type="checkbox"
-                          checked={moveTargetToBack}
-                          onChange={e => setMoveTargetToBack(e.target.checked)}
-                          style={{ width: '16px', height: '16px', cursor: 'pointer' }}
-                        />
-                        <span style={{ fontWeight: 700, color: moveTargetToBack ? '#60a5fa' : 'var(--text-primary)' }}>
-                          🔄 Move to Back (移動至機櫃背面)
-                        </span>
-                      </label>
-                    </div>
-                  </div>
-
-                  {/* Section selection if Target Rack is Split Design */}
-                  {isSplit && (
-                    <div className="form-group">
-                      <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.85rem', fontWeight: 'bold', color: 'var(--text-primary)' }}>
-                        Section (Up / Down)
-                      </label>
-                      <div style={{ display: 'flex', gap: '1.5rem', padding: '0.6rem 1rem', background: 'rgba(255,255,255,0.02)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '0.85rem', color: 'var(--text-primary)', userSelect: 'none' }}>
-                          <input
-                            type="radio"
-                            name="moveSection"
-                            checked={moveTargetSection === 'Down'}
-                            onChange={() => { setMoveTargetSection('Down'); setMoveTargetU(1); }}
-                            style={{ cursor: 'pointer' }}
-                          />
-                          <span><strong>Down</strong> (D1U ~ D{targetRack.lowerU}U)</span>
-                        </label>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '0.85rem', color: 'var(--text-primary)', userSelect: 'none' }}>
-                          <input
-                            type="radio"
-                            name="moveSection"
-                            checked={moveTargetSection === 'Up'}
-                            onChange={() => { setMoveTargetSection('Up'); setMoveTargetU(1); }}
-                            style={{ cursor: 'pointer' }}
-                          />
-                          <span><strong>Up</strong> (U1U ~ U{targetRack.upperU}U)</span>
-                        </label>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Target U Selection */}
-                  <div className="form-group">
-                    <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.85rem', fontWeight: 'bold', color: 'var(--text-primary)' }}>
-                      Target U Slot
-                    </label>
-                    <select
-                      className="form-control"
-                      value={moveTargetU}
-                      onChange={e => setMoveTargetU(parseInt(e.target.value, 10))}
-                      style={{ width: '100%', padding: '0.6rem 0.8rem', borderRadius: '8px', background: 'rgba(0,0,0,0.3)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', outline: 'none' }}
-                    >
-                      {(() => {
-                        const maxU = isSplit
-                          ? (moveTargetSection === 'Up' ? (targetRack.upperU || 20) : (targetRack.lowerU || 22))
-                          : (targetRack.height || 42);
-                        const uList = generateUs(maxU, uOrder);
-                        return uList.map(u => {
-                          const label = isSplit
-                            ? (moveTargetSection === 'Up' ? `U${u}U (Slot ${u})` : `D${u}U (Slot ${u})`)
-                            : `U${u} (Slot ${u})`;
-                          return (
-                            <option key={u} value={u}>
-                              {label}
-                            </option>
-                          );
-                        });
-                      })()}
-                    </select>
-                  </div>
-
-                  {/* Realtime Status Indicator */}
-                  <div style={{
-                    padding: '0.75rem 1rem',
-                    borderRadius: '8px',
-                    fontSize: '0.85rem',
-                    background: isCollision ? 'rgba(239,68,68,0.1)' : 'rgba(16,185,129,0.1)',
-                    border: `1px solid ${isCollision ? 'rgba(239,68,68,0.3)' : 'rgba(16,185,129,0.3)'}`,
-                    color: isCollision ? '#ef4444' : '#10b981',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px'
-                  }}>
-                    <span>{isCollision ? '⚠️' : '✅'}</span>
-                    <span style={{ fontWeight: 600 }}>
-                      {isCollision
-                        ? collisionMsg
-                        : `Target Position Available: [${targetRack.name}] ${getSplitLocation(targetRack, actualStartU)} (${currentDevice.sizeU}U)`}
-                    </span>
-                  </div>
-
-                  {/* Actions */}
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '0.5rem' }}>
-                    <button
-                      type="button"
-                      className="btn btn-outline"
-                      onClick={() => setShowMoveModal(false)}
-                      disabled={moveLoading}
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-primary"
-                      onClick={handleExecuteMove}
-                      disabled={isCollision || moveLoading}
-                      style={{ opacity: isCollision || moveLoading ? 0.6 : 1 }}
-                    >
-                      {moveLoading ? 'Moving...' : 'Confirm Move'}
-                    </button>
-                  </div>
-                </div>
-              );
-            })()}
-          </div>
-        </div>
+        <MoveDeviceModal
+          showToast={showToast}
+          racks={racks}
+          selectedDC={selectedDC}
+          uOrder={uOrder}
+          setShowMoveModal={setShowMoveModal}
+          moveTargetRackId={moveTargetRackId}
+          setMoveTargetRackId={setMoveTargetRackId}
+          moveTargetSection={moveTargetSection}
+          setMoveTargetSection={setMoveTargetSection}
+          moveTargetU={moveTargetU}
+          setMoveTargetU={setMoveTargetU}
+          moveTargetToBack={moveTargetToBack}
+          setMoveTargetToBack={setMoveTargetToBack}
+          moveLoading={moveLoading}
+          setMoveLoading={setMoveLoading}
+          moveError={moveError}
+          setMoveError={setMoveError}
+          currentDevice={currentDevice}
+          targetRackId={targetRackId}
+          revisionsRef={revisionsRef}
+          saveChainRef={saveChainRef}
+          closeDeviceModal={closeDeviceModal}
+          reloadRacks={reloadRacks}
+        />
       )}
 
       {/* Print Only Layout */}
       {isPrinting && (
-        <div className="print-only-layout">
-          {getSelectedRacksList().map((rack, pageIdx) => {
-            const backRack = racks.find(r => r.id === rack.partnerId) || { ...rack, name: `${rack.name} (Back)`, devices: [], isBack: true };
-            const activeRack = rack.viewMode === 'back' ? backRack : rack;
-
-            // Calculate dynamic scale factor to make any height rack fit on one A4 page
-            const rackHeightU = activeRack.height || 42;
-            const unscaledHeight = (rackHeightU * 38) + 120; // 38px per U + header/padding padding
-            const maxPrintHeight = 800; // Comfortable height space in A4 format (297mm height minus margins/headers)
-            
-            let scaleFactor = maxPrintHeight / unscaledHeight;
-            if (scaleFactor > 0.95) scaleFactor = 0.95;
-            if (scaleFactor < 0.25) scaleFactor = 0.25;
-            
-            const scaledHeight = unscaledHeight * scaleFactor;
-            
-            const scaleStyle = {
-              transform: `scale(${scaleFactor})`,
-              transformOrigin: 'top center',
-              height: `${scaledHeight}px`
-            };
-
-            return (
-              <div key={rack.id} className="print-a4-page">
-                <div className="print-page-header">
-                  <h2>{selectedDC ? `[${selectedDC.name}] Server Rack Report` : 'Server Rack Report'}</h2>
-                  <span>Page {pageIdx + 1} of {getSelectedRacksList().length}</span>
-                </div>
-                <div className="print-page-racks">
-                  <div className="print-rack-wrapper-box">
-                    <div className="print-rack-title">
-                      <h3>{activeRack.name}</h3>
-                      <span style={{ fontSize: '11px', color: '#888' }}>
-                        {activeRack.height}U | {activeRack.devices?.length || 0} devices ({activeRack.viewMode === 'back' ? 'Back' : 'Front'})
-                      </span>
-                    </div>
-                    <div className="print-rack-scale-wrapper" style={scaleStyle}>
-                      <RackBody rack={activeRack} uOrder={uOrder} canAdd={false} onAddDevice={noop} onDeviceClick={noop} onPortClick={noop} />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+        <RackPrintLayout
+          racks={racks}
+          selectedDC={selectedDC}
+          uOrder={uOrder}
+          noop={noop}
+          getSelectedRacksList={getSelectedRacksList}
+        />
       )}
 
       {/* Off-screen Image Export Render Layout */}
       {isExporting && (
-        <div className="export-offscreen-container">
-          <div id="export-combined-container" style={{ display: 'flex', flexDirection: 'column', gap: '3rem', padding: '30px', background: '#0b0c13', width: 'max-content' }}>
-            <h2 style={{ color: '#3b82f6', margin: '0 0 1rem 0', fontFamily: 'sans-serif' }}>
-              {selectedDC ? `[${selectedDC.name}] Server Rack Report` : 'Server Rack Report'}
-            </h2>
-            {(() => {
-              const selectedList = getSelectedRacksList();
-              const rowGroups = {};
-              selectedList.forEach(rack => {
-                const rowNum = rack.rowNumber || 1;
-                if (!rowGroups[rowNum]) rowGroups[rowNum] = [];
-                rowGroups[rowNum].push(rack);
-              });
-              
-              const sortedRowNums = Object.keys(rowGroups).map(Number).sort((a, b) => a - b);
-              
-              return sortedRowNums.map(rowNum => (
-                <div key={rowNum} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                  <div style={{ fontSize: '0.9rem', color: '#3b82f6', fontWeight: 'bold', borderLeft: '4px solid #3b82f6', paddingLeft: '0.5rem', fontFamily: 'sans-serif' }}>
-                    ROW {rowNum}
-                  </div>
-                  <div style={{ display: 'flex', gap: '3rem', flexWrap: 'nowrap' }}>
-                    {rowGroups[rowNum].map(rack => {
-                      const backRack = racks.find(r => r.id === rack.partnerId) || { ...rack, name: `${rack.name} (Back)`, devices: [], isBack: true };
-                      const activeRack = rack.viewMode === 'back' ? backRack : rack;
-                      return (
-                        <div key={rack.id} className="export-rack-box" style={{ padding: '0', background: 'transparent' }}>
-                          <div className="export-rack-title">
-                            <h3>{activeRack.name}</h3>
-                            <span style={{ fontSize: '12px', color: '#888' }}>
-                              {activeRack.height}U | {activeRack.devices?.length || 0} devices ({activeRack.viewMode === 'back' ? 'Back' : 'Front'})
-                            </span>
-                          </div>
-                          <div className="export-rack-body-wrapper">
-                            <RackBody rack={activeRack} uOrder={uOrder} canAdd={false} onAddDevice={noop} onDeviceClick={noop} onPortClick={noop} />
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ));
-            })()}
-          </div>
-        </div>
+        <RackExportLayout
+          racks={racks}
+          selectedDC={selectedDC}
+          uOrder={uOrder}
+          noop={noop}
+          getSelectedRacksList={getSelectedRacksList}
+        />
       )}
     </div>
   );

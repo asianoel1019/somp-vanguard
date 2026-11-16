@@ -17,10 +17,14 @@ export function shareUnchanged(prev, next) {
   return { racks, changed };
 }
 
-/** The set of U numbers taken by devices on this face. */
+/** A vertical (side-mounted) PowerBar takes no U (same rule as the server, backend/lib/rackLayout.js). */
+export const isSideMounted = (device) => !!device && device.type === 'PowerBar' && device.orientation === 'vertical';
+
+/** The set of U numbers taken by devices on this face (side-mounted PowerBars take none). */
 export function occupiedUs(rack) {
   const out = new Set();
   for (const d of rack?.devices || []) {
+    if (isSideMounted(d)) continue;
     const start = Number(d.startU) || 0;
     const size = Number(d.sizeU) || 0;
     for (let u = start; u < start + size; u++) out.add(u);

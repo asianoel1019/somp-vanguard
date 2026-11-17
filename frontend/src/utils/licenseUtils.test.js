@@ -10,7 +10,7 @@ const memoryStorage = (init = {}) => {
 };
 
 test('PAID_FEATURE_INFO covers the paid feature keys', () => {
-    assert.deepEqual(Object.keys(PAID_FEATURE_INFO).sort(), ['aiAgent', 'dataCenter', 'install', 'ipam', 'manage_self_healing', 'netSearch', 'networkDevice', 'remoteCmd', 'scheduler', 'workflow']);
+    assert.deepEqual(Object.keys(PAID_FEATURE_INFO).sort(), ['adControl', 'aiAgent', 'dataCenter', 'install', 'ipam', 'manage_self_healing', 'monitorAgents', 'monitorAlerts', 'monitorLinuxLog', 'monitorScout', 'monitorWinEvent', 'netSearch', 'networkDevice', 'nutanixClone', 'remoteCmd', 'scheduler', 'workflow']);
     for (const v of Object.values(PAID_FEATURE_INFO)) assert.ok(v.name && v.desc);
 });
 

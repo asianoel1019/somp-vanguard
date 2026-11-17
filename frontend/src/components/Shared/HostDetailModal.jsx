@@ -87,11 +87,13 @@ export default function HostDetailModal({ isOpen, onClose, initialHost }) {
     const fetchModalData = async (targetHost, rangeVal = 1) => {
         try {
             // Fetch rules, bindings, alerts
+            // Monitor data is optional: a 403 (free edition or RBAC) must not stop the integration check below
+            const none = () => ({ data: [] });
             const [rRes, bRes, aRes, xRes] = await Promise.all([
-                api.get('/monitor/rules'),
-                api.get('/monitor/rules/bindings'),
-                api.get('/monitor/data/alerts'),
-                api.get('/monitor/rules/exclusions').catch(() => ({ data: [] }))
+                api.get('/monitor/rules').catch(none),
+                api.get('/monitor/rules/bindings').catch(none),
+                api.get('/monitor/data/alerts').catch(none),
+                api.get('/monitor/rules/exclusions').catch(none)
             ]);
             setRules(rRes.data || []);
             setBindings(bRes.data || []);

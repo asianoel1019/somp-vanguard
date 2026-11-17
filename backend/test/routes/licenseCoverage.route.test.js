@@ -27,6 +27,14 @@ const CASES = [
     ['netSearch', '/api/netsearch', 'get', '/status', require('../../routes/netsearch')],
     ['dataCenter', '/api/rack', 'get', '/contracts', require('../../routes/rack')],
     ['dataCenter', '/api/rack', 'get', '/datacenters', require('../../routes/rack')],
+    ['adControl', '/api/ad', 'get', '/mappings', require('../../routes/ad')],
+    ['adControl', '/api/gpo', 'get', '/list', require('../../routes/gpo')],
+    ['monitorScout', '/api/monitor', 'get', '/data/dashboard', require('../../routes/monitor')],
+    ['monitorAlerts', '/api/alert-quality', 'get', '/settings', require('../../routes/alertQuality')],
+    ['monitorWinEvent', '/api/monitor-siem', 'get', '/local-stats', require('../../routes/monitorSiem')],
+    ['nutanixClone', '/api/nutanix', 'get', '/clone-status', require('../../routes/nutanix')],
+    ['nutanixClone', '/api/nutanix', 'post', '/clone', require('../../routes/nutanix')],
+    ['nutanixClone', '/api/nutanix', 'get', '/templates', require('../../routes/nutanix')],
 ];
 const ADMIN = `Bearer ${signToken({ username: 'admin', domain: 'local', role: 'SuperAdmin' })}`;
 let app;
@@ -55,3 +63,10 @@ for (const [key, base, method, path] of CASES) {
         assert.notEqual(paid.body && paid.body.code, 'LICENSE_REQUIRED');
     });
 }
+
+test('Nutanix VM list stays available on the free edition (only Clone VM is paid)', async () => {
+    setFree();
+    const r = await request(app).get('/api/nutanix/connection-status').set('Authorization', ADMIN);
+    assert.notEqual(r.body && r.body.code, 'LICENSE_REQUIRED');
+    setPaid();
+});

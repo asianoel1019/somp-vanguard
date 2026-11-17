@@ -14,6 +14,13 @@ export const PAID_FEATURE_INFO = {
     ipam: { name: 'IPAM', desc: 'IP address and subnet management, subnet scans and DNS sync, with IPs in use elsewhere registered automatically.' },
     netSearch: { name: 'NetSearch', desc: 'Search the configuration backups of every network device to find where an IP, VLAN or ACL appears.' },
     dataCenter: { name: 'Data Center', desc: 'Data centers and rack layouts, topology map, hardware issues, spare parts stock, and contract and warranty expiry reminders.' },
+    adControl: { name: 'AD Control', desc: 'Active Directory users, groups and OUs, reports and bulk actions, password expiry notices, and Group Policy management (links, inheritance, security filtering, backups).' },
+    monitorScout: { name: 'Scout Monitor', desc: 'Live CPU, memory, disk and service status of every host running the Scout agent, with history charts and tags, and the Scout Open API for other systems.' },
+    monitorAlerts: { name: 'Alerts & Rules', desc: 'Alert rules, bindings and exclusions per host or tag, alert history, alert quality and bulk resolve.' },
+    monitorWinEvent: { name: 'Live Event Viewer', desc: 'Windows event and Linux log streams from the Scout agents, SIEM analytics and forensics.' },
+    monitorLinuxLog: { name: 'Log Settings', desc: 'Which Windows event logs and Linux log files each Scout agent collects, and log retention.' },
+    monitorAgents: { name: 'Agents', desc: 'Scout agent API keys, agent install tokens, versions and connection status.' },
+    nutanixClone: { name: 'Nutanix Clone VM', desc: 'Clone VMs from templates in bulk, with IP / switch and template / BU mappings and live clone progress. The VM list and power actions stay available on the free edition.' },
 };
 
 export function readStoredLicense(storage = globalThis.localStorage) {

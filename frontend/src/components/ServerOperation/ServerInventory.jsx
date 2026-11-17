@@ -136,10 +136,12 @@ const ServerInventory = () => {
 
     const fetchData = async () => {
         try { 
+            // A non-OK answer (e.g. IPAM is a paid feature: 403 LICENSE_REQUIRED on the free edition) is an error body, not a list
+            const listOf = async (res) => { const body = await res.json().catch(() => null); return res.ok && Array.isArray(body) ? body : []; };
             const r = await fetch('/api/inventory/data', { headers: headers() }); 
-            setData(await r.json()); 
+            setData(await listOf(r)); 
             const r3 = await fetch('/api/ipam/subnets', { headers: headers() });
-            setIpamSubnets(await r3.json());
+            setIpamSubnets(await listOf(r3));
             const r4 = await fetch('/api/environments', { headers: headers() });
             setEnvironments(normalizeEnvs(await r4.json()));
             const r5 = await fetch('/api/integration/summary', { headers: headers() });

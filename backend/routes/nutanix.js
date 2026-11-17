@@ -3,6 +3,7 @@ const router = express.Router();
 const fs = require('fs');
 const path = require('path');
 const { requireAuth, checkRole, checkFeature } = require('../middleware/auth');
+const { licenseAllows } = require('../lib/license');
 const { auditLog } = require('../lib/logger');
 const { detectOs } = require('../lib/osDetect');
 const { readEnv } = require('../lib/envEditor');
@@ -20,6 +21,13 @@ router.use(checkFeature('nutanix')); // only NutanixManager / NutanixCloneVM cal
 
 // Power actions, cloning and the mapping tables change infrastructure: Viewer is read-only here
 const canOperate = checkRole(['SuperAdmin', 'Operator']);
+
+// Clone VM (the NutanixCloneVM screen and its mapping tables) is a paid feature; the VM list and power actions are not
+const cloneLicensed = (req, res, next) => (licenseAllows('nutanixClone') ? next()
+    : res.status(403).json({ error: 'Nutanix Clone VM requires a paid license.', code: 'LICENSE_REQUIRED' }));
+for (const p of ['/ip-switch-map', '/template-bu-map', '/templates', '/clusters', '/settings-check', '/clone', '/clone-status', '/clone-logs']) {
+    router.use(p, cloneLicensed);
+}
 
 // Partial failures (one PE or cluster unreachable) are reported instead of silently shrinking the list.
 // Array responses carry them in this header (URI-encoded JSON) so the response shape stays unchanged.

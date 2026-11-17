@@ -107,7 +107,7 @@
 | **Task Scheduler / Remote Cmd**| ❌ 無法執行 | ✅ 執行指令與管理排程 | ✅ 完整排程控制 |
 
 ### 🔑 授權（License）：免費版 / 付費版
-*   **版本（v1.8.0 起）**：沒有授權即為免費版。付費版開啟：AI Ops Agent、自動化維運（Workflow、Task Scheduler、Remote Command、Server Provision、自動自癒）、Network Device、IPAM、NetSearch、Data Center 整組（機房、機櫃、拓撲、報修、備品、合約），以及往外送通知（Telegram、Email、Webhook）、AD 帳號登入與 RBAC 對應。免費版仍可使用其餘所有功能；告警照常偵測與顯示，只是不往外送。
+*   **版本（v1.8.0 起）**：沒有授權即為免費版。付費版開啟：AI Ops Agent、自動化維運（Workflow、Task Scheduler、Remote Command、Server Provision、自動自癒）、Network Device、IPAM、NetSearch、Data Center 整組（機房、機櫃、拓撲、報修、備品、合約）、Monitor 整組（Scout Monitor、Alerts & Rules、Live Event Viewer、Log Settings、Agents，以及 Scout Open API）、AD Control（含 Group Policy）、Nutanix Clone VM，以及往外送通知（Telegram、Email、Webhook）、AD 帳號登入與 RBAC 對應。免費版仍可使用其餘所有功能（Nutanix 的 VM 清單與電源操作也可用）；Scout agent 照常回報資料，套用授權後即可查看歷史。
 *   **免費版的帳號**：只能使用本機帳號登入：緊急救援 admin（`.env` 的 `LOCAL_ADMIN_USER` / `LOCAL_ADMIN_PWD`）與在 RBAC → Local Accounts 建立的本機帳號，每個角色（SuperAdmin、Operator、Viewer）限一個；詳見下一節「本機帳號」。
 *   **上傳授權**：SuperAdmin 到 System Settings → License，選擇或貼上 `.lic` 授權檔後按「套用授權」；立即生效，不需重啟。驗證不通過會顯示原因且不會存入。
 *   **移除授權**：同一頁「移除授權」，回到免費版；所有資料保留，重新上傳後立即恢復。

@@ -4,6 +4,8 @@ import NutanixCloneVM from './NutanixCloneVM';
 import WebRemoteModal from '../Shared/WebRemoteModal';
 import { shouldFallbackToConfig } from '../Shared/webRemoteUtils';
 import { csvCell } from '../../utils/exportUtils';
+import LockedFeature from '../Shared/LockedFeature';
+import { readStoredLicense, isLockedFlag, LICENSE_EVENT } from '../../utils/licenseUtils.js';
 
 
 // Prism reports ON / OFF / PAUSED / SUSPENDED / UNKNOWN ... : show what it says, colour only ON and OFF as normal
@@ -81,6 +83,13 @@ const NutanixManager = () => {
     const refreshTimers = React.useRef([]);
     useEffect(() => () => refreshTimers.current.forEach(clearTimeout), []);
     const [viewMode, setViewMode] = useState('list'); // 'list' or 'clone'
+    // Clone VM is a paid feature (license.locked includes 'nutanixClone' on the free edition)
+    const [cloneLocked, setCloneLocked] = useState(() => isLockedFlag('nutanixClone', readStoredLicense()));
+    useEffect(() => {
+        const onLicense = () => setCloneLocked(isLockedFlag('nutanixClone', readStoredLicense()));
+        window.addEventListener(LICENSE_EVENT, onLicense);
+        return () => window.removeEventListener(LICENSE_EVENT, onLicense);
+    }, []);
     const [modal, setModal] = useState({ show: false, type: 'info', title: '', message: '', onConfirm: null, onCancel: null, confirmText: 'Confirm', cancelText: 'Cancel' });
 
     useEffect(() => {
@@ -318,6 +327,20 @@ const NutanixManager = () => {
         setIsRemoteOpen(true);
     };
 
+    if (viewMode === 'clone' && cloneLocked) {
+        return (
+            <div style={S.page}>
+                <button type="button" style={{ ...S.btnP, background: 'var(--bg-secondary)', border: '1px solid var(--border-color)' }} onClick={() => setViewMode('list')}>
+                    ← Back to VM list
+                </button>
+                <LockedFeature item={{ label: 'Nutanix Clone VM', flag: 'nutanixClone' }} canManage={role === 'SuperAdmin'} onOpenLicense={() => {
+                    try { sessionStorage.setItem('somp.settings.category', 'license'); } catch { /* storage unavailable */ }
+                    window.dispatchEvent(new CustomEvent('somp:navigate', { detail: { view: 'SYS_SETTINGS' } }));
+                }} />
+            </div>
+        );
+    }
+
     if (viewMode === 'clone') {
         return (
             <div style={S.page}>
@@ -399,8 +422,9 @@ const NutanixManager = () => {
                         <button
                             style={{ ...S.btnP, background: 'linear-gradient(135deg, var(--bg-secondary), var(--bg-tertiary))', border: '1px solid var(--border-color)' }}
                             onClick={() => setViewMode('clone')}
+                            title={cloneLocked ? 'Requires a paid license' : undefined}
                         >
-                            🌱 CloneVM
+                            {cloneLocked ? '🔒' : '🌱'} CloneVM
                         </button>
                     )}
                 </div>

@@ -8,6 +8,10 @@ const { getDiffSlimServersData } = require('./serverList');
 // Apply Open API Key authentication to all routes under /api/v1/open
 router.use(openApiAuth());
 
+// The Scout Open API belongs to the Monitor features: a paid feature (lib/license.js), checked after the key
+router.use((req, res, next) => (require('../lib/license').licenseAllows('monitorScout') ? next()
+    : res.status(403).json({ error: 'The Scout Open API requires a paid license.', code: 'LICENSE_REQUIRED' })));
+
 // Helper: parse date with fallback to native Date
 function parseTime(val) {
     if (!val) return null;

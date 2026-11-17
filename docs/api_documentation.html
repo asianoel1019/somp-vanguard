@@ -1682,6 +1682,7 @@
                 <h2 class="section-title">7. Open Scout 開放介接 API</h2>
                 <span class="section-badge">Module: openScoutApi.js — 11 endpoints</span>
             </div>
+            <p style="margin: 0 0 16px; color: var(--text-muted);">付費功能（v1.8.0 起）：免費版時，通過 API Key 驗證後一律回 <code>403 { "error": "The Scout Open API requires a paid license.", "code": "LICENSE_REQUIRED" }</code>。</p>
             <div class="api-card">
                 <div class="api-head"><div class="endpoint-group"><span class="http-method method-get">GET</span><span class="endpoint-path">/api/v1/open/status</span></div><span class="tag-open">Open API</span></div>
                 <div class="api-body"><div class="endpoint-desc">系統狀態摘要（版本、在線 Agent 數、警報數、可用端點清單）。</div>

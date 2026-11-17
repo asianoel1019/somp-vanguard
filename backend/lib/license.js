@@ -9,8 +9,12 @@ const { readDataSync, writeDataSync } = require('./db');
 const { KEYS } = require('./licenseKeys');
 
 const LICENSE_KEY = 'system/license.json';
+// adControl covers AD Control and Group Policy; nutanixClone is not an RBAC key, only a license gate for the Nutanix
+// Clone VM screen (routes/nutanix.js) inside the free Nutanix feature. The monitor* keys are the whole Monitor menu
+// (Scout agents keep reporting on the free edition, so the history is there once a license is applied).
 const PAID_FEATURES = Object.freeze(['aiAgent', 'workflow', 'scheduler', 'remoteCmd', 'install', 'manage_self_healing',
-    'networkDevice', 'ipam', 'netSearch', 'dataCenter']);
+    'networkDevice', 'ipam', 'netSearch', 'dataCenter', 'adControl', 'nutanixClone',
+    'monitorScout', 'monitorAlerts', 'monitorWinEvent', 'monitorLinuxLog', 'monitorAgents']);
 const PAID_CHANNELS = Object.freeze(['telegram', 'email', 'webhook']);
 const REQUIRED_FIELDS = ['keyId', 'licenseId', 'customer', 'edition', 'issuedAt'];
 const SKIP_LOG_MS = 60 * 60 * 1000;

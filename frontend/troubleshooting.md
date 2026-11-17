@@ -137,6 +137,12 @@
 
 ---
 
+### 12. AD 帳號無法登入，顯示「AD sign-in requires a paid license」
+*   原因：系統目前是免費版（沒有授權、授權被移除，或授權檔驗證失敗）。
+*   處理：以本機帳號（local admin）登入，到 System Settings → License 查看狀態與原因並上傳授權；或把授權檔放到資料目錄的 `license.lic` 後重啟服務。服務啟動 log 的 `License:` 一行會顯示目前版本與原因。
+
+---
+
 ## 📋 日誌檔案位置 (Log Locations)
 
 *   **系統審計日誌**: `backend\save_data\logs\auth_YYYY-MM-DD.log`

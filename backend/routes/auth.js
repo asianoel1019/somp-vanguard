@@ -16,6 +16,8 @@ const { requireAuth, checkRole } = require('../middleware/auth');
 
 const { appendLog, getTodayLogFile, sendTelegramAlert, auditLog } = require('../lib/logger');
 const sessionService = require('../services/sessionService');
+const localAccounts = require('../lib/localAccounts');
+const license = require('../lib/license');
 
 // --- Global Rate Limiter Memory Store ---
 const loginAttempts = new Map();
@@ -147,32 +149,31 @@ router.post('/login', loginRateLimiter, async (req, res) => {
 
         appendLog(`Login attempt: user="${user}" domain="${domain}" (Input: ${username})`);
 
-        // 2. --- PRIORITY 1: Local admin check ---
-        // If username is 'admin' or matches LOCAL_ADMIN_USER, we try local first.
-        const localUser = (process.env.LOCAL_ADMIN_USER || 'admin').trim();
-        const localPass = (process.env.LOCAL_ADMIN_PWD || '').trim();
-
-        if (user.toLowerCase() === localUser.toLowerCase() && localPass && password === localPass) {
+        // 2. --- PRIORITY 1: built-in local accounts (lib/localAccounts: admin, operator, viewer) ---
+        // A local account name never falls through to AD; operator / viewer also work on the free edition.
+        const local = localAccounts.find(user);
+        if (local && local.pass && password === local.pass) {
             loginAttempts.delete(attemptKey);
-            auditLog(user, 'Auth', 'Local admin login successful');
-            const role = getUserRole(user, 'local');
+            auditLog(user, 'Auth', `${local.label} login successful`);
+            const role = local.role || getUserRole(user, 'local');
             const secret = process.env.JWT_SECRET;
             if (!secret) throw new Error('JWT_SECRET is not configured. Server must be started with a valid secret.');
-            const token = jwt.sign(
-                { username: user, domain: 'local', role },
-                secret,
-                { expiresIn: '24h' }
-            );
+            const token = jwt.sign({ username: user, domain: 'local', role }, secret, { expiresIn: '24h' });
 
             sessionService.registerSession({ token, username: user, domain: 'local', ip: userIp });
-            
-            // Shared evaluation (lib/permissions): the local admin is break-glass and gets every feature
+
+            // Shared evaluation (lib/permissions): local admin = break-glass, local operator / viewer = every licensed feature
             const features = buildFeatureMap({ username: user, domain: 'local', role });
 
-            return res.json({ token, user: { username: user, domain: 'local', role, features } });
-        } else if (user.toLowerCase() === localUser.toLowerCase()) {
-            handleFailedLogin(`Local admin login failed: incorrect password for ${user}`);
-            return res.status(401).json({ error: 'Invalid local admin credentials.' });
+            return res.json({ token, user: { username: user, domain: 'local', role, features, license: license.publicState() } });
+        } else if (local) {
+            handleFailedLogin(`${local.label} login failed: incorrect password for ${user}`);
+            return res.status(401).json({ error: local.role ? 'Invalid local account credentials.' : 'Invalid local admin credentials.' });
+        }
+
+        // AD accounts and RBAC mappings are a paid feature: refuse before contacting AD
+        if (!license.isPaid()) {
+            return res.status(403).json({ error: 'AD sign-in requires a paid license. The free edition accepts the local accounts only.', code: 'LICENSE_REQUIRED' });
         }
 
         // 3. --- PRIORITY 2: AD Domain check ---
@@ -301,7 +302,7 @@ try {
             );
 
             sessionService.registerSession({ token, username: user, domain: domain, ip: userIp });
-            return res.json({ token, user: { username: user, domain: domain, role, features } });
+            return res.json({ token, user: { username: user, domain: domain, role, features, license: license.publicState() } });
         } else if (adOutput === 'False') {
             handleFailedLogin(`AD rejected credentials for: ${username}`);
             return res.status(401).json({ error: 'Invalid Active Directory credentials.' });
@@ -453,7 +454,9 @@ router.get('/config', (req, res) => {
         frontendTimeout: parseInt(process.env.FRONTEND_TIMEOUT_MINS || '60') * 60 * 1000,
         features,
         hasGuacamole,
-        guacamoleEndpoint: guacEndpoint
+        guacamoleEndpoint: guacEndpoint,
+        edition: license.getLicense().edition,
+        ...(decoded ? { license: license.publicState() } : {}),
     });
 });
 

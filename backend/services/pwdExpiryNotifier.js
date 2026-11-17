@@ -18,7 +18,7 @@ const TICK_MS = 60 * 1000;
 const MODULE = 'AD Password Notify';
 
 class NotifyError extends Error {
-    constructor(message, status = 400) { super(message); this.status = status; this.userSafe = true; }
+    constructor(message, status = 400, code) { super(message); this.status = status; this.userSafe = true; if (code) this.code = code; }
 }
 
 let busy = false;
@@ -143,6 +143,7 @@ async function run({ now = new Date(), dryRun = false, trigger = 'manual', by = 
 
 /** A run started from the page by a SuperAdmin. */
 async function runNow(by, now = new Date()) {
+    if (!require('../lib/license').channelAllowed('email')) throw new NotifyError('Email notifications require a paid license', 403, 'LICENSE_REQUIRED');
     if (busy) throw new NotifyError('A run is already in progress', 409);
     const cfg = model.readConfig();
     if (cfg.errors.length) throw new NotifyError(cfg.errors.join('; '));
@@ -182,6 +183,10 @@ async function tick(now = new Date()) {
     if (!cfg.enabled) return { skipped: 'disabled' };
     const doc = readDoc();
     if (!model.isDue(now, cfg.time, doc.schedule && doc.schedule.lastRunDate)) return { skipped: 'not-due' };
+    if (!require('../lib/license').channelAllowed('email')) {
+        require('../lib/license').noteSkipped('Password expiry notices');
+        return { skipped: 'license' };
+    }
     if (!claimToday(now)) return { skipped: 'already-ran' };
     busy = true;
     try {

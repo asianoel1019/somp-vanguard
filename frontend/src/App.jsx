@@ -36,6 +36,9 @@ import MonitorHub from './components/MonitorGroup/MonitorHub';
 import NasManager from './components/ServicePlatform/NasManager';
 import SFTPManager from './components/ServicePlatform/SFTPManager';
 import ErrorBoundary from './components/ErrorBoundary';
+import { TbLock } from 'react-icons/tb';
+import LockedFeature from './components/Shared/LockedFeature';
+import { readStoredLicense, storeLicense, isLockedFlag, licenseLabel, LICENSE_EVENT } from './utils/licenseUtils.js';
 
 import DbInventory from './components/Database/DbInventory';
 import SqlTerminal from './components/Database/SqlTerminal';
@@ -111,6 +114,13 @@ function App() {
     hmChecker: true, aiAgent: true
   });
   const [featuresLoaded, setFeaturesLoaded] = useState(false);
+  const [license, setLicense] = useState(() => readStoredLicense());
+  const [configNonce, setConfigNonce] = useState(0); // bumped after a license change: reload the feature map
+  useEffect(() => {
+    const onLicense = (e) => { if (e.detail) { setLicense(e.detail); storeLicense(e.detail); } setConfigNonce(n => n + 1); };
+    window.addEventListener(LICENSE_EVENT, onLicense);
+    return () => window.removeEventListener(LICENSE_EVENT, onLicense);
+  }, []);
   const [theme, setTheme] = useState(localStorage.getItem('theme') || 'default');
   const [showSettingsDropdown, setShowSettingsDropdown] = useState(false);
   const [showReadmeModal, setShowReadmeModal] = useState(false);
@@ -267,6 +277,7 @@ function App() {
           api.defaults.timeout = res.data.frontendTimeout;
           console.log(`Frontend timeout set to ${res.data.frontendTimeout}ms`);
         }
+        if (res.data.license) { setLicense(res.data.license); storeLicense(res.data.license); }
         if (res.data.features) {
           setFeatureFlags(res.data.features);
           setLinkFeatureFlags(res.data.features); // Server Rack / Topology Map show 'open in Network Device' only when allowed
@@ -276,7 +287,7 @@ function App() {
       })
       .catch(err => console.error('Failed to fetch system config:', err));
     return () => { cancelled = true; };
-  }, [user]);
+  }, [user, configNonce]);
 
   useEffect(() => {
     // GET /ai/config requires the AI Ops Agent feature (or Settings): ask only when the agent may be shown
@@ -428,6 +439,8 @@ function App() {
     if (item.flag === 'settings' || item.id === 'SYS_SETTINGS' || item.id === 'DEV_TOOLS' || item.id === 'RBAC' || item.id === 'AUDIT') {
       return role === 'SuperAdmin';
     }
+    // Paid feature on the free edition: listed with a lock (the role rules still apply)
+    if (isLockedFlag(item.flag, license)) return !(role === 'Viewer' && (item.id === 'CMD' || item.id === 'INSTALL' || item.id === 'MONITOR_AGENTS'));
     if (featureFlags[item.flag] === false) return false;
     if (role === 'Viewer' && (item.id === 'CMD' || item.id === 'INSTALL' || item.id === 'MONITOR_AGENTS')) return false;
     return true;
@@ -520,9 +533,10 @@ function App() {
                   {isExpanded && sidebarOpen && (
                     <div className="sidebar-group-children" style={{ paddingLeft: '1.5rem', background: 'rgba(0,0,0,0.1)' }}>
                       {item.children.map(child => (
-                        <div key={child.id} className={`sidebar-item ${activeView === child.id ? 'active' : ''}`} onClick={() => setActiveView(child.id)} title={child.label} style={{ padding: '0.6rem 1rem', fontSize: '0.9rem' }}>
+                        <div key={child.id} className={`sidebar-item ${activeView === child.id ? 'active' : ''}`} onClick={() => setActiveView(child.id)} title={child.label} style={{ padding: '0.6rem 1rem', fontSize: '0.9rem', opacity: isLockedFlag(child.flag, license) ? 0.55 : 1 }}>
                           <span style={{ fontSize: '1rem', minWidth: '20px', textAlign: 'center' }}>{child.icon}</span>
                           <span style={{ whiteSpace: 'nowrap', marginLeft: '10px' }}>{child.label}</span>
+                          {isLockedFlag(child.flag, license) && <TbLock style={{ marginLeft: 'auto', fontSize: '0.85rem', color: 'var(--warning)' }} title="需要付費授權" />}
                         </div>
                       ))}
                     </div>
@@ -530,7 +544,7 @@ function App() {
                   {isExpanded && !sidebarOpen && (
                     <div className="sidebar-group-children" style={{ background: 'rgba(0,0,0,0.2)' }}>
                       {item.children.map(child => (
-                        <div key={child.id} className={`sidebar-item ${activeView === child.id ? 'active' : ''}`} onClick={() => { setActiveView(child.id); setSidebarOpen(true); }} title={child.label} style={{ padding: '0.75rem 0', justifyContent: 'center' }}>
+                        <div key={child.id} className={`sidebar-item ${activeView === child.id ? 'active' : ''}`} onClick={() => { setActiveView(child.id); setSidebarOpen(true); }} title={child.label} style={{ padding: '0.75rem 0', justifyContent: 'center', opacity: isLockedFlag(child.flag, license) ? 0.55 : 1 }}>
                           <span style={{ fontSize: '1rem', textAlign: 'center' }}>{child.icon}</span>
                         </div>
                       ))}
@@ -540,9 +554,10 @@ function App() {
               );
             }
             return (
-              <div key={item.id} className={`sidebar-item ${activeView === item.id ? 'active' : ''}`} onClick={() => setActiveView(item.id)} title={item.label} style={{ justifyContent: sidebarOpen ? 'flex-start' : 'center', padding: sidebarOpen ? '0.75rem 1rem' : '0.75rem 0' }}>
+              <div key={item.id} className={`sidebar-item ${activeView === item.id ? 'active' : ''}`} onClick={() => setActiveView(item.id)} title={item.label} style={{ justifyContent: sidebarOpen ? 'flex-start' : 'center', padding: sidebarOpen ? '0.75rem 1rem' : '0.75rem 0', opacity: isLockedFlag(item.flag, license) ? 0.55 : 1 }}>
                 <span style={{ fontSize: '1.2rem', minWidth: '24px', textAlign: 'center' }}>{item.icon}</span>
                 {sidebarOpen && <span className="animate-slide-in-right" style={{ whiteSpace: 'nowrap', marginLeft: '12px' }}>{item.label}</span>}
+                {sidebarOpen && isLockedFlag(item.flag, license) && <TbLock style={{ marginLeft: 'auto', fontSize: '0.85rem', color: 'var(--warning)' }} />}
               </div>
             );
           })}
@@ -607,6 +622,13 @@ function App() {
                 {user.role} | {user.username}
               </span>
             )}
+              {sidebarOpen && licenseLabel(license) && (
+                <span title={license && license.edition === 'free' ? '免費版：付費功能已上鎖' : licenseLabel(license)} style={{
+                  fontSize: 10, fontWeight: 800, marginTop: 4, padding: '1px 8px', borderRadius: 999, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%',
+                  color: license.edition === 'free' ? 'var(--warning)' : 'var(--success)',
+                  border: `1px solid ${license.edition === 'free' ? 'rgba(245,158,11,0.4)' : 'rgba(16,185,129,0.4)'}`,
+                }}>{licenseLabel(license)}</span>
+              )}
           </div>
         </div>
       </aside>
@@ -631,7 +653,12 @@ function App() {
             </div>
           ) : (
             <ErrorBoundary key={currentItem?.id}>
-              {currentItem && currentItem.component}
+              {currentItem && (isLockedFlag(currentItem.flag, license)
+                ? <LockedFeature item={currentItem} canManage={user.role === 'SuperAdmin'} onOpenLicense={() => {
+                    try { sessionStorage.setItem('somp.settings.category', 'license'); } catch { /* storage unavailable */ }
+                    setActiveView('SYS_SETTINGS');
+                  }} />
+                : currentItem.component)}
             </ErrorBoundary>
           )}
         </div>

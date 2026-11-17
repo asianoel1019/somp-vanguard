@@ -46,6 +46,11 @@ function writeCache() {
 }
 
 async function loadAllConfigs() {
+  const license = require('../lib/license');
+  if (!license.licenseAllows('netSearch')) {
+    license.noteSkipped('NetSearch import');
+    return { ok: false, error: 'NetSearch requires a paid license', disabled: true };
+  }
   if (state.loading) return { ok: false, error: 'Already loading' };
 
   let backupRoot = (process.env.NETSEARCH_BACKUP_ROOT || '').replace(/['"]/g, '').trim();

@@ -8,6 +8,9 @@ import FileServicesSettings from './FileServicesSettings';
 import PwdNotifySettings from './PwdNotifySettings';
 import { pwdNotifyProblems } from './pwdNotifySettingsUtils';
 import { FILE_SERVICES_CATEGORY, resolveCategoryLink } from './fileServicesUtils';
+import LicenseSettings from './LicenseSettings';
+import LicenseNotice from '../Shared/LicenseNotice';
+import { readStoredLicense, isFree, LICENSE_EVENT } from '../../utils/licenseUtils.js';
 import {
     BUILTIN_NOTE, LOCKED_FEATURE_TOOLTIP, isBuiltinMapping, getEditorCategories, isFeatureLocked,
     normalizeEditorFeatures, toggleCategory, listMappings, listAssignableMappings, mappingActions,
@@ -63,6 +66,12 @@ const DEFAULT_LOG_TYPE_KEYS = LOG_TYPE_DEFINITIONS.filter(d => !d.optIn).map(d =
 
 const Settings = ({ mode = 'system' }) => {
     const { showConfirm } = useConfirm();
+    const [freeEdition, setFreeEdition] = useState(() => isFree(readStoredLicense()));
+    useEffect(() => {
+        const onLicense = (e) => setFreeEdition(isFree(e.detail));
+        window.addEventListener(LICENSE_EVENT, onLicense);
+        return () => window.removeEventListener(LICENSE_EVENT, onLicense);
+    }, []);
     const [rbacData, setRbacData] = useState({ roles: [], users: {}, defaultRole: 'Viewer' });
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -159,6 +168,7 @@ const Settings = ({ mode = 'system' }) => {
 
     const allCategories = [
         { id: 'core', label: 'Core System', desc: 'Core system variables', icon: '⚙️', title: 'Core System Settings', subtitle: 'Manage core system parameters, ports, timezones, and administrator credentials' },
+        { id: 'license', label: 'License', desc: 'Free / paid edition', icon: '🔑', title: 'License', subtitle: 'Current edition, paid features, and uploading or removing the license file' },
         { id: 'ai', label: 'AI Service', desc: 'Centralized AI & LLM integration', icon: '🤖', title: 'Universal AI Service Center', subtitle: 'Configure centralized AI / LLM providers (Ollama, OpenAI, Gemini, Custom API) for system-wide intelligence' },
         { id: 'openapi', label: 'Scout Open API', desc: 'External REST API & Access Logs', icon: '🌐', title: 'Scout Open API Gateway Settings', subtitle: 'Configure external Open API endpoint accessibility, access audit logging, rate limiting, and security rules' },
         { id: FILE_SERVICES_CATEGORY, label: 'File Services', desc: 'SFTP servers & NAS devices', icon: '📁', title: 'File Services', subtitle: 'Manage SFTP servers (Web API, keys, remote service control) and NAS storage devices' },
@@ -930,7 +940,7 @@ const Settings = ({ mode = 'system' }) => {
                                     <p style={{ fontSize: 12, color: 'var(--danger)', fontWeight: 700, margin: '6px 0 0' }}>⚠️ 設定沒有成功載入，畫面上的值不是目前的設定，已停用儲存。請重新整理頁面。</p>
                                 )}
                             </div>
-                            {activeCategory !== 'rbac' && activeCategory !== 'ai' && activeCategory !== 'environments' && (
+                            {activeCategory !== 'rbac' && activeCategory !== 'ai' && activeCategory !== 'environments' && activeCategory !== 'license' && (
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                                 {settingsDirty && !settingsLoadFailed && (
                                     <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--warning)' }}>● 有尚未儲存的變更</span>
@@ -994,6 +1004,27 @@ const Settings = ({ mode = 'system' }) => {
                                             <input type="password" style={S.input} value={sysConfig.LOCAL_ADMIN_PWD || ''} onChange={e => handleConfigChange('LOCAL_ADMIN_PWD', e.target.value)} />
                                         </div>
                                     </div>
+                                    <div style={S.gridRow}>
+                                        <div style={S.fieldBlock}>
+                                            <label style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-muted)' }}>LOCAL_OPERATOR_USER</label>
+                                            <input type="text" style={S.input} value={sysConfig.LOCAL_OPERATOR_USER || ''} onChange={e => handleConfigChange('LOCAL_OPERATOR_USER', e.target.value)} />
+                                        </div>
+                                        <div style={S.fieldBlock}>
+                                            <label style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-muted)' }}>LOCAL_OPERATOR_PWD</label>
+                                            <input type="password" style={S.input} value={sysConfig.LOCAL_OPERATOR_PWD || ''} onChange={e => handleConfigChange('LOCAL_OPERATOR_PWD', e.target.value)} />
+                                        </div>
+                                    </div>
+                                    <div style={S.gridRow}>
+                                        <div style={S.fieldBlock}>
+                                            <label style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-muted)' }}>LOCAL_VIEWER_USER</label>
+                                            <input type="text" style={S.input} value={sysConfig.LOCAL_VIEWER_USER || ''} onChange={e => handleConfigChange('LOCAL_VIEWER_USER', e.target.value)} />
+                                        </div>
+                                        <div style={S.fieldBlock}>
+                                            <label style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-muted)' }}>LOCAL_VIEWER_PWD</label>
+                                            <input type="password" style={S.input} value={sysConfig.LOCAL_VIEWER_PWD || ''} onChange={e => handleConfigChange('LOCAL_VIEWER_PWD', e.target.value)} />
+                                        </div>
+                                    </div>
+                                    <div style={S.hint}>本機 Operator / Viewer 帳號：帳號與密碼都設定才會啟用；免費版也能登入，擁有授權允許的全部功能，寫入權限依角色。</div>
                                     <div style={S.gridRow}>
                                         <div style={S.fieldBlock}>
                                             <label style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-muted)' }}>AD_ADMIN_USER <span style={{ color: 'var(--text-muted)', fontWeight: 'normal' }}>(Domain\\admin)</span></label>
@@ -1809,6 +1840,7 @@ curl -H "Authorization: Bearer <YOUR_API_KEY>" "${window.location.origin}/api/v1
                         )}
 
                         {activeCategory === 'environments' && <EnvironmentsSettings />}
+                        {activeCategory === 'license' && <LicenseSettings />}
 
                         {activeCategory === 'others' && (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
@@ -1849,6 +1881,7 @@ curl -H "Authorization: Bearer <YOUR_API_KEY>" "${window.location.origin}/api/v1
 
                         {activeCategory === 'integration' && (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+                                {freeEdition && <LicenseNotice>免費版不會往外送通知（Telegram、Email、Webhook）。設定可以先存好，授權後直接生效。</LicenseNotice>}
 
                                 {/* Telegram Settings Card */}
                                 <div style={S.card}>
@@ -2119,7 +2152,8 @@ curl -H "Authorization: Bearer <YOUR_API_KEY>" "${window.location.origin}/api/v1
                                                                 <button 
                                                                     style={{ ...S.btnO, padding: '4px 10px', fontSize: 11 }}
                                                                     onClick={() => handleTestWebhook(wh.id, wh.name)}
-                                                                    disabled={testingWebhookId === wh.id}
+                                                                    disabled={testingWebhookId === wh.id || freeEdition}
+                                                                    title={freeEdition ? '需要付費授權' : undefined}
                                                                 >
                                                                     {testingWebhookId === wh.id ? 'Sending...' : '⚡ Test'}
                                                                 </button>
@@ -2224,6 +2258,7 @@ curl -H "Authorization: Bearer <YOUR_API_KEY>" "${window.location.origin}/api/v1
 
                         {activeCategory === 'mail' && (
                             <>
+                                {freeEdition && <LicenseNotice>免費版不會往外送通知（Telegram、Email、Webhook）。設定可以先存好，授權後直接生效。</LicenseNotice>}
                                 <div style={S.card}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
                                         <span style={{ fontSize: 13, fontWeight: 900, color: 'var(--text-primary)', letterSpacing: '0.04em' }}>✉️ GLOBAL MAIL RELAY SETTINGS</span>
@@ -2649,6 +2684,7 @@ curl -H "Authorization: Bearer <YOUR_API_KEY>" "${window.location.origin}/api/v1
 
                         {activeCategory === 'ad' && (
                             <>
+                            {freeEdition && <LicenseNotice>免費版不會往外送通知（Telegram、Email、Webhook）。設定可以先存好，授權後直接生效。</LicenseNotice>}
                             <div style={S.card}>
                                 <h3 style={{ ...S.tblTitle, margin: '0 0 4px' }}>Search and scope</h3>
                                 <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 16 }}>Where AD Control searches, and which accounts it may change.</div>
@@ -2709,6 +2745,7 @@ curl -H "Authorization: Bearer <YOUR_API_KEY>" "${window.location.origin}/api/v1
 
                         {activeCategory === 'rbac' && (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+                                {freeEdition && <LicenseNotice>免費版不能使用 AD 帳號登入與 RBAC 對應；此頁唯讀，授權後設定直接生效。</LicenseNotice>}
                                 {/* Role Assignments Card */}
                                 <div style={S.card}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>

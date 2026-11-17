@@ -89,6 +89,14 @@ function invalidateConfigs(monitorIds) {
     for (const id of monitorIds || []) configCache.delete(id);
 }
 
+// Self-healing scripts sent to the Scout agents (the agents run them): a paid feature (lib/license.js)
+function remediationPolicyOf(rule) {
+    if (!rule.remediationScript || rule.remediationScript.trim().length === 0) return null;
+    if (!require('../lib/license').licenseAllows('manage_self_healing')) return null;
+    return { id: rule.id, type: rule.type, target: rule.target, threshold: rule.threshold, script: rule.remediationScript, timeoutSeconds: rule.timeoutSeconds || 30 };
+}
+const policiesFor = (rules) => rules.map(remediationPolicyOf).filter(Boolean);
+
 /**
  * Computes dynamic configuration for an agent
  */
@@ -130,17 +138,9 @@ function buildDynamicConfig(monitor) {
                     else if (['process', 'process_cpu', 'process_memory'].includes(rule.type)) processSet.add(targetStr);
                 }
 
-                if (rule.remediationScript && rule.remediationScript.trim().length > 0) {
-                    if (!dynamicConfig.remediationPolicies.find(p => p.id === rule.id)) {
-                        dynamicConfig.remediationPolicies.push({
-                            id: rule.id,
-                            type: rule.type,
-                            target: rule.target,
-                            threshold: rule.threshold,
-                            script: rule.remediationScript,
-                            timeoutSeconds: rule.timeoutSeconds || 30
-                        });
-                    }
+                const policy = remediationPolicyOf(rule);
+                if (policy && !dynamicConfig.remediationPolicies.find(p => p.id === rule.id)) {
+                    dynamicConfig.remediationPolicies.push(policy);
                 }
             }
         });
@@ -471,6 +471,7 @@ module.exports = {
     invalidateCache,
     invalidateConfigs,
     buildDynamicConfig,
+    __test: { policiesFor },
     notifyDeletedAgentReporting,
     isAgentOnDeletedServer,
     _resetDeletedAgentNotices: () => { deletedAgentNotices.clear(); deletedCheckCache.clear(); }

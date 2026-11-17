@@ -147,6 +147,13 @@ async function sendTelegramAlert(message, moduleName = 'System', options = {}) {
 
     if (options.skipTelegram) return;
 
+    // Telegram is a paid notification channel (lib/license.js); required lazily: license -> db -> logger
+    const license = require('./license');
+    if (!license.channelAllowed('telegram')) {
+        license.noteSkipped('Telegram notification');
+        return;
+    }
+
     // 2. Dispatch to Telegram if category is enabled for Telegram
     if (!options.skipCategoryCheck && !isTelegramCategoryEnabled(category)) {
         appendLog(`[${moduleName}] Telegram alert skipped: category '${category}' disabled in TELEGRAM_ENABLED_LOGS`);

@@ -10,6 +10,7 @@ config.json
 scripts/SCP_to_Prod.ps1
 .last_scp_sync
 *.pem
+*.lic
 *.key
 *.pfx
 *.p12

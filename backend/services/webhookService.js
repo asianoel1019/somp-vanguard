@@ -131,6 +131,11 @@ function logWebhookFailure(webhook, requestOptions, postData, proxyUrl, errorDet
 
 // Executes a single webhook HTTP request
 function executeWebhook(webhook, payloadParams) {
+    const license = require('../lib/license');
+    if (!license.channelAllowed('webhook')) {
+        license.noteSkipped('Webhook notification');
+        return Promise.resolve({ success: false, skipped: 'license', error: 'Webhook notifications require a paid license' });
+    }
     return new Promise((resolve) => {
         const urlStr = (webhook.url || '').trim();
         if (!urlStr) {
@@ -329,6 +334,7 @@ function selectWebhooksForCategory(webhooks, cat) {
 
 // Central function to trigger all enabled webhooks
 async function triggerWebhooks(message, moduleName = 'System', category = null) {
+    if (!require('../lib/license').channelAllowed('webhook')) return;
     const { resolveLogCategory } = require('../lib/logger');
     const cat = category || resolveLogCategory(moduleName, message);
 

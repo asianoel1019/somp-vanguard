@@ -37,6 +37,13 @@ function initWebSocketServer(server) {
                 return;
             }
 
+            // The free edition is local-account only (AD sign-in is a paid feature)
+            if (decoded.domain !== 'local' && !require('./license').isPaid()) {
+                socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+                socket.destroy();
+                return;
+            }
+
             // Authentication successful, upgrade connection
             wss.handleUpgrade(request, socket, head, (ws) => {
                 ws.user = decoded; // Attach user info to socket

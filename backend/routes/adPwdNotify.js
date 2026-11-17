@@ -9,7 +9,9 @@ const operator = checkRole(['SuperAdmin', 'Operator']);
 const superAdmin = checkRole(['SuperAdmin']);
 
 function sendError(res, err) {
-    res.status(err.status || 500).json({ error: err.userSafe ? err.message : 'The password expiry notices could not run.' });
+    const body = { error: err.userSafe ? err.message : 'The password expiry notices could not run.' };
+    if (err.code) body.code = err.code;
+    res.status(err.status || 500).json(body);
 }
 
 // GET /pwd-notify/status — settings as they apply now, today's state, recent runs (they list user accounts: Operator+)

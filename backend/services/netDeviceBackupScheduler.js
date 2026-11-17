@@ -9,6 +9,8 @@ let timer = null;
 let busy = false;
 
 async function tick(now = new Date()) {
+    const license = require('../lib/license');
+    if (!license.licenseAllows('networkDevice')) { license.noteSkipped('Network device backup'); return { skipped: 'license' }; }
     if (busy) return { skipped: 'running' };
     busy = true;
     try {

@@ -163,6 +163,9 @@ router.delete('/:id', requireAuth, webhookWriteGate, requireAdminOrOperator, (re
 // POST /api/webhooks/test/:id - Send a test alert payload to a specific webhook
 router.post('/test/:id', requireAuth, webhookWriteGate, requireAdminOrOperator, async (req, res) => {
     try {
+        if (!require('../lib/license').channelAllowed('webhook')) {
+            return res.status(403).json({ error: 'Webhook notifications require a paid license.', code: 'LICENSE_REQUIRED' });
+        }
         const { id } = req.params;
         const webhooks = webhookService.loadWebhooks();
         const webhook = webhooks.find(w => w.id === id);

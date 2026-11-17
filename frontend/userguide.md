@@ -7,6 +7,7 @@
 ## 📑 目錄
 1. [系統登入與安全 (Security & RBAC)](#1-系統登入與安全)
    - [角色權限控管 (RBAC)](#-角色權限控管-rbac)
+   - [授權（License）：免費版 / 付費版](#-授權license免費版--付費版)
 2. [伺服器維運與資產管理 (Server Operation & CMDB)](#2-伺服器維運與資產管理)
    - [Server List (Simplified CMDB)](#-server-list-simplified-cmdb)
    - [硬體規格漂移偵測 (Hardware Drift)](#-硬體規格漂移偵測-hardware-drift)
@@ -104,6 +105,14 @@
 | **SSL Certificate** | 👁️ 僅檢視 | ✅ 新增/刪除憑證、解密私鑰 | ✅ 完整憑證管理 |
 | **IPAM** | 👁️ 僅檢視 | ✅ 分配/編輯 IP / 掃描網段 | ✅ 完整網段管理 |
 | **Task Scheduler / Remote Cmd**| ❌ 無法執行 | ✅ 執行指令與管理排程 | ✅ 完整排程控制 |
+
+### 🔑 授權（License）：免費版 / 付費版
+*   **版本**：沒有授權即為免費版。付費版開啟：AI Ops Agent、自動化維運（Workflow、Task Scheduler、Remote Command、Server Provision、自動自癒）、Network Device、IPAM、NetSearch、Data Center 整組（機房、機櫃、拓撲、報修、備品、合約），以及往外送通知（Telegram、Email、Webhook）、AD 帳號登入與 RBAC 對應。免費版仍可使用其餘所有功能；告警照常偵測與顯示，只是不往外送。
+*   **免費版的帳號**：只能使用本機帳號登入：local admin（`LOCAL_ADMIN_USER` / `LOCAL_ADMIN_PWD`）、local operator（`LOCAL_OPERATOR_USER` / `LOCAL_OPERATOR_PWD`）、local viewer（`LOCAL_VIEWER_USER` / `LOCAL_VIEWER_PWD`）。operator / viewer 帳號與密碼都設定才會啟用，在 System Settings → Core System 設定；它們擁有授權允許的全部功能，寫入權限依角色。
+*   **上傳授權**：SuperAdmin 到 System Settings → License，選擇或貼上 `.lic` 授權檔後按「套用授權」；立即生效，不需重啟。驗證不通過會顯示原因且不會存入。
+*   **移除授權**：同一頁「移除授權」，回到免費版；所有資料保留，重新上傳後立即恢復。
+*   **升級前**：把授權檔放到資料目錄的 `license.lic`（例如 `D:\somp-vanguard\license.lic`）。服務啟動時自動套用，服務 log 會顯示 `License: Paid (...)`；否則升級後會先以免費版啟動（AD 帳號無法登入），需以 local admin 登入上傳授權。
+*   **鎖住的功能**：免費版時，付費功能在選單上淡化並顯示鎖；點選會顯示功能說明與取得授權的方式。
 
 ---
 

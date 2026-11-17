@@ -98,6 +98,8 @@ function formatSample(h) {
 }
 
 async function sendTelegram(message) {
+    const license = require('../lib/license');
+    if (!license.channelAllowed('telegram')) { license.noteSkipped('Telegram notification'); return; }
     let token = (process.env.TELEGRAM_BOT_TOKEN || '').trim();
     if (token.startsWith('enc:')) {
         try {

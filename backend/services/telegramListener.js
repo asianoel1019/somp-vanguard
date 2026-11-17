@@ -207,6 +207,14 @@ async function pollUpdates(gen, token) {
     // token is the one captured at init: it only changes through a reload (init), never mid-loop
     if (gen !== generation) return;
     if (!token) return;
+    // Telegram is a paid channel: on the free edition look again in a minute instead of polling (no restart needed)
+    if (!require('../lib/license').channelAllowed('telegram')) {
+        require('../lib/license').noteSkipped('Telegram bot');
+        if (isPolling && gen === generation) {
+            pollTimeoutObj = setTimeout(() => { pollTimeoutObj = null; pollUpdates(gen, token); }, 60 * 1000);
+        }
+        return;
+    }
 
     // Use configurable polling timeout (long polling), default to 30 seconds
     const pollTimeout = longPollSeconds();
@@ -268,7 +276,7 @@ async function initTelegramListener() {
     console.log('[TelegramBot] Starting Telegram long polling listener...');
     
     // Flush old accumulated messages before starting the listener loop
-    await flushTelegramQueue(token, gen);
+    if (require('../lib/license').channelAllowed('telegram')) await flushTelegramQueue(token, gen);
     if (gen !== generation) return; // superseded by a newer init/stop while flushing
 
     pollUpdates(gen, token);

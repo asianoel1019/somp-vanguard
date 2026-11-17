@@ -13,6 +13,10 @@ const Login = ({ onLogin }) => {
         api.get('/auth/config').then(res => setConfig(res.data)).catch(e => console.error(e));
     }, []);
 
+    const [logoutReason] = React.useState(() => {
+        try { const r = sessionStorage.getItem('somp.logoutReason'); if (r) sessionStorage.removeItem('somp.logoutReason'); return r || ''; } catch { return ''; }
+    });
+
     const handleSubmit = async (e) => {
         e.preventDefault();
         setError(null);
@@ -197,6 +201,14 @@ const Login = ({ onLogin }) => {
                         {loading ? 'Authenticating...' : (error ? 'Retry Authentication' : 'Initialize Uplink')}
                     </button>
                 </form>
+                    {logoutReason && (
+                        <div style={{ marginTop: 14, fontSize: 12, color: '#fbbf24', textAlign: 'center' }}>{logoutReason}</div>
+                    )}
+                    {config && config.edition === 'free' && (
+                        <div style={{ marginTop: 14, fontSize: 11, color: 'rgba(255,255,255,0.55)', textAlign: 'center' }}>
+                            免費版僅本機帳號可登入；AD 帳號需付費授權。
+                        </div>
+                    )}
             </div>
         </div>
     );

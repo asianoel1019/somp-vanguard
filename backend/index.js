@@ -376,6 +376,7 @@ app.use('/api/alert-quality', require('./routes/alertQuality'));
 app.use('/api/devtools', require('./routes/devTools'));
 app.use('/api/sftp', require('./routes/sftp'));
 app.use('/api/remote', require('./routes/remote'));
+app.use('/api/license', require('./routes/license'));
 
 // --- Frontend Static Files & SPA Support ---
 const distPath = path.join(__dirname, '../frontend/dist');
@@ -491,6 +492,17 @@ initDB().then(async () => {
         require('./services/logTables').migrateAll();
     } catch (e) {
         console.error('[Startup] Log table migration skipped:', e.message);
+    }
+
+    // License: <data dir>\license.lic is imported when valid and new (an upgrade starts licensed), then the edition is logged
+    try {
+        const license = require('./lib/license');
+        const imported = license.importLicenseFile(require('./lib/db').getDataDir());
+        if (imported.imported) require('./lib/logger').auditLog('SYSTEM', 'License', `License imported from license.lic: ${imported.licenseId}`);
+        else if (imported.reason !== 'no file' && imported.reason !== 'same') console.warn(`[Startup] license.lic not imported: ${imported.reason}`);
+        console.log(`[Startup] ${license.statusLine()}`);
+    } catch (e) {
+        console.error('[Startup] License check skipped:', e.message);
     }
 
     // Run automated CMDB migration if table is empty

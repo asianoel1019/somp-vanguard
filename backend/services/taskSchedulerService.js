@@ -5,6 +5,7 @@ const net = require('net');
 const { executeSSH } = require('../lib/ssh');
 const { runPowerShell } = require('../lib/powershell');
 const { appendLog } = require('../lib/logger');
+const license = require('../lib/license');
 
 const BASE_DATA_DIR = process.env.DB_DATA_DIR || 'C:\\ProgramData\\somp-vanguard';
 const TASKS_FILE = path.join(BASE_DATA_DIR, 'server_operation', 'scheduler_tasks.json');
@@ -183,6 +184,10 @@ async function runSSHCommand(host, user, password, command) {
 
 // Core execution engine routing
 async function executeTask(task) {
+    if (!license.licenseAllows('scheduler')) {
+        license.noteSkipped('Task Scheduler');
+        return;
+    }
     const startTime = Date.now();
     appendLog(`[Scheduler Service] Starting task: ${task.name}`);
     

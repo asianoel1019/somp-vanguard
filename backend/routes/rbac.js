@@ -84,6 +84,12 @@ function updateBuiltinMapping(req, res) {
 router.use(authMiddleware);
 router.use(checkRole(['SuperAdmin']));
 
+// RBAC & AD mappings are a paid feature: the free edition can read them but not change them
+const { isPaid } = require('../lib/license');
+router.use((req, res, next) => (req.method === 'GET' || isPaid()
+    ? next()
+    : res.status(403).json({ error: 'RBAC & AD mappings require a paid license.', code: 'LICENSE_REQUIRED' })));
+
 // Get all roles and users
 router.get('/', (req, res) => {
     try {

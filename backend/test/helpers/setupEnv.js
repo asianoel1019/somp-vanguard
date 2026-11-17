@@ -32,4 +32,7 @@ process.on('exit', () => {
     try { fs.rmSync(dataDir, { recursive: true, force: true }); } catch (e) {}
 });
 
+// Every test starts on the paid edition (a throwaway test key, test/helpers/license.js); license tests switch it.
+require('./license').setPaid();
+
 module.exports = { dataDir };

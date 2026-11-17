@@ -1,4 +1,5 @@
 const nodemailer = require('nodemailer');
+const license = require('./license');
 
 class MailError extends Error {
     constructor(message) { super(message); this.userSafe = true; }
@@ -27,6 +28,7 @@ function relay() {
 
 /** Alerts and reports: best effort, failures are only logged. */
 async function sendMail({ subject, html, text, to }) {
+    if (!license.channelAllowed('email')) { license.noteSkipped('Email notification'); return; }
     const r = relay();
     const recipient = to || process.env.MAIL_RELAY_RECIPIENT;
     if (!r || !recipient) {
@@ -53,6 +55,7 @@ async function sendMail({ subject, html, text, to }) {
  * is no recipient or the SMTP server refuses it. Resolves to the server's message id.
  */
 async function deliverMail({ subject, html, text, to }) {
+    if (!license.channelAllowed('email')) throw new MailError('Email notifications require a paid license');
     const r = relay();
     if (!r) throw new MailError('Mail Relay is not configured (MAIL_RELAY_SERVER and MAIL_RELAY_SENDER)');
     if (!to) throw new MailError('No recipient');

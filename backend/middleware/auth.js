@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const { decryptPassword } = require('../lib/crypto');
 const { hasFeature, isFeatureGloballyDisabled } = require('../lib/permissions');
+const { licenseAllows, isPaid } = require('../lib/license');
 const sessionService = require('../services/sessionService');
 const sessionRevocation = require('../lib/sessionRevocation');
 
@@ -24,6 +25,10 @@ function requireAuth(req, res, next) {
         if (sessionService.isSessionTimedOut(token)) {
             return res.status(401).json({ error: 'Session timed out due to inactivity', code: 'SESSION_TIMEOUT' });
         }
+        // Free edition: only the local accounts sign in (an AD session left from a removed license ends here)
+        if (decoded.domain !== 'local' && !isPaid()) {
+            return res.status(401).json({ error: 'AD sign-in requires a paid license. Sign in with a local account.', code: 'LICENSE_REQUIRED' });
+        }
         sessionService.touchSession(token, decoded);
 
         if (decoded.epass) {
@@ -39,6 +44,10 @@ function requireAuth(req, res, next) {
         return res.status(401).json({ error: 'Invalid token' });
     }
 }
+
+const licenseDenied = (res, featureKey) => res.status(403).json({
+    error: `Access denied. Feature "${featureKey}" requires a paid license.`, code: 'LICENSE_REQUIRED',
+});
 
 function checkRole(allowedRoles) {
     return (req, res, next) => {
@@ -58,6 +67,7 @@ function checkFeature(featureKey) {
         if (!req.user) {
             return res.status(401).json({ error: 'Authentication required' });
         }
+        if (!licenseAllows(featureKey)) return licenseDenied(res, featureKey);
         if (isFeatureGloballyDisabled(featureKey)) {
             return res.status(403).json({ error: `Access denied. Feature "${featureKey}" is globally disabled.` });
         }
@@ -76,6 +86,7 @@ function checkAnyFeature(...featureKeys) {
         }
         const allowed = featureKeys.some(k => !isFeatureGloballyDisabled(k) && hasFeature(req.user, k));
         if (!allowed) {
+            if (featureKeys.every(k => !licenseAllows(k))) return licenseDenied(res, featureKeys.join(' / '));
             return res.status(403).json({ error: `Access denied. Requires one of the features: ${featureKeys.join(', ')}` });
         }
         next();

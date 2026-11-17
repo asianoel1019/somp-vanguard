@@ -23,6 +23,11 @@ api.interceptors.response.use(response => response, error => {
 
     // 1. Handle explicit 401 Unauthorized for active sessions (ignore login failure responses)
     if (error.response && error.response.status === 401 && !isLoginRequest) {
+        if (error.response.data && error.response.data.code === 'LICENSE_REQUIRED') {
+            try { sessionStorage.setItem('somp.logoutReason', error.response.data.error || 'This account needs a paid license.'); } catch { /* storage unavailable */ }
+            handleLogout('license');
+            return Promise.reject(error);
+        }
         const lastAct = parseInt(localStorage.getItem('lastActivity') || '0', 10);
         const elapsed = Date.now() - lastAct;
         // If elapsed is large (> 60s) or no activity recorded, this is a cold-start or stale token rejection.

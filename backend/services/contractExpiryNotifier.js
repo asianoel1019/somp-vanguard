@@ -29,6 +29,11 @@ async function tick(now = new Date(), { force = false } = {}) {
     const days = model.parseNotifyDays(process.env.CONTRACT_NOTIFY_DAYS);
     if (!days.length) return { skipped: 'disabled' };
     if (!force && now.getHours() < notifyHour()) return { skipped: 'too-early' };
+    const license = require('../lib/license');
+    if (!license.licenseAllows('dataCenter') || !license.channelAllowed('telegram')) {
+        license.noteSkipped('Contract expiry notices');
+        return { skipped: 'license' };
+    }
     const contracts = readDataSync(CONTRACTS_KEY, []);
     let notices = [];
     mutateDocument(STATE_KEY, (state) => {

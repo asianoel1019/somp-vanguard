@@ -3,14 +3,18 @@
  * login / session feature map in routes/auth.js (single source of truth).
  *
  * Evaluation order:
+ *   0. license          - a paid feature is off for everyone on the free edition (lib/license.js)
  *   1. lock-out guard   - SUPERADMIN_LOCKED_FEATURES are always on for SuperAdmin users
  *   2. global kill switch APP_ENABLE_<KEY>=false wins for everyone else
  *   3. break-glass       - the local admin account (LOCAL_ADMIN_USER, domain local) has every feature
- *   4. SuperAdmin        - exactly the switches of the built-in "SuperAdmin" mapping
- *   5. everyone else     - union of their enabled (non built-in) AD mappings
+ *   4. local operator / viewer (lib/localAccounts.js) - every feature except the SuperAdmin-only ones
+ *   5. SuperAdmin        - exactly the switches of the built-in "SuperAdmin" mapping
+ *   6. everyone else     - union of their enabled (non built-in) AD mappings
  */
 const { readRbacConfig, isBuiltinMapping, isReservedMappingName } = require('./rbac');
 const { BUILTIN_SUPERADMIN_MAPPING, FEATURE_KEYS, SUPERADMIN_LOCKED_FEATURES } = require('./featureCatalog');
+const { licenseAllows } = require('./license');
+const { isBuiltinLocalUser } = require('./localAccounts');
 
 function isFeatureGloballyDisabled(featureKey) {
     return process.env[`APP_ENABLE_${String(featureKey).toUpperCase()}`] === 'false';
@@ -29,9 +33,11 @@ function isSuperAdminUser(user) {
 
 function evaluateFeature(user, featureKey, rbac) {
     if (!user) return false;
+    if (!licenseAllows(featureKey)) return false;
     if (isSuperAdminUser(user) && SUPERADMIN_LOCKED_FEATURES.includes(featureKey)) return true;
     if (isFeatureGloballyDisabled(featureKey)) return false;
     if (isLocalAdminUser(user)) return true;
+    if (isBuiltinLocalUser(user)) return !SUPERADMIN_LOCKED_FEATURES.includes(featureKey);
 
     const groups = (rbac && rbac.groups) || {};
     if (user.role === 'SuperAdmin') {

@@ -10,6 +10,24 @@ function getTokenFromUrl(url) {
     return match ? match[1] : null;
 }
 
+/**
+ * The checks a WebSocket upgrade must pass, the same as requireAuth for HTTP: a valid token, the local page account
+ * still active (its stored role wins), not revoked by a role / account change, and AD tokens only on the paid edition.
+ * @returns {object|null} the verified payload (role from the store), or null to refuse with 401
+ */
+function authorizeUpgradeToken(token, secret = process.env.JWT_SECRET) {
+    if (!token || !secret) return null;
+    let decoded;
+    try { decoded = jwt.verify(token, secret); } catch { return null; }
+    const localCheck = require('./localAccounts').sessionCheck(decoded);
+    if (!localCheck.ok) return null;
+    decoded.role = localCheck.role;
+    if (require('./sessionRevocation').isRevoked(decoded)) return null;
+    // The free edition is local-account only (AD sign-in is a paid feature)
+    if (decoded.domain !== 'local' && !require('./license').isPaid()) return null;
+    return decoded;
+}
+
 function initWebSocketServer(server) {
     wss = new WebSocketServer({ noServer: true });
 
@@ -30,25 +48,17 @@ function initWebSocketServer(server) {
             return;
         }
 
-        jwt.verify(token, secret, (err, decoded) => {
-            if (err) {
-                socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
-                socket.destroy();
-                return;
-            }
+        const decoded = authorizeUpgradeToken(token, secret);
+        if (!decoded) {
+            socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+            socket.destroy();
+            return;
+        }
 
-            // The free edition is local-account only (AD sign-in is a paid feature)
-            if (decoded.domain !== 'local' && !require('./license').isPaid()) {
-                socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
-                socket.destroy();
-                return;
-            }
-
-            // Authentication successful, upgrade connection
-            wss.handleUpgrade(request, socket, head, (ws) => {
-                ws.user = decoded; // Attach user info to socket
-                wss.emit('connection', ws, request);
-            });
+        // Authentication successful, upgrade connection
+        wss.handleUpgrade(request, socket, head, (ws) => {
+            ws.user = decoded; // Attach user info to socket
+            wss.emit('connection', ws, request);
         });
     });
 
@@ -114,6 +124,7 @@ function closeAllConnections() {
 
 module.exports = {
     initWebSocketServer,
+    authorizeUpgradeToken,
     broadcastEvent,
     closeAllConnections
 };

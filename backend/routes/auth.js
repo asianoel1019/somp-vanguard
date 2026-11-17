@@ -19,6 +19,10 @@ const sessionService = require('../services/sessionService');
 const localAccounts = require('../lib/localAccounts');
 const license = require('../lib/license');
 
+// Failed sign-in answers: the same for an unknown name and a page account with a wrong password (routes below)
+const INVALID_CREDENTIALS = 'Invalid user name or password.';
+const INVALID_CREDENTIALS_FREE = 'Invalid user name or password. The free edition accepts local accounts only.';
+
 // --- Global Rate Limiter Memory Store ---
 const loginAttempts = new Map();
 
@@ -103,14 +107,33 @@ router.get('/test', (req, res) => {
 router.post('/login', loginRateLimiter, async (req, res) => {
     try {
         appendLog('POST /login received');
-        let { username, password } = req.body;
-
+        const body = req.body || {};
+        if (typeof body.username !== 'string' || typeof body.password !== 'string') {
+            return res.status(400).json({ error: 'Username and password are required' });
+        }
+        // Normalised once: everything below (lookups, lockout key, token, session, audit) uses this, never the raw input
+        const username = body.username.trim();
+        const password = body.password;
         if (!username || !password) {
             return res.status(400).json({ error: 'Username and password are required' });
         }
 
+        // 1. Parse username/domain
+        const hasDomain = username.includes('@');
+        let user = username;
+        let domain = getAllowedAdDomain();
+        if (hasDomain) {
+            const parts = username.split('@');
+            user = parts[0].trim();
+            domain = (parts[1] || '').trim();
+        }
+        if (!user) {
+            return res.status(400).json({ error: 'Username and password are required' });
+        }
+
         const userIp = getClientIp(req);
-        const attemptKey = `${username}:${userIp}`;
+        // one counter per account name, whatever case / domain suffix was typed
+        const attemptKey = `${user.toLowerCase()}:${userIp}`;
 
         if (loginAttempts.has(attemptKey)) {
             const attempt = loginAttempts.get(attemptKey);
@@ -137,55 +160,74 @@ router.post('/login', loginRateLimiter, async (req, res) => {
             loginAttempts.set(attemptKey, attempt);
         };
 
-        // 1. Parse username/domain
-        let user = username;
-        let domain = getAllowedAdDomain();
-
-        if (username.includes('@')) {
-            const parts = username.split('@');
-            user = parts[0];
-            domain = parts[1];
-        }
-
         appendLog(`Login attempt: user="${user}" domain="${domain}" (Input: ${username})`);
 
-        // 2. --- PRIORITY 1: built-in local accounts (lib/localAccounts: admin, operator, viewer) ---
-        // A local account name never falls through to AD; operator / viewer also work on the free edition.
-        const local = localAccounts.find(user);
-        if (local && local.pass && password === local.pass) {
+        // Failed credentials: the answer an unknown name gets on this edition without contacting AD. A page account
+        // with a wrong password gets exactly this too, so the response never tells whether a page account exists.
+        const credentialFailure = (logMsg) => {
+            handleFailedLogin(logMsg);
+            if (!license.isPaid()) return res.status(401).json({ error: INVALID_CREDENTIALS_FREE });
+            const allowed = getAllowedAdDomain();
+            if (!allowed) return res.status(401).json({ error: 'System uninitialized. Please login as local admin.' });
+            if (hasDomain && domain.toLowerCase() !== allowed.toLowerCase()) {
+                return res.status(401).json({ error: `Authentication restricted to domain: ${allowed}` });
+            }
+            return res.status(401).json({ error: INVALID_CREDENTIALS });
+        };
+
+        // 2. --- PRIORITY 1: local accounts. The break-glass admin (.env) works on both editions; page accounts
+        // (lib/localAccounts) sign in by their stored role and edition. A local account name never falls through to AD.
+        // name: the canonical name (stored account name / LOCAL_ADMIN_USER) for the token, session, audit and lockout.
+        const issueLocal = (name, role, label, extra = {}) => {
             loginAttempts.delete(attemptKey);
-            auditLog(user, 'Auth', `${local.label} login successful`);
-            const role = local.role || getUserRole(user, 'local');
+            auditLog(name, 'Auth', `${label} login successful`);
             const secret = process.env.JWT_SECRET;
             if (!secret) throw new Error('JWT_SECRET is not configured. Server must be started with a valid secret.');
-            const token = jwt.sign({ username: user, domain: 'local', role }, secret, { expiresIn: '24h' });
-
-            sessionService.registerSession({ token, username: user, domain: 'local', ip: userIp });
-
-            // Shared evaluation (lib/permissions): local admin = break-glass, local operator / viewer = every licensed feature
-            const features = buildFeatureMap({ username: user, domain: 'local', role });
-
-            return res.json({ token, user: { username: user, domain: 'local', role, features, license: license.publicState() } });
-        } else if (local) {
-            handleFailedLogin(`${local.label} login failed: incorrect password for ${user}`);
-            return res.status(401).json({ error: local.role ? 'Invalid local account credentials.' : 'Invalid local admin credentials.' });
+            const token = jwt.sign({ username: name, domain: 'local', role }, secret, { expiresIn: '24h' });
+            sessionService.registerSession({ token, username: name, domain: 'local', ip: userIp });
+            const features = buildFeatureMap({ username: name, domain: 'local', role });
+            return res.json({ token, user: { username: name, domain: 'local', role, features, license: license.publicState(), ...extra } });
+        };
+        if (localAccounts.isBreakGlassName(user)) {
+            const bg = localAccounts.breakGlass();
+            if (bg.pass && password === bg.pass) return issueLocal(bg.user, getUserRole(bg.user, 'local'), 'Local admin');
+            handleFailedLogin(`Local admin login failed: incorrect password for ${user}`);
+            return res.status(401).json({ error: 'Invalid local admin credentials.' });
+        }
+        const localAuth = localAccounts.authenticate(user, password);
+        if (localAuth.ok) {
+            return issueLocal(localAuth.account.username, localAuth.account.role, 'Local account', { localAccount: true });
+        }
+        if (localAuth.found) {
+            if (localAuth.code) { // correct password, account inactive: only then is the status revealed
+                handleFailedLogin(`Local account ${user} refused: ${localAuth.error}`);
+                return res.status(403).json({ error: localAuth.error, code: localAuth.code });
+            }
+            return credentialFailure(`Local account login failed: incorrect password for ${user}`);
+        }
+        if (localAuth.unavailable) {
+            appendLog(`Local accounts unavailable during login of ${user}`);
+            // free edition: no AD to fall back to. Paid: we cannot tell whether the name was local, so AD continues.
+            if (!license.isPaid()) {
+                return res.status(503).json({ error: 'Local accounts are unavailable.', code: 'ACCOUNTS_UNAVAILABLE' });
+            }
         }
 
         // AD accounts and RBAC mappings are a paid feature: refuse before contacting AD
         if (!license.isPaid()) {
-            return res.status(403).json({ error: 'AD sign-in requires a paid license. The free edition accepts the local accounts only.', code: 'LICENSE_REQUIRED' });
+            return credentialFailure(`Login refused on the free edition (not a local account): ${user}`);
         }
 
         // 3. --- PRIORITY 2: AD Domain check ---
         // never "local": that domain belongs to the break-glass local admin only
         const allowedDomain = getAllowedAdDomain();
         if (!allowedDomain) {
-            return res.status(401).json({ error: 'System uninitialized. Please login as local admin.' });
+            return credentialFailure(`Login refused: no AD domain configured (${user})`);
         }
 
         // If domain was explicitly provided in username@domain, it MUST match
-        if (username.includes('@') && domain.toLowerCase() !== allowedDomain.toLowerCase()) {
-            return res.status(401).json({ error: `Authentication restricted to domain: ${allowedDomain}` });
+        if (hasDomain && domain.toLowerCase() !== allowedDomain.toLowerCase()) {
+            return credentialFailure(`Login refused: domain ${domain} is not ${allowedDomain} (${user})`);
         }
 
         // Use the configured allowed domain for AD validation
@@ -304,11 +346,10 @@ try {
             sessionService.registerSession({ token, username: user, domain: domain, ip: userIp });
             return res.json({ token, user: { username: user, domain: domain, role, features, license: license.publicState() } });
         } else if (adOutput === 'False') {
-            handleFailedLogin(`AD rejected credentials for: ${username}`);
-            return res.status(401).json({ error: 'Invalid Active Directory credentials.' });
+            return credentialFailure(`AD rejected credentials for: ${username}`);
         } else {
-            handleFailedLogin(`AD unexpected output: "${adOutput}"`);
-            return res.status(401).json({ error: `AD Error: ${adOutput}` });
+            // the AD detail goes to the log only: the response must match a wrong local password (no account enumeration)
+            return credentialFailure(`AD unexpected output for ${username}: "${adOutput}"`);
         }
 
     } catch (err) {

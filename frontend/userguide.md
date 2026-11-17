@@ -108,11 +108,23 @@
 
 ### 🔑 授權（License）：免費版 / 付費版
 *   **版本（v1.8.0 起）**：沒有授權即為免費版。付費版開啟：AI Ops Agent、自動化維運（Workflow、Task Scheduler、Remote Command、Server Provision、自動自癒）、Network Device、IPAM、NetSearch、Data Center 整組（機房、機櫃、拓撲、報修、備品、合約），以及往外送通知（Telegram、Email、Webhook）、AD 帳號登入與 RBAC 對應。免費版仍可使用其餘所有功能；告警照常偵測與顯示，只是不往外送。
-*   **免費版的帳號**：只能使用本機帳號登入：local admin（`LOCAL_ADMIN_USER` / `LOCAL_ADMIN_PWD`）、local operator（`LOCAL_OPERATOR_USER` / `LOCAL_OPERATOR_PWD`）、local viewer（`LOCAL_VIEWER_USER` / `LOCAL_VIEWER_PWD`）。operator / viewer 帳號與密碼都設定才會啟用，在 System Settings → Core System 設定；它們擁有授權允許的全部功能，寫入權限依角色。
+*   **免費版的帳號**：只能使用本機帳號登入：緊急救援 admin（`.env` 的 `LOCAL_ADMIN_USER` / `LOCAL_ADMIN_PWD`）與在 RBAC → Local Accounts 建立的本機帳號，每個角色（SuperAdmin、Operator、Viewer）限一個；詳見下一節「本機帳號」。
 *   **上傳授權**：SuperAdmin 到 System Settings → License，選擇或貼上 `.lic` 授權檔後按「套用授權」；立即生效，不需重啟。驗證不通過會顯示原因且不會存入。
 *   **移除授權**：同一頁「移除授權」，回到免費版；所有資料保留，重新上傳後立即恢復。
 *   **升級前**：把授權檔放到資料目錄（例如 `D:\somp-vanguard\`），檔名不限，副檔名為 `.lic` 即可；有多個 `.lic` 時，只採用簽發日最新且驗證有效的那張，無效的檔案會在 log 列出並略過。服務啟動時自動套用，服務 log 會顯示 `License: Paid (...)`；否則升級後會先以免費版啟動（AD 帳號無法登入），需以 local admin 登入上傳授權。
 *   **鎖住的功能**：免費版時，付費功能在選單上淡化並顯示鎖；點選會顯示功能說明與取得授權的方式。
+
+### 👤 本機帳號（RBAC → Local Accounts）
+本機帳號是不經 AD 就能登入的帳號，在 RBAC 頁面的「Local Accounts」區塊管理（AD 對應設定上方）。RBAC 頁面只有 SuperAdmin 看得到；新增與修改只限本機 SuperAdmin（緊急救援 admin 或在此頁建立的 SuperAdmin），AD 對應進來的 SuperAdmin 只能查看清單。
+*   **新增**：SuperAdmin 到 RBAC → Local Accounts，填 Username、Role、Password、Confirm password 後新增。Username 可用英文字母、數字、`.`、`_`、`-`（1–64 字元），不分大小寫不可重複，也不能與 `.env` 的緊急救援 admin 同名。
+*   **角色**：Admin（即 SuperAdmin，授權允許的全部功能）、Operator、Viewer（可使用授權允許的全部功能，只有 SuperAdmin 專屬的功能（Settings、Audit Log）除外；不套用 AD 對應的功能開關，寫入權限依角色）。
+*   **密碼規則**：12 至 256 字元，至少含一個英文字母與一個數字。
+*   **每列動作**：Change role、Reset password、Disable / Enable、Delete。改密碼、重設密碼、停用、刪除、改角色後，該帳號現有的登入會立即登出。登出後登入頁會顯示原因（例如 `Account disabled.`、`Your account no longer exists.`、`Your account or role was changed: please sign in again.`）。自己的帳號不能停用、刪除或降級，也不能在這裡重設自己的密碼（請用使用者選單的「Change password」）。
+*   **免費版額度**：每個角色限一個帳號，只計算免費版建立且未停用的帳號；標題旁會顯示額度，例如 `Free edition: Admin 1/1 · Operator 0/1 · Viewer 1/1`。付費版不限數量。
+*   **付費版建立的帳號**：降回免費版後，這些帳號保留但不能登入（顯示 `Inactive on free edition`），也不佔免費版額度；重新套用授權後立即恢復。免費版建立的帳號，升級再降級仍可使用；即使因此某個角色超過一個（例如付費期間啟用了多個免費版建立的帳號），降級後這些帳號仍可登入。
+*   **緊急救援 admin**：`.env` 的 `LOCAL_ADMIN_USER` / `LOCAL_ADMIN_PWD` 兩個版本都能登入，不在清單中（清單最上方僅顯示名稱）、不能在頁面修改或刪除，不佔額度，密碼仍在 `.env` 修改。所有 SuperAdmin 都無法登入時，用它登入並重設密碼。
+*   **舊的 operator / viewer 設定**：`.env` 的 `LOCAL_OPERATOR_*` / `LOCAL_VIEWER_*` 會在升級到此版本後第一次啟動時自動搬進帳號清單（視為免費版帳號），之後 `.env` 的這兩組不再使用，請改在 RBAC 頁面管理。
+*   **自己改密碼**：RBAC 頁面建立的帳號，從右上角使用者選單選「Change password」，輸入舊密碼與新密碼；成功後需重新登入。舊密碼連續輸錯 5 次會鎖住此功能 15 分鐘。緊急救援 admin 不顯示此項。
 
 ---
 

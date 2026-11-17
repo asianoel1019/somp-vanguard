@@ -377,6 +377,7 @@ app.use('/api/devtools', require('./routes/devTools'));
 app.use('/api/sftp', require('./routes/sftp'));
 app.use('/api/remote', require('./routes/remote'));
 app.use('/api/license', require('./routes/license'));
+app.use('/api/local-accounts', require('./routes/localAccounts'));
 
 // --- Frontend Static Files & SPA Support ---
 const distPath = path.join(__dirname, '../frontend/dist');
@@ -504,6 +505,23 @@ initDB().then(async () => {
         console.log(`[Startup] ${license.statusLine()}`);
     } catch (e) {
         console.error('[Startup] License check skipped:', e.message);
+    }
+
+    // Local accounts: LOCAL_OPERATOR_* / LOCAL_VIEWER_* from .env move into system/local_accounts.json once
+    try {
+        const localAccounts = require('./lib/localAccounts');
+        const moved = localAccounts.migrateEnvAccounts();
+        if (moved.error) console.error(`[Startup] Local accounts unavailable: ${moved.error}`);
+        else if (moved.migrated.length) {
+            require('./lib/logger').auditLog('SYSTEM', 'Local Accounts', `Moved from .env to Local Accounts: ${moved.migrated.join(', ')}`);
+            console.log(`[Startup] Local accounts moved from .env: ${moved.migrated.join(', ')}`);
+        }
+        const clash = localAccounts.breakGlassCollision();
+        if (clash) {
+            console.warn(`[Startup] WARNING: LOCAL_ADMIN_USER "${clash}" is also the name of a Local Accounts page account. That account cannot sign in and its existing sessions are refused; rename LOCAL_ADMIN_USER or delete the page account.`);
+        }
+    } catch (e) {
+        console.error('[Startup] Local account migration skipped:', e.message);
     }
 
     // Run automated CMDB migration if table is empty

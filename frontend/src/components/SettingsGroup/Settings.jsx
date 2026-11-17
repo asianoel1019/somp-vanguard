@@ -9,6 +9,7 @@ import PwdNotifySettings from './PwdNotifySettings';
 import { pwdNotifyProblems } from './pwdNotifySettingsUtils';
 import { FILE_SERVICES_CATEGORY, resolveCategoryLink } from './fileServicesUtils';
 import LicenseSettings from './LicenseSettings';
+import LocalAccounts from './LocalAccounts';
 import LicenseNotice from '../Shared/LicenseNotice';
 import { readStoredLicense, isFree, LICENSE_EVENT } from '../../utils/licenseUtils.js';
 import {
@@ -66,6 +67,7 @@ const DEFAULT_LOG_TYPE_KEYS = LOG_TYPE_DEFINITIONS.filter(d => !d.optIn).map(d =
 
 const Settings = ({ mode = 'system' }) => {
     const { showConfirm } = useConfirm();
+    const currentUser = (() => { try { const u = JSON.parse(localStorage.getItem('user') || '{}'); return { username: u.username || '', role: u.role || '', domain: u.domain || '' }; } catch { return { username: '', role: '', domain: '' }; } })();
     const [freeEdition, setFreeEdition] = useState(() => isFree(readStoredLicense()));
     useEffect(() => {
         const onLicense = (e) => setFreeEdition(isFree(e.detail));
@@ -1004,27 +1006,7 @@ const Settings = ({ mode = 'system' }) => {
                                             <input type="password" style={S.input} value={sysConfig.LOCAL_ADMIN_PWD || ''} onChange={e => handleConfigChange('LOCAL_ADMIN_PWD', e.target.value)} />
                                         </div>
                                     </div>
-                                    <div style={S.gridRow}>
-                                        <div style={S.fieldBlock}>
-                                            <label style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-muted)' }}>LOCAL_OPERATOR_USER</label>
-                                            <input type="text" style={S.input} value={sysConfig.LOCAL_OPERATOR_USER || ''} onChange={e => handleConfigChange('LOCAL_OPERATOR_USER', e.target.value)} />
-                                        </div>
-                                        <div style={S.fieldBlock}>
-                                            <label style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-muted)' }}>LOCAL_OPERATOR_PWD</label>
-                                            <input type="password" style={S.input} value={sysConfig.LOCAL_OPERATOR_PWD || ''} onChange={e => handleConfigChange('LOCAL_OPERATOR_PWD', e.target.value)} />
-                                        </div>
-                                    </div>
-                                    <div style={S.gridRow}>
-                                        <div style={S.fieldBlock}>
-                                            <label style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-muted)' }}>LOCAL_VIEWER_USER</label>
-                                            <input type="text" style={S.input} value={sysConfig.LOCAL_VIEWER_USER || ''} onChange={e => handleConfigChange('LOCAL_VIEWER_USER', e.target.value)} />
-                                        </div>
-                                        <div style={S.fieldBlock}>
-                                            <label style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-muted)' }}>LOCAL_VIEWER_PWD</label>
-                                            <input type="password" style={S.input} value={sysConfig.LOCAL_VIEWER_PWD || ''} onChange={e => handleConfigChange('LOCAL_VIEWER_PWD', e.target.value)} />
-                                        </div>
-                                    </div>
-                                    <div style={S.hint}>Local Operator / Viewer accounts: enabled only when both the user name and the password are set. They can sign in on the free edition too, get every feature the license allows, and can write according to their role.</div>
+                                    <div style={S.hint}>Local operator / viewer accounts are now managed in RBAC → Local Accounts.</div>
                                     <div style={S.gridRow}>
                                         <div style={S.fieldBlock}>
                                             <label style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-muted)' }}>AD_ADMIN_USER <span style={{ color: 'var(--text-muted)', fontWeight: 'normal' }}>(Domain\\admin)</span></label>
@@ -2745,7 +2727,8 @@ curl -H "Authorization: Bearer <YOUR_API_KEY>" "${window.location.origin}/api/v1
 
                         {activeCategory === 'rbac' && (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-                                {freeEdition && <LicenseNotice>AD sign-in and RBAC mappings require a paid license. This page is read-only on the free edition; the mappings take effect once a license is applied.</LicenseNotice>}
+                                {freeEdition && <LicenseNotice>AD sign-in and RBAC mappings require a paid license. On the free edition they are read-only; local accounts below can still be managed (one per role).</LicenseNotice>}
+                                <LocalAccounts currentUser={currentUser} S={S} />
                                 {/* Role Assignments Card */}
                                 <div style={S.card}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>

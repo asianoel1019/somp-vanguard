@@ -143,6 +143,17 @@
 
 ---
 
+### 13. 本機帳號無法登入
+*   `Account disabled.`：帳號被停用。請 SuperAdmin 到 RBAC → Local Accounts 按 Enable。
+*   `This account is inactive on the free edition.`：這個帳號是在付費版建立的，系統目前是免費版。套用授權後立即恢復；或以 SuperAdmin 在免費版另建帳號（每個角色限一個）。
+*   忘記密碼：請 SuperAdmin 到 RBAC → Local Accounts 對該帳號按 Reset password。若沒有 SuperAdmin 能登入，用 `.env` 的緊急救援 admin（`LOCAL_ADMIN_USER` / `LOCAL_ADMIN_PWD`）登入後重設。
+*   登入後被登出並顯示 `Your account no longer exists.`：帳號已被刪除；顯示 `Account disabled.`：帳號已被停用；顯示 `Your account or role was changed: please sign in again.`：密碼被重設或更改、或角色被修改，請重新登入。
+*   登入失敗顯示 `Invalid user name or password.`：帳號或密碼錯誤（為避免洩漏帳號是否存在，本機帳號與 AD 帳號回相同訊息；免費版會加上 `The free edition accepts local accounts only.`）。同一帳號連續失敗 5 次會鎖 15 分鐘。
+*   登入顯示 `Local accounts are unavailable.`（或已登入時被登出並顯示此訊息）：本機帳號文件無法讀取，見下一項。
+*   服務啟動 log 出現 `[Startup] Local accounts unavailable: ...`：本機帳號文件無法讀取或解密，RBAC 頁面建立的帳號全部無法登入（系統不會覆寫該文件）。請檢查加密金鑰與資料目錄是否正確；緊急救援 admin 仍可登入。
+
+---
+
 ## 📋 日誌檔案位置 (Log Locations)
 
 *   **系統審計日誌**: `backend\save_data\logs\auth_YYYY-MM-DD.log`

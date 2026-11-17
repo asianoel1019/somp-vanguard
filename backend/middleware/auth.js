@@ -2,6 +2,7 @@ const jwt = require('jsonwebtoken');
 const { decryptPassword } = require('../lib/crypto');
 const { hasFeature, isFeatureGloballyDisabled } = require('../lib/permissions');
 const { licenseAllows, isPaid } = require('../lib/license');
+const localAccounts = require('../lib/localAccounts');
 const sessionService = require('../services/sessionService');
 const sessionRevocation = require('../lib/sessionRevocation');
 
@@ -19,8 +20,13 @@ function requireAuth(req, res, next) {
     
     try {
         const decoded = jwt.verify(token, secret);
+        // Local page accounts first: still present, enabled and allowed on this edition, so a disabled / deleted
+        // account gets its own reason (not the generic revocation below). The stored role wins over the token.
+        const localCheck = localAccounts.sessionCheck(decoded);
+        if (!localCheck.ok) return res.status(401).json({ error: localCheck.error, code: localCheck.code });
+        decoded.role = localCheck.role;
         if (sessionRevocation.isRevoked(decoded)) {
-            return res.status(401).json({ error: 'Your role was changed: please sign in again', code: 'SESSION_REVOKED' });
+            return res.status(401).json({ error: 'Your account or role was changed: please sign in again.', code: 'SESSION_REVOKED' });
         }
         if (sessionService.isSessionTimedOut(token)) {
             return res.status(401).json({ error: 'Session timed out due to inactivity', code: 'SESSION_TIMEOUT' });

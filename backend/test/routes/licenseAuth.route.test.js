@@ -6,6 +6,7 @@ const request = require('supertest');
 const dbManager = require('../../services/db');
 const powershell = require('../../lib/powershell');
 const { signToken } = require('../helpers/http');
+const la = require('../../lib/localAccounts');
 const { setPaid, setFree } = require('../helpers/license');
 
 let app;
@@ -14,8 +15,11 @@ let adCalls = 0;
 test.before(async () => {
     await dbManager.initDB();
     process.env.LOCAL_ADMIN_PWD = 'admin-pass';
-    process.env.LOCAL_OPERATOR_USER = 'ops'; process.env.LOCAL_OPERATOR_PWD = 'op-pass';
-    process.env.LOCAL_VIEWER_USER = 'watch'; process.env.LOCAL_VIEWER_PWD = 'view-pass';
+    la._resetForTest();
+    setFree(); // created on the free edition so they sign in there
+    la.createAccount({ username: 'ops', role: 'Operator', password: 'Operator-pass-42' }, 'admin');
+    la.createAccount({ username: 'watch', role: 'Viewer', password: 'Viewer-pass-4242' }, 'admin');
+    setPaid();
     process.env.ALLOWED_AD_DOMAIN = 'example.test';
     powershell.validateADCredentials = async () => { adCalls++; return 'False'; };
     app = express();
@@ -25,7 +29,8 @@ test.before(async () => {
 });
 test.after(async () => {
     setPaid();
-    for (const k of ['LOCAL_ADMIN_PWD', 'LOCAL_OPERATOR_USER', 'LOCAL_OPERATOR_PWD', 'LOCAL_VIEWER_USER', 'LOCAL_VIEWER_PWD', 'ALLOWED_AD_DOMAIN']) delete process.env[k];
+    la._resetForTest();
+    for (const k of ['LOCAL_ADMIN_PWD', 'ALLOWED_AD_DOMAIN']) delete process.env[k];
     await dbManager.closeDB();
 });
 
@@ -33,7 +38,7 @@ const login = (username, password) => request(app).post('/api/auth/login').set('
 
 test('local operator / viewer sign in on the free edition with their role and the license state', async () => {
     setFree();
-    const op = await login('OPS', 'op-pass');
+    const op = await login('OPS', 'Operator-pass-42');
     assert.equal(op.status, 200);
     assert.equal(op.body.user.role, 'Operator');
     assert.equal(op.body.user.domain, 'local');
@@ -42,7 +47,7 @@ test('local operator / viewer sign in on the free edition with their role and th
     assert.equal(op.body.user.license.edition, 'free');
     assert.ok(op.body.user.license.locked.includes('dataCenter'));
 
-    const vw = await login('watch', 'view-pass');
+    const vw = await login('watch', 'Viewer-pass-4242');
     assert.equal(vw.status, 200);
     assert.equal(vw.body.user.role, 'Viewer');
 
@@ -56,8 +61,10 @@ test('free edition refuses AD sign-in before calling AD', async () => {
     setFree();
     adCalls = 0;
     const r = await login('alice', 'whatever');
-    assert.equal(r.status, 403);
-    assert.equal(r.body.code, 'LICENSE_REQUIRED');
+    // the same answer as a local account with a wrong password: it never tells whether the name exists
+    assert.equal(r.status, 401);
+    assert.equal(r.body.error, 'Invalid user name or password. The free edition accepts local accounts only.');
+    assert.deepEqual((await login('ops', 'Wrong-pass-123')).body, r.body);
     assert.equal(adCalls, 0);
     setPaid();
     await login('alice', 'whatever');

@@ -7,6 +7,7 @@ const dbManager = require('../../services/db');
 const { signToken } = require('../helpers/http');
 const { setPaid, setFree, PAID_TEXT } = require('../helpers/license');
 const lic = require('../../lib/license');
+const la = require('../../lib/localAccounts');
 
 const ADMIN = `Bearer ${signToken({ username: 'admin', domain: 'local', role: 'SuperAdmin' })}`;
 const OPERATOR = `Bearer ${signToken({ username: 'ops', domain: 'local', role: 'Operator' })}`;
@@ -15,12 +16,16 @@ const audits = [];
 
 test.before(async () => {
     await dbManager.initDB();
+    la._resetForTest();
+    setFree(); // free-created so the account is active on both editions
+    la.createAccount({ username: 'ops', role: 'Operator', password: 'Correct-horse-42' }, 'admin'); // page account for the local-domain token
+    setPaid();
     require('../../lib/logger').auditLog = (user, mod, msg) => { audits.push([user, mod, msg]); };
     app = express();
     app.use(express.json({ limit: '100kb' }));
     app.use('/api/license', require('../../routes/license'));
 });
-test.after(async () => { setPaid(); await dbManager.closeDB(); });
+test.after(async () => { setPaid(); la._resetForTest(); await dbManager.closeDB(); });
 
 test('GET returns the public state to any signed-in user; unauthenticated is 401', async () => {
     setFree();

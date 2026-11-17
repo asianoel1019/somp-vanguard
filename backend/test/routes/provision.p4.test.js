@@ -13,6 +13,7 @@ const { writeRbacConfig } = require('../../lib/rbac');
 const powershell = require('../../lib/powershell');
 const ssh = require('../../lib/ssh');
 const logger = require('../../lib/logger');
+const la = require('../../lib/localAccounts');
 const prov = require('../../lib/provisioning');
 const store = require('../../services/inventoryStore');
 const jobs = require('../../services/provisionJobs');
@@ -90,6 +91,8 @@ function insertJob({ id = `p4-${++seq}`, runner = 'worker', ownerId = `worker:${
 
 test.before(async () => {
     await dbManager.initDB();
+    la._resetForTest();
+    la.createAccount({ username: 'locop', role: 'Operator', password: 'Correct-horse-42' }, 'admin'); // page account for the local-domain token
     writeRbacConfig({
         roles: ['SuperAdmin', 'Operator', 'Viewer', 'None'], users: {}, defaultRole: 'Viewer',
         groups: { prov: { enabled: true, features: { install: true }, auditLogs: { install: true } } }

@@ -23,10 +23,17 @@ api.interceptors.response.use(response => response, error => {
 
     // 1. Handle explicit 401 Unauthorized for active sessions (ignore login failure responses)
     if (error.response && error.response.status === 401 && !isLoginRequest) {
-        if (error.response.data && error.response.data.code === 'LICENSE_REQUIRED') {
-            try { sessionStorage.setItem('somp.logoutReason', error.response.data.error || 'This account needs a paid license.'); } catch { /* storage unavailable */ }
-            handleLogout('license');
+        const code = error.response.data && error.response.data.code;
+        if (code === 'LICENSE_REQUIRED' || code === 'ACCOUNT_INACTIVE' || code === 'ACCOUNTS_UNAVAILABLE') {
+            const fallback = code === 'LICENSE_REQUIRED' ? 'This account needs a paid license.'
+                : (code === 'ACCOUNTS_UNAVAILABLE' ? 'Local accounts are unavailable.' : 'Your account was disabled.');
+            try { sessionStorage.setItem('somp.logoutReason', error.response.data.error || fallback); } catch { /* storage unavailable */ }
+            handleLogout(code === 'LICENSE_REQUIRED' ? 'license' : 'account');
             return Promise.reject(error);
+        }
+        // Role / account change (password reset, role change): show why on the login page; logout type unchanged below
+        if (code === 'SESSION_REVOKED') {
+            try { sessionStorage.setItem('somp.logoutReason', error.response.data.error || 'Please sign in again.'); } catch { /* storage unavailable */ }
         }
         const lastAct = parseInt(localStorage.getItem('lastActivity') || '0', 10);
         const elapsed = Date.now() - lastAct;

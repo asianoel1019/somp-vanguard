@@ -6,6 +6,7 @@ const path = require('path');
 const express = require('express');
 const request = require('supertest');
 const { signToken } = require('../helpers/http');
+const la = require('../../lib/localAccounts');
 
 process.env.DB_BACKUP_PATH = path.join(dataDir, 'route_backups');
 
@@ -22,11 +23,13 @@ const viewer = `Bearer ${signToken({ username: 'bob', domain: 'local', role: 'Us
 
 test.before(async () => {
     await dbManager.initDB();
+    la._resetForTest();
+    la.createAccount({ username: 'bob', role: 'Viewer', password: 'Correct-horse-42' }, 'admin'); // page account for the local-domain token
     encryptText('make sure .system_key exists');
     fs.writeFileSync(process.env.SOMP_ENV_PATH, 'FOO=enc:abc\n');
 });
 test.beforeEach(async () => { await writeLastResult({}); });
-test.after(async () => { delete global.sendWorkerMessage; await dbManager.closeDB(); });
+test.after(async () => { la._resetForTest(); delete global.sendWorkerMessage; await dbManager.closeDB(); });
 
 async function waitForFinish(timeoutMs = 20000) {
     const end = Date.now() + timeoutMs;

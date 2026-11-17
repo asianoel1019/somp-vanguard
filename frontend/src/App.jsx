@@ -38,6 +38,7 @@ import SFTPManager from './components/ServicePlatform/SFTPManager';
 import ErrorBoundary from './components/ErrorBoundary';
 import { TbLock } from 'react-icons/tb';
 import LockedFeature from './components/Shared/LockedFeature';
+import ChangePasswordModal from './components/Shared/ChangePasswordModal';
 import { readStoredLicense, storeLicense, isLockedFlag, licenseLabel, LICENSE_EVENT } from './utils/licenseUtils.js';
 
 import DbInventory from './components/Database/DbInventory';
@@ -123,6 +124,7 @@ function App() {
   }, []);
   const [theme, setTheme] = useState(localStorage.getItem('theme') || 'default');
   const [showSettingsDropdown, setShowSettingsDropdown] = useState(false);
+  const [showChangePwd, setShowChangePwd] = useState(false);
   const [showReadmeModal, setShowReadmeModal] = useState(false);
   const [agentOpen, setAgentOpen] = useState(false);
   const [agentRequest, setAgentRequest] = useState(null);
@@ -622,13 +624,6 @@ function App() {
                 {user.role} | {user.username}
               </span>
             )}
-              {sidebarOpen && licenseLabel(license) && (
-                <span title={license && license.edition === 'free' ? 'Free edition: paid features are locked' : licenseLabel(license)} style={{
-                  fontSize: 10, fontWeight: 800, marginTop: 4, padding: '1px 8px', borderRadius: 999, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%',
-                  color: license.edition === 'free' ? 'var(--warning)' : 'var(--success)',
-                  border: `1px solid ${license.edition === 'free' ? 'rgba(245,158,11,0.4)' : 'rgba(16,185,129,0.4)'}`,
-                }}>{licenseLabel(license)}</span>
-              )}
           </div>
         </div>
       </aside>
@@ -646,9 +641,16 @@ function App() {
                 <h1 className="text-5xl font-bold mb-6 tracking-tight" style={{ background: 'linear-gradient(to right, #22d3ee, #3b82f6)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
                   Welcome To SOMP Vanguard
                 </h1>
-                <p className="text-xl text-secondary mb-10 leading-relaxed">
+                <p className="text-xl text-secondary leading-relaxed" style={{ marginBottom: licenseLabel(license) ? 12 : 40 }}>
                   Welcome back, <span className="text-white font-bold">{user.username}</span>. <br />
                 </p>
+                {licenseLabel(license) && (
+                  <div title={license.edition === 'free' ? 'Free edition: paid features are locked' : undefined} style={{
+                    display: 'inline-block', marginBottom: 40, padding: '3px 14px', borderRadius: 999, fontSize: 14, fontWeight: 700,
+                    color: license.edition === 'free' ? 'var(--warning)' : 'var(--success)',
+                    border: `1px solid ${license.edition === 'free' ? 'rgba(245,158,11,0.4)' : 'rgba(16,185,129,0.4)'}`,
+                  }}>{license.edition === 'free' ? 'Free edition' : licenseLabel(license)}</div>
+                )}
               </div>
             </div>
           ) : (
@@ -782,6 +784,8 @@ function App() {
       {showUserGuideModal && <ReadmeModal onClose={() => setShowUserGuideModal(false)} type="userguide" />}
       {showTroubleshootModal && <ReadmeModal onClose={() => setShowTroubleshootModal(false)} type="troubleshoot" />}
 
+      {showChangePwd && <ChangePasswordModal onClose={() => setShowChangePwd(false)} onSignOut={() => { setShowChangePwd(false); handleLogout(); }} />}
+
       {showSettingsDropdown && (
         <>
           <div className="settings-backdrop" onClick={() => setShowSettingsDropdown(false)} />
@@ -818,6 +822,11 @@ function App() {
             <button className="dropdown-item" onClick={() => { setShowTroubleshootModal(true); setShowSettingsDropdown(false); }}>
               <span>🔍</span> Troubleshooting
             </button>
+            {user && user.localAccount && (
+              <button className="dropdown-item" onClick={() => { setShowChangePwd(true); setShowSettingsDropdown(false); }}>
+                <span>🔒</span> Change password
+              </button>
+            )}
             <button className="dropdown-item" onClick={() => handleLogout()}>
               <span>🚪</span> Logout
             </button>

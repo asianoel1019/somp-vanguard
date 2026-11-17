@@ -357,8 +357,8 @@
           <ul style="margin: 0; padding-left: 18px; font-size: 0.85rem; color: var(--text-muted); line-height: 1.6;">
             <li><strong>離線簽章授權檔</strong>：付費授權為供應商以私鑰簽章的 <code>.lic</code> 檔，系統以內建公鑰離線驗證（不需連網），檔案寫明客戶名稱、永久有效。沒有授權、授權被竄改或驗證失敗時一律以免費版運作，資料全部保留，套用授權後立即恢復、不需重啟。</li>
             <li><strong>付費功能</strong>：AI Ops Agent、Workflow、Task Scheduler、Remote Command、Server Provision、自動自癒、Network Device、IPAM、NetSearch、Data Center 整組，以及往外送通知（Telegram、Email、Webhook）與 AD 帳號登入 / RBAC 對應。免費版的告警照常偵測與顯示，只是不往外送。</li>
-            <li><strong>內建本機帳號</strong>：新增本機 Operator / Viewer 帳號（<code>LOCAL_OPERATOR_USER</code> / <code>LOCAL_OPERATOR_PWD</code>、<code>LOCAL_VIEWER_USER</code> / <code>LOCAL_VIEWER_PWD</code>，帳號與密碼都設定才啟用），免費版也能登入。</li>
-            <li><strong>介面</strong>：免費版時付費功能在選單上加鎖並顯示說明頁；System Settings 新增 License 頁（上傳 / 移除授權、檢視付費功能狀態）；側邊欄顯示 Free 或 Licensed to 客戶名稱。</li>
+            <li><strong>本機帳號（RBAC → Local Accounts）</strong>：SuperAdmin 在 RBAC 頁面新增本機 SuperAdmin / Operator / Viewer 帳號；付費版不限數量，免費版每個角色限一個。<code>.env</code> 的 <code>LOCAL_ADMIN_USER</code> / <code>LOCAL_ADMIN_PWD</code> 保留為緊急救援 admin（兩個版本都能登入，不佔額度）；<code>.env</code> 的 operator / viewer 設定會在升級後第一次啟動時自動搬進帳號清單。</li>
+            <li><strong>介面</strong>：免費版時付費功能在選單上加鎖並顯示說明頁；System Settings 新增 License 頁（上傳 / 移除授權、檢視付費功能狀態）；首頁「Welcome back」下方顯示 Free edition 或授權標示（Licensed to 客戶名稱）。</li>
           </ul>
         </div>
 
@@ -2501,7 +2501,7 @@ node backend/scripts/migrate_all_sqlite_to_db.js --sqlite-dir="D:\somp-vanguard"
           <ul>
             <li><strong>付費功能</strong>：AI Ops Agent、自動化維運（Workflow、Task Scheduler、Remote Command、Server Provision、自動自癒）、Network Device、IPAM、NetSearch、Data Center 整組（機房、機櫃、拓撲、報修、備品、合約），以及往外送通知（Telegram、Email、Webhook）、AD 帳號登入與 RBAC 對應。</li>
             <li><strong>免費版</strong>：其餘功能都能使用；告警照常偵測與顯示，只是不往外送。付費功能在選單上加鎖，點選會顯示功能說明與取得授權的方式。</li>
-            <li><strong>免費版的帳號</strong>：只能以本機帳號登入：local admin（<code>LOCAL_ADMIN_USER</code> / <code>LOCAL_ADMIN_PWD</code>）、local operator（<code>LOCAL_OPERATOR_USER</code> / <code>LOCAL_OPERATOR_PWD</code>）、local viewer（<code>LOCAL_VIEWER_USER</code> / <code>LOCAL_VIEWER_PWD</code>）。operator / viewer 帳號與密碼都設定才會啟用，可在 Settings → Core System 設定，擁有授權允許的全部功能，寫入權限依角色。</li>
+            <li><strong>免費版的帳號</strong>：只能以本機帳號登入：緊急救援 admin（<code>LOCAL_ADMIN_USER</code> / <code>LOCAL_ADMIN_PWD</code>）與在 RBAC → Local Accounts 建立的本機帳號，每個角色（SuperAdmin、Operator、Viewer）限一個。付費版建立的帳號在免費版保留但不能登入，也不佔額度，重新套用授權後立即恢復；<code>.env</code> 的 <code>LOCAL_OPERATOR_*</code> / <code>LOCAL_VIEWER_*</code> 會在第一次啟動時自動搬進帳號清單，之後改在 RBAC 頁面管理。</li>
             <li><strong>上傳與移除</strong>：SuperAdmin 到 Settings → License，選擇或貼上授權檔後按「套用授權」；驗證不通過會顯示原因且不會存入。「移除授權」會回到免費版。</li>
             <li><strong>升級前</strong>：把授權檔放到資料目錄（例如 <code>D:\somp-vanguard\</code>），檔名不限、副檔名 <code>.lic</code>；有多個時只採用簽發日最新且驗證有效的那張，無效的會在 log 列出並略過。服務啟動時自動套用（同一份檔案只匯入一次，也不會用較舊的授權蓋掉目前的授權），log 顯示 <code>License: Paid (...)</code>；否則會先以免費版啟動，需以 local admin 登入上傳授權。</li>
           </ul>

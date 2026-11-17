@@ -103,6 +103,20 @@ function removeUserSessions(username) {
 }
 
 /**
+ * Remove the active sessions of one local account (domain "local") only: an AD user with the same short name keeps
+ * theirs. Used by the Local Accounts page (routes/localAccounts.js).
+ */
+function removeLocalUserSessions(username) {
+    if (!username) return;
+    const target = String(username).toLowerCase().trim();
+    for (const [token, session] of activeSessions.entries()) {
+        if (String(session.domain || '').toLowerCase() === 'local' && String(session.username || '').toLowerCase().trim() === target) {
+            activeSessions.delete(token);
+        }
+    }
+}
+
+/**
  * Return summary of all currently active sessions
  */
 function getActiveSessions() {
@@ -215,6 +229,7 @@ module.exports = {
     isSessionTimedOut,
     removeSession,
     removeUserSessions,
+    removeLocalUserSessions,
     getActiveSessions,
     startSessionTimeoutPoller,
     getTimeoutDurationMs,

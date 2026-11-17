@@ -90,7 +90,7 @@ function statusLine() {
     return l.edition === 'paid' ? `License: Paid (${l.customer}, ${l.licenseId})` : `License: Free (${l.reason})`;
 }
 
-/** Hash of the last license.lic that was imported (kept across installs and removals); '' when none. */
+/** Hash of the last license file that was imported (kept across installs and removals); '' when none. */
 function storedFileSha() {
     try {
         const doc = readDataSync(LICENSE_KEY, null);
@@ -116,18 +116,49 @@ function removeLicense(by) {
     writeDataSync(LICENSE_KEY, doc);
 }
 
-/** <dataDir>\license.lic -> the stored license, when valid and different from the last file imported (startup; lets an upgrade start licensed). */
+/** Newest valid *.lic in <dataDir> (by issuedAt, then licenseId; the first file name wins a tie); invalid files are listed in `invalid`. */
+function pickLicenseFile(dataDir) {
+    const dir = String(dataDir || '');
+    let names = [];
+    try { names = fs.readdirSync(dir).filter(n => /\.lic$/i.test(n)).sort(); } catch { names = []; }
+    let best = null;
+    const invalid = [];
+    for (const name of names) {
+        let text;
+        try {
+            const file = path.join(dir, name);
+            if (!fs.statSync(file).isFile()) continue;
+            text = fs.readFileSync(file, 'utf8').replace(/^﻿/, '').trim();
+        } catch (e) { invalid.push({ file: name, reason: e.message }); continue; }
+        const r = verifyLicense(text);
+        if (!r.valid) { invalid.push({ file: name, reason: r.reason }); continue; }
+        const c = { file: name, text, payload: r.payload };
+        if (!best || r.payload.issuedAt > best.payload.issuedAt
+            || (r.payload.issuedAt === best.payload.issuedAt && r.payload.licenseId > best.payload.licenseId)) best = c;
+    }
+    return { count: names.length, best, invalid };
+}
+
+/**
+ * Startup: the newest valid *.lic in <dataDir> becomes the stored license when it is a file not imported before and
+ * not older than the stored license (an upgrade starts licensed; a UI removal or replacement is not undone).
+ */
 function importLicenseFile(dataDir) {
     try {
-        const file = path.join(String(dataDir || ''), 'license.lic');
-        if (!fs.existsSync(file)) return { imported: false, reason: 'no file' };
-        const text = fs.readFileSync(file, 'utf8').replace(/^﻿/, '').trim();
-        const sha = crypto.createHash('sha256').update(text).digest('hex');
-        if (sha === storedFileSha()) return { imported: false, reason: 'same' };
-        const r = installLicense(text, 'license.lic', sha);
-        return r.ok ? { imported: true, reason: '', licenseId: r.payload.licenseId } : { imported: false, reason: r.reason };
+        const { count, best, invalid } = pickLicenseFile(dataDir);
+        if (!count) return { imported: false, reason: 'no file', invalid };
+        if (!best) return { imported: false, reason: 'no valid license file', invalid };
+        const sha = crypto.createHash('sha256').update(best.text).digest('hex');
+        const base = { file: best.file, licenseId: best.payload.licenseId, invalid };
+        if (sha === storedFileSha()) return { imported: false, reason: 'same', ...base };
+        const current = getLicense();
+        if (current.edition === 'paid' && current.issuedAt > best.payload.issuedAt) {
+            return { imported: false, reason: `older than the current license ${current.licenseId}`, ...base };
+        }
+        const r = installLicense(best.text, best.file, sha);
+        return r.ok ? { imported: true, reason: '', ...base } : { imported: false, reason: r.reason, ...base };
     } catch (e) {
-        return { imported: false, reason: e.message };
+        return { imported: false, reason: e.message, invalid: [] };
     }
 }
 
@@ -142,5 +173,5 @@ function noteSkipped(what) {
 module.exports = {
     LICENSE_KEY, PAID_FEATURES, PAID_CHANNELS, canonicalJson, verifyLicense, getLicense, isPaid, licenseAllows,
     channelAllowed, lockedFeatures, lockedChannels, publicState, statusLine, installLicense, removeLicense,
-    importLicenseFile, noteSkipped,
+    pickLicenseFile, importLicenseFile, noteSkipped,
 };

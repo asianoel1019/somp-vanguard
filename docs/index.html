@@ -433,7 +433,7 @@
             <span style="font-size: 0.75rem; background: #ec489926; color: #ec4899; padding: 2px 8px; border-radius: 10px;">UPGRADE</span>
           </div>
           <ul style="margin: 0; padding-left: 18px; font-size: 0.85rem; color: var(--text-muted); line-height: 1.6;">
-            <li><strong>升級前先放授權檔</strong>：沒有授權時，升級後會以免費版啟動（AD 帳號無法登入、付費功能與通知關閉）。請在部署前把授權檔放到資料目錄的 <code>license.lic</code>（例如 <code>D:\somp-vanguard\license.lic</code>），服務啟動時自動套用，log 會顯示 <code>License: Paid (...)</code>。忘了放時以 local admin 登入，到 System Settings → License 上傳即可。</li>
+            <li><strong>升級前先放授權檔</strong>：沒有授權時，升級後會以免費版啟動（AD 帳號無法登入、付費功能與通知關閉）。請在部署前把授權檔放到資料目錄（例如 <code>D:\somp-vanguard\</code>，檔名不限、副檔名 <code>.lic</code>；有多個時採用簽發日最新且有效的那張），服務啟動時自動套用，log 會顯示 <code>License: Paid (...)</code>。忘了放時以 local admin 登入，到 System Settings → License 上傳即可。</li>
             <li><strong>Deploy_to_Prod</strong>：只複製有變動的檔案（只改前端時不再因 <code>somp-vanguard.exe</code> 被佔用而失敗）；變更含執行檔時會停止服務並等待完全停止；新增 <code>-Backup</code>（部署前備份）與 <code>-Recover</code>（選擇備份還原）。</li>
             <li><strong>維運工具</strong>：<code>Rack_Stats.bat</code>（機櫃規模統計，唯讀）、<code>Cleanup_Orphan_Racks.bat</code>（清理已刪除機房留下的機櫃資料，預設只產生報告）。</li>
           </ul>
@@ -2503,7 +2503,7 @@ node backend/scripts/migrate_all_sqlite_to_db.js --sqlite-dir="D:\somp-vanguard"
             <li><strong>免費版</strong>：其餘功能都能使用；告警照常偵測與顯示，只是不往外送。付費功能在選單上加鎖，點選會顯示功能說明與取得授權的方式。</li>
             <li><strong>免費版的帳號</strong>：只能以本機帳號登入：local admin（<code>LOCAL_ADMIN_USER</code> / <code>LOCAL_ADMIN_PWD</code>）、local operator（<code>LOCAL_OPERATOR_USER</code> / <code>LOCAL_OPERATOR_PWD</code>）、local viewer（<code>LOCAL_VIEWER_USER</code> / <code>LOCAL_VIEWER_PWD</code>）。operator / viewer 帳號與密碼都設定才會啟用，可在 Settings → Core System 設定，擁有授權允許的全部功能，寫入權限依角色。</li>
             <li><strong>上傳與移除</strong>：SuperAdmin 到 Settings → License，選擇或貼上授權檔後按「套用授權」；驗證不通過會顯示原因且不會存入。「移除授權」會回到免費版。</li>
-            <li><strong>升級前</strong>：把授權檔放到資料目錄的 <code>license.lic</code>（例如 <code>D:\somp-vanguard\license.lic</code>）。服務啟動時自動套用（同一份檔案只匯入一次），log 顯示 <code>License: Paid (...)</code>；否則會先以免費版啟動，需以 local admin 登入上傳授權。</li>
+            <li><strong>升級前</strong>：把授權檔放到資料目錄（例如 <code>D:\somp-vanguard\</code>），檔名不限、副檔名 <code>.lic</code>；有多個時只採用簽發日最新且驗證有效的那張，無效的會在 log 列出並略過。服務啟動時自動套用（同一份檔案只匯入一次，也不會用較舊的授權蓋掉目前的授權），log 顯示 <code>License: Paid (...)</code>；否則會先以免費版啟動，需以 local admin 登入上傳授權。</li>
           </ul>
         </div>
       </section>

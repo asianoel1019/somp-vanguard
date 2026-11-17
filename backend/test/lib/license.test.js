@@ -88,7 +88,7 @@ test('installLicense stores only valid licenses; removeLicense returns to free',
 test('importLicenseFile imports a valid license.lic once and never replaces a license with an invalid file', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'somp-lic-'));
     setFree();
-    assert.deepEqual(lic.importLicenseFile(dir), { imported: false, reason: 'no file' });
+    assert.equal(lic.importLicenseFile(dir).reason, 'no file');
 
     fs.writeFileSync(path.join(dir, 'license.lic'), PAID_TEXT);
     const r = lic.importLicenseFile(dir);
@@ -96,12 +96,13 @@ test('importLicenseFile imports a valid license.lic once and never replaces a li
     assert.equal(r.licenseId, 'L-TEST-0001');
     assert.equal(lic.isPaid(), true);
     assert.equal(readDataSync(lic.LICENSE_KEY).uploadedBy, 'license.lic');
-    assert.deepEqual(lic.importLicenseFile(dir), { imported: false, reason: 'same' });
+    assert.equal(lic.importLicenseFile(dir).reason, 'same');
 
     fs.writeFileSync(path.join(dir, 'license.lic'), 'broken');
     const bad = lic.importLicenseFile(dir);
     assert.equal(bad.imported, false);
-    assert.match(bad.reason, /JSON/);
+    assert.equal(bad.reason, 'no valid license file');
+    assert.match(bad.invalid[0].reason, /JSON/);
     assert.equal(lic.isPaid(), true); // the stored license is untouched
 });
 
@@ -111,7 +112,7 @@ test('license.lic does not undo a UI removal', () => {
     fs.writeFileSync(path.join(dir, 'license.lic'), PAID_TEXT);
     assert.equal(lic.importLicenseFile(dir).imported, true);
     lic.removeLicense('boss');
-    assert.deepEqual(lic.importLicenseFile(dir), { imported: false, reason: 'same' });
+    assert.equal(lic.importLicenseFile(dir).reason, 'same');
     assert.equal(lic.isPaid(), false);
 });
 
@@ -135,6 +136,58 @@ test('a changed license.lic is imported', () => {
     const r = lic.importLicenseFile(dir);
     assert.equal(r.imported, true);
     assert.equal(r.licenseId, 'L-TEST-0003');
+});
+
+test('importLicenseFile picks the newest valid *.lic, whatever the file names', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'somp-lic-'));
+    setFree();
+    fs.writeFileSync(path.join(dir, 'a-old.lic'), signLicense({ licenseId: 'L-TEST-0010', issuedAt: '2026-01-01' }));
+    fs.writeFileSync(path.join(dir, 'b-new.LIC'), signLicense({ licenseId: 'L-TEST-0011', issuedAt: '2026-06-01' }));
+    fs.writeFileSync(path.join(dir, 'c-newest-tampered.lic'), signLicense({ issuedAt: '2027-01-01' }).replace('Example Test Co.', 'Other Co.'));
+    fs.writeFileSync(path.join(dir, 'd-broken.lic'), 'broken');
+    fs.writeFileSync(path.join(dir, 'notes.txt'), signLicense({ licenseId: 'L-TEST-0099', issuedAt: '2028-01-01' }));
+    const r = lic.importLicenseFile(dir);
+    assert.equal(r.imported, true);
+    assert.equal(r.file, 'b-new.LIC');
+    assert.equal(r.licenseId, 'L-TEST-0011');
+    assert.deepEqual(r.invalid.map(f => f.file), ['c-newest-tampered.lic', 'd-broken.lic']);
+    assert.equal(lic.getLicense().licenseId, 'L-TEST-0011');
+    assert.equal(readDataSync(lic.LICENSE_KEY).uploadedBy, 'b-new.LIC');
+    assert.equal(lic.importLicenseFile(dir).reason, 'same');
+
+    fs.writeFileSync(path.join(dir, 'z-newer.lic'), signLicense({ licenseId: 'L-TEST-0012', issuedAt: '2026-09-01' }));
+    assert.equal(lic.importLicenseFile(dir).licenseId, 'L-TEST-0012');
+    assert.equal(lic.getLicense().licenseId, 'L-TEST-0012');
+});
+
+test('importLicenseFile breaks an issuedAt tie by licenseId', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'somp-lic-'));
+    setFree();
+    fs.writeFileSync(path.join(dir, 'x.lic'), signLicense({ licenseId: 'L-TEST-0021' }));
+    fs.writeFileSync(path.join(dir, 'y.lic'), signLicense({ licenseId: 'L-TEST-0020' }));
+    assert.equal(lic.importLicenseFile(dir).licenseId, 'L-TEST-0021');
+});
+
+test('importLicenseFile reports when no .lic file is valid and keeps the stored license', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'somp-lic-'));
+    setPaid();
+    fs.writeFileSync(path.join(dir, 'one.lic'), 'broken');
+    const r = lic.importLicenseFile(dir);
+    assert.equal(r.imported, false);
+    assert.equal(r.reason, 'no valid license file');
+    assert.equal(r.invalid.length, 1);
+    assert.equal(lic.isPaid(), true);
+});
+
+test('importLicenseFile does not replace a newer stored license with an older file', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'somp-lic-'));
+    setFree();
+    assert.equal(lic.installLicense(signLicense({ licenseId: 'L-TEST-0031', issuedAt: '2026-12-01' }), 'boss').ok, true);
+    fs.writeFileSync(path.join(dir, 'old.lic'), signLicense({ licenseId: 'L-TEST-0030', issuedAt: '2026-10-01' }));
+    const r = lic.importLicenseFile(dir);
+    assert.equal(r.imported, false);
+    assert.match(r.reason, /older than the current license L-TEST-0031/);
+    assert.equal(lic.getLicense().licenseId, 'L-TEST-0031');
 });
 
 test('noteSkipped logs once per hour per subject', (t) => {

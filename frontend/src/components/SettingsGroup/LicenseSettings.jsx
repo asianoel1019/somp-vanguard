@@ -133,7 +133,7 @@ export default function LicenseSettings() {
                     )}
                 </div>
                 <div style={{ marginTop: 12, fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.6 }}>
-                    Before an upgrade, you can put the license file in the data directory as <code>license.lic</code>: the service applies it at startup, so the upgrade never starts as the free edition.
+                    Before an upgrade, you can put the license file (any name ending in <code>.lic</code>) in the data directory: at startup the service applies the newest valid one by issue date, so the upgrade never starts as the free edition.
                 </div>
             </div>
         </div>

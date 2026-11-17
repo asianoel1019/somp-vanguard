@@ -123,7 +123,7 @@ const ENTRIES = [
     { key: 'system/last_backup_result.json', mode: 'replace', owner: 'both', description: 'Last backup status',
         writers: ['services/backupService.js', 'routes/apiSettings.js', 'lib/workerExitHandler.js'], notes: 'status snapshot handed over by requestId (web request -> worker run -> web close-out when the worker died)' },
     { key: 'system/startup_notice.json', mode: 'replace', owner: 'web', description: 'Startup notification throttle', writers: ['lib/startupNotice.js'], notes: 'startup only; the awaited Telegram send precedes a whole-state write' },
-    { key: 'system/license.json', mode: 'replace', owner: 'web', description: 'License file (original text; every process verifies it)', writers: ['lib/license.js'], notes: 'web only: License page upload / removal and the startup import of <data dir>\\license.lic' },
+    { key: 'system/license.json', mode: 'replace', owner: 'web', description: 'License file (original text; every process verifies it)', writers: ['lib/license.js'], notes: 'web only: License page upload / removal and the startup import of the newest valid <data dir>\\*.lic' },
     { key: 'system/legacy_targets_import.json', mode: 'replace', owner: 'web', description: 'Legacy targets import marker', writers: ['lib/prometheusTargetHelper.js'], notes: 'startup, before the worker is forked' },
     { key: 'system/cmdb_deleted_flag_migration.json', mode: 'replace', owner: 'web', description: 'Deleted-flag migration marker', writers: ['services/serverDeletion.js'], notes: 'startup marker' },
     { key: 'system/environment_id_migration.json', mode: 'replace', owner: 'web', description: 'Environment id migration marker', writers: ['services/environmentMigration.js'], notes: 'startup marker' },

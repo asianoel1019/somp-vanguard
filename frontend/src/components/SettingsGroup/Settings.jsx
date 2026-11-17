@@ -1024,7 +1024,7 @@ const Settings = ({ mode = 'system' }) => {
                                             <input type="password" style={S.input} value={sysConfig.LOCAL_VIEWER_PWD || ''} onChange={e => handleConfigChange('LOCAL_VIEWER_PWD', e.target.value)} />
                                         </div>
                                     </div>
-                                    <div style={S.hint}>本機 Operator / Viewer 帳號：帳號與密碼都設定才會啟用；免費版也能登入，擁有授權允許的全部功能，寫入權限依角色。</div>
+                                    <div style={S.hint}>Local Operator / Viewer accounts: enabled only when both the user name and the password are set. They can sign in on the free edition too, get every feature the license allows, and can write according to their role.</div>
                                     <div style={S.gridRow}>
                                         <div style={S.fieldBlock}>
                                             <label style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-muted)' }}>AD_ADMIN_USER <span style={{ color: 'var(--text-muted)', fontWeight: 'normal' }}>(Domain\\admin)</span></label>
@@ -1881,7 +1881,7 @@ curl -H "Authorization: Bearer <YOUR_API_KEY>" "${window.location.origin}/api/v1
 
                         {activeCategory === 'integration' && (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-                                {freeEdition && <LicenseNotice>免費版不會往外送通知（Telegram、Email、Webhook）。設定可以先存好，授權後直接生效。</LicenseNotice>}
+                                {freeEdition && <LicenseNotice>The free edition does not send notifications (Telegram, email, webhooks). You can save the settings now; they take effect once a license is applied.</LicenseNotice>}
 
                                 {/* Telegram Settings Card */}
                                 <div style={S.card}>
@@ -2153,7 +2153,7 @@ curl -H "Authorization: Bearer <YOUR_API_KEY>" "${window.location.origin}/api/v1
                                                                     style={{ ...S.btnO, padding: '4px 10px', fontSize: 11 }}
                                                                     onClick={() => handleTestWebhook(wh.id, wh.name)}
                                                                     disabled={testingWebhookId === wh.id || freeEdition}
-                                                                    title={freeEdition ? '需要付費授權' : undefined}
+                                                                    title={freeEdition ? 'Requires a paid license' : undefined}
                                                                 >
                                                                     {testingWebhookId === wh.id ? 'Sending...' : '⚡ Test'}
                                                                 </button>
@@ -2258,7 +2258,7 @@ curl -H "Authorization: Bearer <YOUR_API_KEY>" "${window.location.origin}/api/v1
 
                         {activeCategory === 'mail' && (
                             <>
-                                {freeEdition && <LicenseNotice>免費版不會往外送通知（Telegram、Email、Webhook）。設定可以先存好，授權後直接生效。</LicenseNotice>}
+                                {freeEdition && <LicenseNotice>The free edition does not send notifications (Telegram, email, webhooks). You can save the settings now; they take effect once a license is applied.</LicenseNotice>}
                                 <div style={S.card}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
                                         <span style={{ fontSize: 13, fontWeight: 900, color: 'var(--text-primary)', letterSpacing: '0.04em' }}>✉️ GLOBAL MAIL RELAY SETTINGS</span>
@@ -2684,7 +2684,7 @@ curl -H "Authorization: Bearer <YOUR_API_KEY>" "${window.location.origin}/api/v1
 
                         {activeCategory === 'ad' && (
                             <>
-                            {freeEdition && <LicenseNotice>免費版不會往外送通知（Telegram、Email、Webhook）。設定可以先存好，授權後直接生效。</LicenseNotice>}
+                            {freeEdition && <LicenseNotice>The free edition does not send notifications (Telegram, email, webhooks). You can save the settings now; they take effect once a license is applied.</LicenseNotice>}
                             <div style={S.card}>
                                 <h3 style={{ ...S.tblTitle, margin: '0 0 4px' }}>Search and scope</h3>
                                 <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 16 }}>Where AD Control searches, and which accounts it may change.</div>
@@ -2745,7 +2745,7 @@ curl -H "Authorization: Bearer <YOUR_API_KEY>" "${window.location.origin}/api/v1
 
                         {activeCategory === 'rbac' && (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-                                {freeEdition && <LicenseNotice>免費版不能使用 AD 帳號登入與 RBAC 對應；此頁唯讀，授權後設定直接生效。</LicenseNotice>}
+                                {freeEdition && <LicenseNotice>AD sign-in and RBAC mappings require a paid license. This page is read-only on the free edition; the mappings take effect once a license is applied.</LicenseNotice>}
                                 {/* Role Assignments Card */}
                                 <div style={S.card}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>

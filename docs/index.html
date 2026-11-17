@@ -35,7 +35,7 @@
         </svg>
       </div>
       <div class="brand-text">SOMP Vanguard</div>
-      <span class="brand-badge">v1.7.9 ENTERPRISE</span>
+      <span class="brand-badge">v1.8.0 ENTERPRISE</span>
     </div>
 
     <!-- Navigation Tabs -->
@@ -343,12 +343,104 @@
     <!-- Release Notes & System Changelog Section -->
     <section class="changelog-banner" style="margin-top: 60px; padding: 32px; background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border-subtle); border-radius: 16px;">
       <div class="section-heading-group" style="text-align: left; margin-bottom: 24px;">
-        <div class="section-tag" style="background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3);">VERSION 1.7.9 RELEASE NOTES</div>
-        <h2 class="section-title">SOMP Vanguard 1.7 版更新全覽 (10/9 更新，1.7.3 於 10/15、1.7.4 於 10/19、1.7.5 於 10/20、1.7.6 於 10/22、1.7.7 於 10/30、1.7.8 與 1.7.9 於 11/3 發布)</h2>
-        <p class="section-desc" style="margin: 0;">系統於 10/9 正式更新至 1.7 版，重大更新涵蓋遠端桌面閘道、底層多資料庫架構重構、Prometheus SD、ELK 生命週期與高可用容錯強化。</p>
+        <div class="section-tag" style="background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3);">VERSION 1.8.0 RELEASE NOTES</div>
+        <h2 class="section-title">SOMP Vanguard 1.8 版更新全覽 (11/17 更新)</h2>
+        <p class="section-desc" style="margin: 0;">系統於 11/17 正式更新至 1.8 版，重大更新涵蓋免費版 / 付費版授權、Network Device 廠牌整合（Firewall、Switch、F5）、GPMC 風格的 Group Policy 管理、Data Center 全面改版（機櫃、合約、備品、硬體問題）與多項安全修正。<strong>升級前請先放好授權檔</strong>（見下方「部署與升級注意事項」）。</p>
       </div>
 
       <div class="changelog-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px;">
+        <div class="changelog-card" style="background: var(--bg-card); padding: 18px 20px; border-radius: 12px; border: 1px solid var(--border-subtle);">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+            <span style="font-weight: 700; color: #a78bfa; font-size: 0.95rem;">v1.8.0 授權：免費版 / 付費版</span>
+            <span style="font-size: 0.75rem; background: #a78bfa26; color: #a78bfa; padding: 2px 8px; border-radius: 10px;">NEW</span>
+          </div>
+          <ul style="margin: 0; padding-left: 18px; font-size: 0.85rem; color: var(--text-muted); line-height: 1.6;">
+            <li><strong>離線簽章授權檔</strong>：付費授權為供應商以私鑰簽章的 <code>.lic</code> 檔，系統以內建公鑰離線驗證（不需連網），檔案寫明客戶名稱、永久有效。沒有授權、授權被竄改或驗證失敗時一律以免費版運作，資料全部保留，套用授權後立即恢復、不需重啟。</li>
+            <li><strong>付費功能</strong>：AI Ops Agent、Workflow、Task Scheduler、Remote Command、Server Provision、自動自癒、Network Device、IPAM、NetSearch、Data Center 整組，以及往外送通知（Telegram、Email、Webhook）與 AD 帳號登入 / RBAC 對應。免費版的告警照常偵測與顯示，只是不往外送。</li>
+            <li><strong>內建本機帳號</strong>：新增本機 Operator / Viewer 帳號（<code>LOCAL_OPERATOR_USER</code> / <code>LOCAL_OPERATOR_PWD</code>、<code>LOCAL_VIEWER_USER</code> / <code>LOCAL_VIEWER_PWD</code>，帳號與密碼都設定才啟用），免費版也能登入。</li>
+            <li><strong>介面</strong>：免費版時付費功能在選單上加鎖並顯示說明頁；System Settings 新增 License 頁（上傳 / 移除授權、檢視付費功能狀態）；側邊欄顯示 Free 或 Licensed to 客戶名稱。</li>
+          </ul>
+        </div>
+
+        <div class="changelog-card" style="background: var(--bg-card); padding: 18px 20px; border-radius: 12px; border: 1px solid var(--border-subtle);">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+            <span style="font-weight: 700; color: #f87171; font-size: 0.95rem;">v1.8.0 安全修正</span>
+            <span style="font-size: 0.75rem; background: #f8717126; color: #f87171; padding: 2px 8px; border-radius: 10px;">SECURITY</span>
+          </div>
+          <ul style="margin: 0; padding-left: 18px; font-size: 0.85rem; color: var(--text-muted); line-height: 1.6;">
+            <li><strong>Settings 不再把機密送到瀏覽器</strong>：密碼與 Token 一律遮蔽回傳，<code>JWT_SECRET</code> 無法從介面讀寫；<code>X-Forwarded-For</code> 只信任 <code>TRUSTED_PROXY_IPS</code> 指定的代理；Webhook 清單遮蔽憑證標頭與 Token URL；AI / SFTP 金鑰只用於儲存時的端點。</li>
+            <li><strong>AD Control 與 GPO</strong>：所有 AD 腳本只以服務帳號執行、密碼經環境變數傳遞，輸入值一律作為字面值，修正可跳出腳本的注入；帳號異動前在 DC 檢查受保護帳號（adminCount=1、krbtgt、服務帳號）與受管 OU 範圍。</li>
+            <li><strong>Web 遠端桌面</strong>：連線 Token 改為 30 秒一次性、加密且綁定目標，於 WebSocket 升級時驗證；稽核由伺服器端記錄。</li>
+            <li><strong>其他</strong>：FortiProxy URL 評等只接受單一純 URL；NAS / RBAC 的 PowerShell 與 shell 參數一律跳脫；Settings 存檔加上版本檢查，不會再因空白或過期的表單覆蓋設定。</li>
+          </ul>
+        </div>
+
+        <div class="changelog-card" style="background: var(--bg-card); padding: 18px 20px; border-radius: 12px; border: 1px solid var(--border-subtle);">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+            <span style="font-weight: 700; color: #38bdf8; font-size: 0.95rem;">v1.8.0 Network Device 廠牌整合</span>
+            <span style="font-size: 0.75rem; background: #38bdf826; color: #38bdf8; padding: 2px 8px; border-radius: 10px;">FEATURE</span>
+          </div>
+          <ul style="margin: 0; padding-left: 18px; font-size: 0.85rem; color: var(--text-muted); line-height: 1.6;">
+            <li><strong>Firewall（唯讀）</strong>：FortiGate、Palo Alto、Check Point 透過廠牌 API 讀取狀態、介面與政策，並提供設定備份（每日排程 <code>NETDEVICE_BACKUP_SCHEDULE</code>）。</li>
+            <li><strong>Switch / Router（唯讀）</strong>：Cisco IOS / IOS-XE（RESTCONF 或 SSH）、Cisco NX-OS（NX-API 或 SSH）、Juniper Junos（REST 或 SSH），提供 Overview、Interfaces、VLAN、MAC Table 與設定備份；SSH 指令白名單、首次連線記住主機金鑰。</li>
+            <li><strong>Load Balancer（唯讀）</strong>：F5 BIG-IP（iControl REST），提供 HA、Virtual Servers、Pools、憑證等分頁。</li>
+            <li><strong>設備清單</strong>：摘要卡片（全部 / 連線正常 / 失敗 / 未設定管理連線 / SNMP 未設定）可點選篩選，失敗設備排在前面；可從 Server Rack 與 Topology Map 直接開啟設備。</li>
+          </ul>
+        </div>
+
+        <div class="changelog-card" style="background: var(--bg-card); padding: 18px 20px; border-radius: 12px; border: 1px solid var(--border-subtle);">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+            <span style="font-weight: 700; color: #38bdf8; font-size: 0.95rem;">v1.8.0 AD、Group Policy 與 DNS</span>
+            <span style="font-size: 0.75rem; background: #38bdf826; color: #38bdf8; padding: 2px 8px; border-radius: 10px;">FEATURE</span>
+          </div>
+          <ul style="margin: 0; padding-left: 18px; font-size: 0.85rem; color: var(--text-muted); line-height: 1.6;">
+            <li><strong>Group Policy 管理（GPMC 風格）</strong>：網域 / OU 樹與連結的 GPO、繼承結果、WMI 篩選；連結管理（新增、刪除、Enforced、啟用、順序、封鎖繼承）、GPO 建立 / 複製 / 改名 / 刪除、安全性篩選、委派與備份。</li>
+            <li><strong>AD Control</strong>：OU 樹模式、報表與批次動作、精確的最後登入時間；每日密碼到期 Email 通知（<code>PWD_NOTIFY_*</code>，預設測試模式）。</li>
+            <li><strong>自助改密碼頁</strong>：獨立的 <code>pwdchange</code> 小程式，使用者以舊密碼自行變更 AD 密碼（含已過期 / 必須變更）。</li>
+            <li><strong>DNS Hub</strong>：刪除前預覽、只刪除勾選的紀錄；A 紀錄修改不再誤動多筆；變更紀錄保留舊值。</li>
+          </ul>
+        </div>
+
+        <div class="changelog-card" style="background: var(--bg-card); padding: 18px 20px; border-radius: 12px; border: 1px solid var(--border-subtle);">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+            <span style="font-weight: 700; color: #fbbf24; font-size: 0.95rem;">v1.8.0 Data Center 全面改版</span>
+            <span style="font-size: 0.75rem; background: #fbbf2426; color: #fbbf24; padding: 2px 8px; border-radius: 10px;">MAJOR UPDATE</span>
+          </div>
+          <ul style="margin: 0; padding-left: 18px; font-size: 0.85rem; color: var(--text-muted); line-height: 1.6;">
+            <li><strong>Server Rack</strong>：大型機房捲動、縮放、翻面明顯變順（只繪製目前那一面、機櫃各自重畫）；新增容量顯示、找空位（標出放得下的位置並帶入高度新增）、設備類型篩選、縮放 50% 以下的總覽模式、搜尋 Enter 逐筆跳轉；直立式 PDU 不佔 U 位與後端一致。</li>
+            <li><strong>Hardware Issues</strong>：搜尋與篩選、開立天數與逾期標示、看板拖拉、連結保固與備品；時間軸由伺服器記錄不可改寫；從機櫃「Report HW issue」會直接開啟已帶入設備的新增表單。</li>
+            <li><strong>Contracts &amp; Warranties</strong>：續約、到期 Telegram 通知（<code>CONTRACT_NOTIFY_*</code>）、跨機房設備連結、同時編輯衝突保護與重新設計的頁面。</li>
+            <li><strong>Spare Parts</strong>：184 項常用備品目錄（14 類）可批次新增、入出庫原因與序號（選填）、盤點、低庫存提醒與重新設計的頁面。</li>
+          </ul>
+        </div>
+
+        <div class="changelog-card" style="background: var(--bg-card); padding: 18px 20px; border-radius: 12px; border: 1px solid var(--border-subtle);">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+            <span style="font-weight: 700; color: #fbbf24; font-size: 0.95rem;">v1.8.0 效能與穩定性</span>
+            <span style="font-size: 0.75rem; background: #fbbf2426; color: #fbbf24; padding: 2px 8px; border-radius: 10px;">RELIABILITY</span>
+          </div>
+          <ul style="margin: 0; padding-left: 18px; font-size: 0.85rem; color: var(--text-muted); line-height: 1.6;">
+            <li><strong>資料庫寫入</strong>：佇列寫入改為真正的交易並限制每次佔用時間（<code>DB_FLUSH_BUDGET_MS</code>），網頁不再每隔幾秒卡住約 1 秒；log 新增 <code>[DB Slow]</code> 與 <code>[Event Loop]</code> 診斷。</li>
+            <li><strong>Live Event Viewer / SIEM Analytics</strong>：大型 scout.sqlite 下保持流暢（預設只讀最新 100 筆、分段統計並快取 60 秒）；log 輪替移到背景服務。</li>
+            <li><strong>Audit Log</strong>：可讀取已封存的日期、伺服器端篩選與分頁、保留天數 <code>AUDIT_LOG_RETENTION_DAYS</code>、安全的 CSV 匯出。</li>
+            <li><strong>不再顯示虛構數據</strong>：Kubernetes 沒有 metrics-server 時顯示 N/A、NAS 讀取失敗會顯示原因、移除 SIEM 的亂數遙測。Server Provision 頁面與歷史紀錄重新設計。</li>
+          </ul>
+        </div>
+
+        <div class="changelog-card" style="background: var(--bg-card); padding: 18px 20px; border-radius: 12px; border: 1px solid var(--border-subtle);">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+            <span style="font-weight: 700; color: #ec4899; font-size: 0.95rem;">v1.8.0 部署與升級注意事項</span>
+            <span style="font-size: 0.75rem; background: #ec489926; color: #ec4899; padding: 2px 8px; border-radius: 10px;">UPGRADE</span>
+          </div>
+          <ul style="margin: 0; padding-left: 18px; font-size: 0.85rem; color: var(--text-muted); line-height: 1.6;">
+            <li><strong>升級前先放授權檔</strong>：沒有授權時，升級後會以免費版啟動（AD 帳號無法登入、付費功能與通知關閉）。請在部署前把授權檔放到資料目錄的 <code>license.lic</code>（例如 <code>D:\somp-vanguard\license.lic</code>），服務啟動時自動套用，log 會顯示 <code>License: Paid (...)</code>。忘了放時以 local admin 登入，到 System Settings → License 上傳即可。</li>
+            <li><strong>Deploy_to_Prod</strong>：只複製有變動的檔案（只改前端時不再因 <code>somp-vanguard.exe</code> 被佔用而失敗）；變更含執行檔時會停止服務並等待完全停止；新增 <code>-Backup</code>（部署前備份）與 <code>-Recover</code>（選擇備份還原）。</li>
+            <li><strong>維運工具</strong>：<code>Rack_Stats.bat</code>（機櫃規模統計，唯讀）、<code>Cleanup_Orphan_Racks.bat</code>（清理已刪除機房留下的機櫃資料，預設只產生報告）。</li>
+          </ul>
+        </div>
+
+        <div style="grid-column: 1 / -1; margin-top: 12px; padding-top: 14px; border-top: 1px solid var(--border-subtle); font-weight: 700; color: var(--text-muted); font-size: 0.9rem;">1.7 版更新紀錄（1.7.0 ～ 1.7.9）</div>
+
         <div class="changelog-card" style="background: var(--bg-card); padding: 18px 20px; border-radius: 12px; border: 1px solid var(--border-subtle);">
           <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
             <span style="font-weight: 700; color: #f87171; font-size: 0.95rem;">v1.7.9 Database 安全修正</span>
@@ -872,7 +964,8 @@
           <li><a href="#chapter-11-env" class="nav-link"><span>&emsp;├ 11.2a Environments 全域環境清單</span></a></li>
           <li><a href="#chapter-11-devtools" class="nav-link"><span>&emsp;├ 11.3 Dev Tools 開發者工具箱</span></a></li>
           <li><a href="#chapter-11-audit" class="nav-link"><span>&emsp;├ 11.4 全域不可篡改操作審計日誌</span></a></li>
-          <li><a href="#chapter-11-themes" class="nav-link"><span>&emsp;└ 11.5 賽博動態個人化主題引擎</span></a></li>
+          <li><a href="#chapter-11-themes" class="nav-link"><span>&emsp;├ 11.5 賽博動態個人化主題引擎</span></a></li>
+          <li><a href="#chapter-11-license" class="nav-link"><span>&emsp;└ 11.6 License 授權（免費版 / 付費版）</span></a></li>
         </ul>
       </div>
     </aside>
@@ -2396,6 +2489,21 @@ node backend/scripts/migrate_all_sqlite_to_db.js --sqlite-dir="D:\somp-vanguard"
             <li><strong>MatrixRain (駭客任務代碼雨)</strong>：經典綠色字元垂直串流代碼雨效果。</li>
             <li><strong>SakuraFall (落櫻紛飛)</strong>：優雅精緻的粉櫻瓣飄落動態特效。</li>
             <li><strong>SunlightDust (晨光微塵)</strong>：溫暖微光浮塵粒子，提供舒適的長時護眼視覺體驗。</li>
+          </ul>
+        </div>
+
+        <!-- 11.6 License -->
+        <div id="chapter-11-license" class="doc-section">
+          <h3 class="doc-section-title">🔑 11.6 License 授權：免費版 / 付費版（v1.8.0）</h3>
+          <p>
+            沒有授權即為免費版。付費授權是供應商簽章的 <code>.lic</code> 檔，系統以內建公鑰離線驗證（不需連網），檔案寫明客戶名稱、永久有效。授權被竄改或驗證失敗時一律以免費版運作；所有資料都會保留，套用授權後立即恢復，不需重啟。
+          </p>
+          <ul>
+            <li><strong>付費功能</strong>：AI Ops Agent、自動化維運（Workflow、Task Scheduler、Remote Command、Server Provision、自動自癒）、Network Device、IPAM、NetSearch、Data Center 整組（機房、機櫃、拓撲、報修、備品、合約），以及往外送通知（Telegram、Email、Webhook）、AD 帳號登入與 RBAC 對應。</li>
+            <li><strong>免費版</strong>：其餘功能都能使用；告警照常偵測與顯示，只是不往外送。付費功能在選單上加鎖，點選會顯示功能說明與取得授權的方式。</li>
+            <li><strong>免費版的帳號</strong>：只能以本機帳號登入：local admin（<code>LOCAL_ADMIN_USER</code> / <code>LOCAL_ADMIN_PWD</code>）、local operator（<code>LOCAL_OPERATOR_USER</code> / <code>LOCAL_OPERATOR_PWD</code>）、local viewer（<code>LOCAL_VIEWER_USER</code> / <code>LOCAL_VIEWER_PWD</code>）。operator / viewer 帳號與密碼都設定才會啟用，可在 Settings → Core System 設定，擁有授權允許的全部功能，寫入權限依角色。</li>
+            <li><strong>上傳與移除</strong>：SuperAdmin 到 Settings → License，選擇或貼上授權檔後按「套用授權」；驗證不通過會顯示原因且不會存入。「移除授權」會回到免費版。</li>
+            <li><strong>升級前</strong>：把授權檔放到資料目錄的 <code>license.lic</code>（例如 <code>D:\somp-vanguard\license.lic</code>）。服務啟動時自動套用（同一份檔案只匯入一次），log 顯示 <code>License: Paid (...)</code>；否則會先以免費版啟動，需以 local admin 登入上傳授權。</li>
           </ul>
         </div>
       </section>

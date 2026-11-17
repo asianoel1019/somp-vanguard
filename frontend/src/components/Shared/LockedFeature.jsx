@@ -14,17 +14,17 @@ export default function LockedFeature({ item, canManage, onOpenLicense }) {
                     <TbLock />
                 </div>
                 <h2 style={{ margin: '0 0 6px', fontSize: 22 }}>{item ? item.label : info.name}</h2>
-                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--warning)', marginBottom: 16 }}>此功能需要付費授權</div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--warning)', marginBottom: 16 }}>This feature requires a paid license</div>
                 {info.desc && <p style={{ color: 'var(--text-secondary)', lineHeight: 1.7, margin: '0 0 20px' }}>{info.desc}</p>}
                 {canManage ? (
                     <button type="button" className="btn btn-primary" onClick={onOpenLicense} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                        <TbKey /> 前往 License 頁上傳授權
+                        <TbKey /> Go to the License page to upload a license
                     </button>
                 ) : (
-                    <div style={{ color: 'var(--text-secondary)' }}>請聯絡系統管理員。</div>
+                    <div style={{ color: 'var(--text-secondary)' }}>Please contact your system administrator.</div>
                 )}
                 <div style={{ marginTop: 20, fontSize: 12, color: 'var(--text-muted)' }}>
-                    取得授權：{LICENSE_CONTACT.vendor}（{LICENSE_CONTACT.email}）
+                    To get a license: {LICENSE_CONTACT.vendor} ({LICENSE_CONTACT.email})
                 </div>
             </div>
         </div>

@@ -4,7 +4,7 @@ import api from '../../api';
 import { useConfirm } from '../../contexts/ConfirmContext';
 import { PAID_FEATURE_INFO, LICENSE_EVENT } from '../../utils/licenseUtils.js';
 
-const CHANNEL_NAMES = { telegram: 'Telegram 通知', email: 'Email 通知', webhook: 'Webhook 外送' };
+const CHANNEL_NAMES = { telegram: 'Telegram notifications', email: 'Email notifications', webhook: 'Outbound webhooks' };
 const announce = (state) => window.dispatchEvent(new CustomEvent(LICENSE_EVENT, { detail: state }));
 
 // System Settings -> License (SuperAdmin): current edition, paid features, upload / remove the license file.
@@ -23,7 +23,7 @@ export default function LicenseSettings() {
         const file = e.target.files && e.target.files[0];
         e.target.value = '';
         if (!file) return;
-        if (file.size > 16 * 1024) { setMessage({ type: 'error', text: '授權檔最大 16 KB。' }); return; }
+        if (file.size > 16 * 1024) { setMessage({ type: 'error', text: 'A license file is at most 16 KB.' }); return; }
         setText(await file.text());
     };
 
@@ -35,7 +35,7 @@ export default function LicenseSettings() {
             setState(res.data);
             setText('');
             announce(res.data);
-            setMessage({ type: 'success', text: `授權已套用：${res.data.licenseId}（${res.data.customer}）。` });
+            setMessage({ type: 'success', text: `License applied: ${res.data.licenseId} (${res.data.customer}).` });
         } catch (err) {
             setMessage({ type: 'error', text: err.response?.data?.error || err.message });
         } finally {
@@ -44,14 +44,14 @@ export default function LicenseSettings() {
     };
 
     const remove = async () => {
-        if (!await showConfirm('移除授權後，付費功能、AD 帳號登入與往外送通知會立刻關閉（資料保留）。確定移除？')) return;
+        if (!await showConfirm('Removing the license turns off the paid features, AD sign-in and outbound notifications right away (all data is kept). Remove the license?')) return;
         setBusy(true);
         setMessage(null);
         try {
             const res = await api.delete('/license');
             setState(res.data);
             announce(res.data);
-            setMessage({ type: 'success', text: '授權已移除，目前為免費版。' });
+            setMessage({ type: 'success', text: 'License removed. This is now the free edition.' });
         } catch (err) {
             setMessage({ type: 'error', text: err.response?.data?.error || err.message });
         } finally {
@@ -79,17 +79,17 @@ export default function LicenseSettings() {
                 </div>
                 {paid && (
                     <div style={{ marginTop: 12, fontSize: 13, color: 'var(--text-secondary)', display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '4px 16px' }}>
-                        <span>授權編號</span><span>{state.licenseId}</span>
-                        <span>簽發日</span><span>{state.issuedAt}</span>
+                        <span>License ID</span><span>{state.licenseId}</span>
+                        <span>Issued</span><span>{state.issuedAt}</span>
                     </div>
                 )}
                 {state && !paid && state.reason && state.reason !== 'no license' && (
-                    <div style={{ marginTop: 12, fontSize: 13, color: 'var(--warning)' }}>目前的授權無效：{state.reason}</div>
+                    <div style={{ marginTop: 12, fontSize: 13, color: 'var(--warning)' }}>The stored license is not valid: {state.reason}</div>
                 )}
             </div>
 
             <div className="glass-panel" style={{ padding: 20, borderRadius: 16 }}>
-                <h3 style={{ margin: '0 0 12px', fontSize: 15 }}>付費功能</h3>
+                <h3 style={{ margin: '0 0 12px', fontSize: 15 }}>Paid features</h3>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 8 }}>
                     {Object.entries(PAID_FEATURE_INFO).map(([key, info]) => {
                         const locked = state && Array.isArray(state.locked) && state.locked.includes(key);
@@ -111,29 +111,29 @@ export default function LicenseSettings() {
                     })}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
                         {paid ? <TbLockOpen style={{ color: 'var(--success)' }} /> : <TbLock style={{ color: 'var(--warning)' }} />}
-                        AD 帳號登入與 RBAC
+                        AD sign-in and RBAC
                     </div>
                 </div>
             </div>
 
             <div className="glass-panel" style={{ padding: 20, borderRadius: 16 }}>
-                <h3 style={{ margin: '0 0 12px', fontSize: 15 }}>{paid ? '更換授權' : '上傳授權'}</h3>
-                <textarea value={text} onChange={e => setText(e.target.value)} rows={8} placeholder="貼上授權檔（.lic）內容，或選擇檔案"
+                <h3 style={{ margin: '0 0 12px', fontSize: 15 }}>{paid ? 'Replace license' : 'Upload license'}</h3>
+                <textarea value={text} onChange={e => setText(e.target.value)} rows={8} placeholder="Paste the license file (.lic) contents, or choose a file"
                     style={{ width: '100%', fontFamily: 'monospace', fontSize: 12, padding: 10, borderRadius: 10, border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)' }} />
                 <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
                     <label className="btn btn-outline" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-                        <TbUpload /> 選擇檔案
+                        <TbUpload /> Choose file
                         <input type="file" accept=".lic,.json,.txt" onChange={onFile} style={{ display: 'none' }} />
                     </label>
-                    <button type="button" className="btn btn-primary" disabled={busy || !text.trim()} onClick={upload}>套用授權</button>
+                    <button type="button" className="btn btn-primary" disabled={busy || !text.trim()} onClick={upload}>Apply license</button>
                     {paid && (
                         <button type="button" className="btn btn-danger" disabled={busy} onClick={remove} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
-                            <TbTrash /> 移除授權
+                            <TbTrash /> Remove license
                         </button>
                     )}
                 </div>
                 <div style={{ marginTop: 12, fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.6 }}>
-                    升級版本前，可以先把授權檔放到資料目錄的 <code>license.lic</code>：服務啟動時會自動套用，升級後不會有免費版的空窗。
+                    Before an upgrade, you can put the license file in the data directory as <code>license.lic</code>: the service applies it at startup, so the upgrade never starts as the free edition.
                 </div>
             </div>
         </div>

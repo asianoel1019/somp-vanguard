@@ -536,7 +536,7 @@ function App() {
                         <div key={child.id} className={`sidebar-item ${activeView === child.id ? 'active' : ''}`} onClick={() => setActiveView(child.id)} title={child.label} style={{ padding: '0.6rem 1rem', fontSize: '0.9rem', opacity: isLockedFlag(child.flag, license) ? 0.55 : 1 }}>
                           <span style={{ fontSize: '1rem', minWidth: '20px', textAlign: 'center' }}>{child.icon}</span>
                           <span style={{ whiteSpace: 'nowrap', marginLeft: '10px' }}>{child.label}</span>
-                          {isLockedFlag(child.flag, license) && <TbLock style={{ marginLeft: 'auto', fontSize: '0.85rem', color: 'var(--warning)' }} title="需要付費授權" />}
+                          {isLockedFlag(child.flag, license) && <TbLock style={{ marginLeft: 'auto', fontSize: '0.85rem', color: 'var(--warning)' }} title="Requires a paid license" />}
                         </div>
                       ))}
                     </div>
@@ -623,7 +623,7 @@ function App() {
               </span>
             )}
               {sidebarOpen && licenseLabel(license) && (
-                <span title={license && license.edition === 'free' ? '免費版：付費功能已上鎖' : licenseLabel(license)} style={{
+                <span title={license && license.edition === 'free' ? 'Free edition: paid features are locked' : licenseLabel(license)} style={{
                   fontSize: 10, fontWeight: 800, marginTop: 4, padding: '1px 8px', borderRadius: 999, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%',
                   color: license.edition === 'free' ? 'var(--warning)' : 'var(--success)',
                   border: `1px solid ${license.edition === 'free' ? 'rgba(245,158,11,0.4)' : 'rgba(16,185,129,0.4)'}`,

@@ -42,7 +42,7 @@ Write-Host "==========================================================" -Foregro
 # 若未帶參數則進行互動式提示
 if ([string]::IsNullOrWhiteSpace($Version)) {
     $backendPkg = Join-Path $ProjectRoot "backend\package.json"
-    $currentVer = "v1.7.9"
+    $currentVer = "v1.8.0"
     if (Test-Path $backendPkg) {
         try {
             $pkg = Get-Content $backendPkg -Raw | ConvertFrom-Json

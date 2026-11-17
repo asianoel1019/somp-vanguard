@@ -4,16 +4,16 @@
 export const LICENSE_EVENT = 'somp:license';
 
 export const PAID_FEATURE_INFO = {
-    aiAgent: { name: 'AI Ops Agent', desc: '用自然語言調查告警：自動查詢主機、指標、日誌與最近變更，整理成可能原因與建議動作。' },
-    workflow: { name: 'Workflow Editor', desc: '以拖拉方式設計維運流程（SSH、PowerShell、HTTP、核准節點），一鍵執行並保留每次執行紀錄。' },
-    scheduler: { name: 'Task Scheduler', desc: '依 cron 排程在本機或遠端主機執行指令與腳本，記錄每次結果並在失敗時提醒。' },
-    remoteCmd: { name: 'Remote Command', desc: '對多台 Windows / Linux 主機同時下指令，搭配指令庫重複使用常用命令。' },
-    install: { name: 'Server Provision', desc: '批次遠端部署軟體：預檢、並行安裝、即時進度與完整的部署歷史。' },
-    manage_self_healing: { name: '自動自癒', desc: '告警觸發時由 Scout Agent 在主機上自動執行修復腳本，並回報結果。' },
-    networkDevice: { name: 'Network Device', desc: '整合 Firewall、Switch、Load Balancer：介面、政策、VLAN、MAC 與每日設定備份。' },
-    ipam: { name: 'IPAM', desc: 'IP 位址與子網路管理、網段掃描、DNS 同步，並自動登記其他功能使用中的 IP。' },
-    netSearch: { name: 'NetSearch', desc: '搜尋所有網路設備的設定備份，快速找出 IP、VLAN、ACL 出現在哪些設備。' },
-    dataCenter: { name: 'Data Center', desc: '機房與機櫃配置、拓撲圖、硬體報修、備品庫存、合約與保固到期提醒。' },
+    aiAgent: { name: 'AI Ops Agent', desc: 'Investigate alerts in plain language: it looks up hosts, metrics, logs and recent changes and sums up likely causes and next steps.' },
+    workflow: { name: 'Workflow Editor', desc: 'Design operations workflows by drag and drop (SSH, PowerShell, HTTP, approval steps), run them in one click and keep every run on record.' },
+    scheduler: { name: 'Task Scheduler', desc: 'Run commands and scripts on this server or remote hosts on a cron schedule, with every result recorded and failures flagged.' },
+    remoteCmd: { name: 'Remote Command', desc: 'Run a command on many Windows / Linux hosts at once, with a command library for the ones you use often.' },
+    install: { name: 'Server Provision', desc: 'Deploy software to many servers: pre-checks, parallel installs, live progress and a full deployment history.' },
+    manage_self_healing: { name: 'Self-Healing', desc: 'When an alert fires, the Scout agent runs a repair script on the host and reports the result.' },
+    networkDevice: { name: 'Network Device', desc: 'Firewall, switch and load balancer integration: interfaces, policies, VLANs, MAC tables and daily configuration backups.' },
+    ipam: { name: 'IPAM', desc: 'IP address and subnet management, subnet scans and DNS sync, with IPs in use elsewhere registered automatically.' },
+    netSearch: { name: 'NetSearch', desc: 'Search the configuration backups of every network device to find where an IP, VLAN or ACL appears.' },
+    dataCenter: { name: 'Data Center', desc: 'Data centers and rack layouts, topology map, hardware issues, spare parts stock, and contract and warranty expiry reminders.' },
 };
 
 export function readStoredLicense(storage = globalThis.localStorage) {

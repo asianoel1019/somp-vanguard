@@ -206,7 +206,7 @@ const Login = ({ onLogin }) => {
                     )}
                     {config && config.edition === 'free' && (
                         <div style={{ marginTop: 14, fontSize: 11, color: 'rgba(255,255,255,0.55)', textAlign: 'center' }}>
-                            免費版僅本機帳號可登入；AD 帳號需付費授權。
+                            Free edition: only local accounts can sign in. AD sign-in requires a paid license.
                         </div>
                     )}
             </div>

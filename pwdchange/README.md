@@ -15,7 +15,7 @@
 
 1. 把 `pwdchange` 資料夾複製到主機，例如 `C:\pwdchange`。
 2. 複製 `.env.example` 為 `.env`，填入設定（見下方）。`.env` 含服務帳號密碼，請限制只有管理員可讀。
-3. 執行 `start.bat`（第一次會自動安裝套件）。看到 `Listening on https://0.0.0.0:8443 ...` 即啟動完成。
+3. 執行 `start.bat`：會先檢查 Node.js 版本，第一次執行、或更新後套件清單（`package-lock.json`）有變動時自動安裝套件。看到 `Listening on https://0.0.0.0:8443 ...` 即啟動完成。
 4. 防火牆只對使用者網段開放這個埠。
 5. 在 Vanguard 的 Settings > AD Hierarchy & SearchBase 把 `PWD_NOTIFY_CHANGE_URL` 設為這個頁面的網址（例如 `https://pwd.example.test:8443/`），密碼到期通知信就會附上連結。
 

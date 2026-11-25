@@ -9,9 +9,10 @@
     "test": "node --test \"test/**/*.test.js\""
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.13"
   },
   "dependencies": {
-    "express": "^5.2.1"
+    "express": "^5.2.1",
+    "nodemailer": "^10.6.1"
   }
 }

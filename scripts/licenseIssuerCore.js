@@ -1,17 +1,19 @@
 /**
- * Issuing core shared by the license CLI (scripts/license_issue.js) and the local web app (license-issuer/).
- * No database: it needs only the format rules (backend/lib/licenseFormat.js) and the built-in public keys
- * (backend/lib/licenseKeys.js). Vendor only; never deployed.
+ * Signing and format helpers shared by the license CLI (scripts/license_issue.js) and the local web app (license-issuer/).
+ * No database: it needs only the format rules (backend/lib/licenseFormat.js). Vendor only; never deployed.
  *
- * Registry: a Markdown table (default issued-licenses.md next to the private key), one row per issued license.
+ * Issuing itself (database row, events, generated registry) is license-issuer/src/store/issue.js. The Markdown helpers
+ * here read and write the registry format of earlier versions (8 columns, REGISTRY_HEADER), which is imported once.
  * Writers are serialised with "<registry>.lock" (created exclusively, removed afterwards, taken over when stale).
  */
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const { canonicalJson, verifyLicense, today, isRealDate, daysBetween } = require(path.join(__dirname, '..', 'backend', 'lib', 'licenseFormat'));
-const { KEYS } = require(path.join(__dirname, '..', 'backend', 'lib', 'licenseKeys'));
+const {
+    canonicalJson, verifyLicense, today, isRealDate, daysBetween, contactError, contactText, CONTACT_VENDOR_MAX, CONTACT_EMAIL_MAX,
+} = require(path.join(__dirname, '..', 'backend', 'lib', 'licenseFormat'));
 
+/** Header of the registry written by earlier versions (before the database). */
 const REGISTRY_HEADER = [
     '# SOMP Vanguard 已簽發授權登記表',
     '',
@@ -35,6 +37,29 @@ function validateIssueFields({ licenseId, issuedAt, expiresAt }, onDate = today(
     if (expiresAt < onDate) return 'expires-past';
     if (expiresAt < issuedAt) return 'expires-before-issued';
     return '';
+}
+
+/**
+ * The optional vendor contact signed into a license, from two typed values (trimmed; empty = not set).
+ * { contact: null } when both are empty, { contact: { vendor?, email? } } when valid, else { error } with a message.
+ * The rules are the product's (licenseFormat.js contactError): vendor <= 100 characters, email <= 200 and name@domain, no control characters in either.
+ */
+function makeContact({ vendor, email } = {}) {
+    const v = typeof vendor === 'string' ? vendor.trim() : '';
+    const e = typeof email === 'string' ? email.trim() : '';
+    if (!v && !e) return { contact: null, error: '' };
+    const contact = {};
+    if (v) contact.vendor = v;
+    if (e) contact.email = e;
+    const bad = contactError(contact);
+    if (!bad) return { contact, error: '' };
+    if (/control characters/.test(bad)) {
+        const field = /vendor/.test(bad) ? 'vendor' : 'email';
+        return { contact: null, error: `${field === 'vendor' ? 'Vendor' : 'Contact email'} must not contain line breaks or control characters.`, field };
+    }
+    if (/vendor/.test(bad)) return { contact: null, error: `Vendor must be at most ${CONTACT_VENDOR_MAX} characters.`, field: 'vendor' };
+    if (/longer/.test(bad)) return { contact: null, error: `Contact email must be at most ${CONTACT_EMAIL_MAX} characters.`, field: 'email' };
+    return { contact: null, error: 'Contact email must look like name@domain (no spaces).', field: 'email' };
 }
 
 /** One Markdown table cell: newlines become spaces, pipes are escaped, and a run of backslashes right before a pipe
@@ -118,20 +143,6 @@ function nextLicenseId(registryText, year) {
     return `L-${year}-${String(max + 1).padStart(4, '0')}`;
 }
 
-/** First cell of every data row, unescaped lightly (IDs never contain pipes). */
-function registryIds(text) {
-    const ids = [];
-    for (const line of String(text || '').split(/\r?\n/)) {
-        const m = /^\|\s*([^|\s][^|]*?)\s*\|/.exec(line);
-        if (m) ids.push(m[1]);
-    }
-    return ids;
-}
-
-/** Whether the registry already lists the ID (case-insensitive: a hand-typed row in lower case still counts). */
-const hasLicenseId = (registryText, licenseId) =>
-    registryIds(registryText).some((id) => id.toLowerCase() === String(licenseId).toLowerCase());
-
 const samePath = (a, b) => {
     const norm = (p) => path.resolve(p);
     return process.platform === 'win32' ? norm(a).toLowerCase() === norm(b).toLowerCase() : norm(a) === norm(b);
@@ -187,72 +198,20 @@ function readRegistry(registry) {
     }
 }
 
-/** Signs a format-2 license; returns the file text (pretty JSON + newline). */
-function signLicenseText({ key, keyId, licenseId, customer, issuedAt, expiresAt }) {
+/**
+ * Signs a format-2 license; returns the file text (pretty JSON + newline). contact ({ vendor?, email? }) only when set;
+ * `trial: true` only for a trial license (a paid license has no trial key).
+ */
+function signLicenseText({ key, keyId, licenseId, customer, issuedAt, expiresAt, contact, trial = false }) {
     const payload = { formatVersion: 2, keyId, licenseId, customer, edition: 'paid', issuedAt, expiresAt, updatesUntil: null };
+    if (contact && (contact.vendor || contact.email)) payload.contact = contact;
+    if (trial === true) payload.trial = true;
     const signature = crypto.sign(null, Buffer.from(canonicalJson(payload)), key).toString('base64');
     return JSON.stringify({ payload, signature }, null, 2) + '\n';
 }
 
-/**
- * Signs, verifies, writes the .lic and appends the registry row, under the registry lock. Input fields must already
- * pass validateIssueFields.
- *   key (KeyObject) or keyFile; keyId; customer; licenseId; issuedAt; expiresAt; out; registry;
- *   allowDuplicate (skip the registry ID check); overwrite (replace an existing out file); keys; onDate
- * Refused (nothing written): { ok: false, code, ... } with code out-protected | out-exists | registry-locked |
- *   registry-unreadable (error) | duplicate-id (next) | key-unreadable (error) | rejected (reason) | write-failed (error).
- * Written: { ok: true, text, outAbs, sha256, row, year, registryText, registryError (Error|null) }.
- */
-function issueLicense(o) {
-    const { keyId, customer, licenseId, issuedAt, expiresAt, out, registry } = o;
-    const keys = o.keys || KEYS;
-    const onDate = o.onDate || today();
-    if ((o.keyFile && samePath(out, o.keyFile)) || samePath(out, registry)) return { ok: false, code: 'out-protected' };
-    if (fs.existsSync(out) && !o.overwrite) return { ok: false, code: 'out-exists' };
-    const lock = lockRegistry(registry, o.lock);
-    if (lock.error) return { ok: false, code: 'registry-locked', error: new Error(lock.error) };
-    try {
-        const reg = readRegistry(registry);
-        // Only a registry that does not exist is created after issuing; any other read error stops here, before signing,
-        // so the duplicate check is never skipped and the existing registry is never overwritten.
-        if (reg.error) return { ok: false, code: 'registry-unreadable', error: reg.error };
-        let registryText = reg.text;
-        const year = /^\d{4}/.test(issuedAt) ? issuedAt.slice(0, 4) : onDate.slice(0, 4);
-        if (registryText !== null && !o.allowDuplicate && hasLicenseId(registryText, licenseId)) {
-            return { ok: false, code: 'duplicate-id', next: nextLicenseId(registryText, year) };
-        }
-        let key = o.key;
-        if (!key) {
-            try { key = crypto.createPrivateKey(fs.readFileSync(o.keyFile)); } catch (e) { return { ok: false, code: 'key-unreadable', error: e }; }
-        }
-        const text = signLicenseText({ key, keyId, licenseId, customer, issuedAt, expiresAt });
-        const check = verifyLicense(text, keys, onDate);
-        if (!check.valid) return { ok: false, code: 'rejected', reason: check.reason };
-        try {
-            fs.writeFileSync(out, text, o.overwrite ? undefined : { flag: 'wx' });
-        } catch (e) {
-            return { ok: false, code: e && e.code === 'EEXIST' ? 'out-exists' : 'write-failed', error: e };
-        }
-        const outAbs = path.resolve(out);
-        const sha256 = sha12(fs.readFileSync(out));
-        const row = registryRow({ licenseId, customer, issuedAt, expiresAt, keyId, file: outAbs, sha256, signedAt: localIso() });
-        let registryError = null;
-        try {
-            if (registryText === null) fs.writeFileSync(registry, REGISTRY_HEADER, { flag: 'wx' }); // never replaces a registry
-            else if (registryText.length && !registryText.endsWith('\n')) fs.appendFileSync(registry, '\n');
-            fs.appendFileSync(registry, row + '\n');
-            registryText = fs.readFileSync(registry, 'utf8');
-        } catch (e) {
-            registryError = e;
-        }
-        return { ok: true, text, outAbs, sha256, row, year, registryText, registryError };
-    } finally {
-        lock.release();
-    }
-}
-
 module.exports = {
     REGISTRY_HEADER, REGISTRY_COLUMNS, ID_PATTERN, validateIssueFields, escapeCell, unescapeCell, splitRow, parseRegistry,
-    registryRow, nextLicenseId, registryIds, hasLicenseId, samePath, localIso, sha12, lockRegistry, readRegistry,
-    signLicenseText, issueLicense, isRealDate, today, daysBetween,
+    registryRow, nextLicenseId, samePath, localIso, sha12, lockRegistry, readRegistry, signLicenseText, verifyLicense,
+    isRealDate, today, daysBetween, makeContact, contactText, CONTACT_VENDOR_MAX, CONTACT_EMAIL_MAX,
 };

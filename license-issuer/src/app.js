@@ -1,13 +1,15 @@
 // The license issuer web app: one static page and a small JSON API, for the signing computer only (127.0.0.1).
 const path = require('path');
 const express = require('express');
-const core = require(path.join(__dirname, '..', '..', 'scripts', 'licenseIssuerCore'));
 const { KEYS } = require(path.join(__dirname, '..', '..', 'backend', 'lib', 'licenseKeys'));
 const { verifyPassword, LoginGuard, Sessions, safeEqual } = require('./auth');
-const { registryView, slugify, downloadTarget } = require('./registry');
+const { registryView, downloadTarget } = require('./registry');
+const { openStore } = require('./store');
+const { createMailer } = require('./mail');
+const { createDigest } = require('./digest');
+const { createApi } = require('./api');
 
 const COOKIE = 'li_session';
-const CUSTOMER_MAX = 200;
 
 const pad = (n) => String(n).padStart(2, '0');
 const localDate = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -21,20 +23,22 @@ function parseCookies(header) {
     return out;
 }
 
-const FIELD_ERRORS = {
-    'id-format': ['licenseId', 'License ID must look like L-YYYY-NNNN.'],
-    'issued-date': ['issuedAt', 'Issued must be a real date (YYYY-MM-DD).'],
-    'expires-date': ['expiresAt', 'Expires must be a real date (YYYY-MM-DD).'],
-    'expires-past': ['expiresAt', 'Expires is in the past.'],
-    'expires-before-issued': ['expiresAt', 'Expires is before Issued.'],
-};
-
 /**
  * @param {object} o config (src/config readConfig), privateKey (KeyObject from src/startup), audit(event, details),
- *   keys (public keys, default the built-in ones), now() -> Date, idleMs, lockMs, maxFailures
+ *   store (src/store openStore; prepared by src/startup prepareStore — opened from config.dbFile when not given),
+ *   keys (public keys, default the built-in ones), now() -> Date, idleMs, lockMs, maxFailures,
+ *   mailer (src/mail createMailer; default from config.mail) or createTransport (nodemailer's; tests pass a fake),
+ *   digestOptions (src/digest createDigest options, e.g. log). The weekly-digest timer is NOT started here:
+ *   src/server.js calls app.locals.digest.start().
  */
-function createApp({ config, privateKey, audit, keys = KEYS, now = () => new Date(), idleMs, lockMs, maxFailures }) {
+function createApp({ config, privateKey, audit, store, keys = KEYS, now = () => new Date(), idleMs, lockMs, maxFailures, mailer, createTransport, digestOptions = {} }) {
     const nowMs = () => now().getTime();
+    const db = store || openStore(config.dbFile, { registryFile: config.registryFile, now });
+    // Vendor / Contact email form defaults (CONTACT_VENDOR / CONTACT_EMAIL in .env, checked by readConfig); '' when not set.
+    const contactDefaults = () => {
+        const d = config.contactDefaults || {};
+        return { vendor: typeof d.vendor === 'string' ? d.vendor : '', email: typeof d.email === 'string' ? d.email : '' };
+    };
     const today = () => localDate(now());
     const guard = new LoginGuard({ max: maxFailures, lockMs, now: nowMs });
     const sessions = new Sessions({ idleMs, now: nowMs });
@@ -42,7 +46,13 @@ function createApp({ config, privateKey, audit, keys = KEYS, now = () => new Dat
     const origins = () => hosts().map((h) => `http://${h}`);
     let loginChain = Promise.resolve(); // one password check at a time, so parallel guesses cannot pass the limit
 
+    const mail = mailer || createMailer(config.mail, createTransport ? { createTransport } : {});
+    const digest = createDigest({ store: db, mailer: mail, audit, now, ...digestOptions });
+
     const app = express();
+    app.locals.store = db;
+    app.locals.mailer = mail;
+    app.locals.digest = digest;
     app.disable('x-powered-by');
     app.set('etag', false);
 
@@ -129,78 +139,34 @@ function createApp({ config, privateKey, audit, keys = KEYS, now = () => new Dat
     });
 
     app.get('/api/session', requireSession, (req, res) => {
-        const view = registryView(config.registryFile, today());
         res.json({
-            csrfToken: req.session.csrf, today: today(), nextId: view.nextId || core.nextLicenseId('', today().slice(0, 4)),
+            csrfToken: req.session.csrf, today: today(), nextId: db.nextLicenseId(today().slice(0, 4)),
             keyId: config.keyId, issuedDir: config.issuedDir, registryFile: config.registryFile,
+            contactDefaults: contactDefaults(), defaultCurrency: db.getSettings().defaultCurrency,
+            mail: { enabled: mail.status().enabled, reason: mail.status().reason }, registry: db.registryStatus(),
         });
     });
 
     app.get('/api/registry', requireSession, (req, res) => {
-        const view = registryView(config.registryFile, today());
-        if (view.error) return res.status(500).json({ error: view.error });
-        res.json({ today: today(), registryFile: config.registryFile, ...view });
-    });
-
-    app.post('/api/issue', requireSession, json, (req, res) => {
-        const b = req.body && typeof req.body === 'object' ? req.body : {};
-        const str = (v) => (typeof v === 'string' ? v.trim() : '');
-        const customer = str(b.customer);
-        const licenseId = str(b.licenseId);
-        const issuedAt = str(b.issuedAt);
-        const expiresAt = str(b.expiresAt);
-        const refuse = (status, error, extra = {}) => {
-            audit('issue-refused', { licenseId, customer, reason: error });
-            res.status(status).json({ error, ...extra });
-        };
-        if (!customer) return refuse(400, 'Customer is required.', { field: 'customer' });
-        if (customer.length > CUSTOMER_MAX) return refuse(400, `Customer is longer than ${CUSTOMER_MAX} characters.`, { field: 'customer' });
-        if (/[\x00-\x1f\x7f]/.test(customer)) return refuse(400, 'Customer must not contain control characters.', { field: 'customer' });
-        const day = today();
-        const bad = core.validateIssueFields({ licenseId, issuedAt, expiresAt }, day);
-        if (bad) return refuse(400, FIELD_ERRORS[bad][1], { field: FIELD_ERRORS[bad][0] });
-
-        const out = path.join(config.issuedDir, `${licenseId}-${slugify(customer)}.lic`);
-        const r = core.issueLicense({
-            key: privateKey, keyFile: config.keyFile, keyId: config.keyId, customer, licenseId, issuedAt, expiresAt,
-            out, registry: config.registryFile, allowDuplicate: false, overwrite: false, keys, onDate: day,
-        });
-        if (!r.ok) {
-            const why = r.error ? ` (${r.error.code || r.error.message})` : '';
-            switch (r.code) {
-                case 'duplicate-id': return refuse(409, `License ID ${licenseId} is already in the registry. Next free ID: ${r.next}.`, { field: 'licenseId', nextId: r.next });
-                case 'out-exists': return refuse(409, `The file ${out} already exists. Nothing was written.`);
-                case 'registry-locked': return refuse(503, 'The registry is in use by another writer. Try again in a moment.');
-                case 'registry-unreadable': return refuse(500, `Cannot read the registry${why}. Nothing was written.`);
-                case 'rejected': return refuse(500, `Not written: the product would reject this license (${r.reason}).`);
-                default: return refuse(500, `Not written (${r.code})${why}.`);
-            }
-        }
-        const nextId = core.nextLicenseId(r.registryError ? `${r.registryText || ''}\n${r.row}` : r.registryText, day.slice(0, 4));
-        audit('issue', { licenseId, customer, issuedAt, expiresAt, file: r.outAbs, reason: r.registryError ? 'registry not updated' : '' });
-        const body = {
-            ok: true, licenseId, customer, issuedAt, expiresAt, days: core.daysBetween(day, expiresAt), file: r.outAbs,
-            fileName: path.basename(r.outAbs), sha256: r.sha256, registryFile: config.registryFile, nextId,
-        };
-        if (r.registryError) {
-            body.registryError = `The license was written but the registry was not updated (${r.registryError.code || r.registryError.message}). Add this row to the registry by hand.`;
-            body.row = r.row;
-        }
-        res.json(body);
+        res.json({ today: today(), registryFile: config.registryFile, ...registryView(db, today()) });
     });
 
     app.get('/api/download/:licenseId', requireSession, (req, res) => {
         const id = String(req.params.licenseId || '');
-        const t = downloadTarget(config.registryFile, id, config.keyFile);
+        const t = downloadTarget(db, id, config.keyFile);
         if (!t.file) {
             audit('download-refused', { licenseId: id, reason: t.reason });
             return res.status(t.status).json({ error: t.reason });
         }
         audit('download', { licenseId: id, file: t.file });
+        try { db.addEvent(id, 'downloaded', {}); } catch (e) { console.error('[license-issuer] Could not record the download:', e.message); }
         res.attachment(t.name);
         res.set('Content-Type', 'application/octet-stream');
         res.send(t.body);
     });
+
+    // business features (src/api.js): issuing is POST /api/licenses (a sales person is required)
+    app.use('/api', createApi({ config, store: db, audit, privateKey, keys, today, requireSession, mailer: mail, digest, contactDefaults }));
 
     app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
     app.use((req, res) => res.status(404).type('text/plain; charset=utf-8').send('Not found'));

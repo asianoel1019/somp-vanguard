@@ -257,3 +257,137 @@ test('noteSkipped logs once per hour per subject', (t) => {
     lic.noteSkipped('Unit test channel');
     assert.deepEqual(lines, ['[License] Unit test channel skipped: requires a paid license']);
 });
+
+const CONTACT = { vendor: 'Example Vendor', email: 'support@example.test' };
+const withEnvContact = (t, vendor, email) => {
+    const saved = { v: process.env.LICENSE_CONTACT_VENDOR, e: process.env.LICENSE_CONTACT_EMAIL };
+    if (vendor === undefined) delete process.env.LICENSE_CONTACT_VENDOR; else process.env.LICENSE_CONTACT_VENDOR = vendor;
+    if (email === undefined) delete process.env.LICENSE_CONTACT_EMAIL; else process.env.LICENSE_CONTACT_EMAIL = email;
+    t.after(() => {
+        if (saved.v === undefined) delete process.env.LICENSE_CONTACT_VENDOR; else process.env.LICENSE_CONTACT_VENDOR = saved.v;
+        if (saved.e === undefined) delete process.env.LICENSE_CONTACT_EMAIL; else process.env.LICENSE_CONTACT_EMAIL = saved.e;
+    });
+};
+
+test('contact: optional; when present an object of non-empty strings within the limits', () => {
+    assert.equal(lic.verifyLicense(signLicense()).valid, true); // absent
+    assert.equal(lic.verifyLicense(signLicense({ contact: CONTACT })).valid, true);
+    assert.equal(lic.verifyLicense(signLicense({ contact: { vendor: 'Example Vendor' } })).valid, true);
+    assert.equal(lic.verifyLicense(signLicense({ contact: { email: 'support@example.test' } })).valid, true);
+    assert.equal(lic.verifyLicense(signLicense({ contact: { vendor: 'v'.repeat(100), email: `${'e'.repeat(187)}@example.test` } })).valid, true);
+    const bad = [
+        null, 'support@example.test', ['support@example.test'], 42,
+        { vendor: '' }, { vendor: '   ' }, { vendor: 7 }, { vendor: 'v'.repeat(101) },
+        { email: '' }, { email: 7 }, { email: `${'e'.repeat(188)}@example.test` },
+        { email: 'support' }, { email: 'support@' }, { email: '@example.test' }, { email: 'sup port@example.test' }, { email: 'a@b@c' },
+    ];
+    for (const contact of bad) assert.equal(lic.verifyLicense(signLicense({ contact })).reason, 'invalid contact', JSON.stringify(contact));
+});
+
+test('getLicense: contact of a paid and of an expired license; null without one', (t) => {
+    t.after(() => lic._setClockForTest(null));
+    writeDataSync(lic.LICENSE_KEY, { text: signLicense({ contact: CONTACT }), uploadedAt: 'x', uploadedBy: 'test' });
+    assert.deepEqual(lic.getLicense().contact, CONTACT);
+    writeDataSync(lic.LICENSE_KEY, { text: signLicense({ contact: { email: 'support@example.test' } }), uploadedAt: 'x', uploadedBy: 'test' });
+    assert.deepEqual(lic.getLicense().contact, { vendor: '', email: 'support@example.test' });
+    writeDataSync(lic.LICENSE_KEY, { text: signLicense({ expiresAt: '2027-03-10', contact: CONTACT }), uploadedAt: 'x', uploadedBy: 'test' });
+    lic._setClockForTest(() => new Date(2027, 2, 11, 9, 0, 0));
+    const expired = lic.getLicense();
+    assert.equal(expired.edition, 'free');
+    assert.equal(expired.expiredAt, '2027-03-10');
+    assert.deepEqual(expired.contact, CONTACT);
+    lic._setClockForTest(null);
+    setPaid();
+    assert.equal(lic.getLicense().contact, null);
+    setFree();
+    assert.equal(lic.getLicense().contact, null);
+});
+
+test('removeLicense keeps the removed license contact; an install replaces it', () => {
+    setFree();
+    assert.equal(lic.installLicense(signLicense({ contact: CONTACT }), 'boss').ok, true);
+    lic.removeLicense('boss');
+    assert.deepEqual(readDataSync(lic.LICENSE_KEY).lastContact, CONTACT);
+    assert.equal(lic.isPaid(), false);
+    assert.deepEqual(lic.getLicense().contact, CONTACT);
+    assert.deepEqual(lic.resolveContact(), CONTACT);
+    lic.removeLicense('boss'); // removing again keeps it
+    assert.deepEqual(readDataSync(lic.LICENSE_KEY).lastContact, CONTACT);
+
+    assert.equal(lic.installLicense(PAID_TEXT, 'boss').ok, true); // a license without a contact
+    assert.equal(readDataSync(lic.LICENSE_KEY).lastContact, undefined);
+    assert.equal(lic.getLicense().contact, null);
+    lic.removeLicense('boss');
+    assert.equal(readDataSync(lic.LICENSE_KEY).lastContact, undefined);
+    assert.equal(lic.getLicense().contact, null);
+
+    writeDataSync(lic.LICENSE_KEY, { lastContact: { email: 'not an email' } }); // a bad stored value is ignored
+    assert.equal(lic.getLicense().contact, null);
+});
+
+test('resolveContact: license -> removed license -> .env -> null; publicState.contact', (t) => {
+    withEnvContact(t, undefined, undefined);
+    setFree();
+    assert.equal(lic.resolveContact(), null);
+    assert.equal(lic.publicState().contact, null);
+
+    withEnvContact(t, ' Example Env Vendor ', 'env@example.test');
+    assert.deepEqual(lic.resolveContact(), { vendor: 'Example Env Vendor', email: 'env@example.test' });
+    assert.deepEqual(lic.publicState().contact, { vendor: 'Example Env Vendor', email: 'env@example.test' });
+    withEnvContact(t, '', 'env@example.test');
+    assert.deepEqual(lic.resolveContact(), { vendor: '', email: 'env@example.test' });
+    withEnvContact(t, 'Example Env Vendor', 'not an email'); // invalid values are not shown
+    assert.equal(lic.resolveContact(), null);
+    withEnvContact(t, 'Example Env Vendor', undefined);
+    assert.deepEqual(lic.resolveContact(), { vendor: 'Example Env Vendor', email: '' });
+
+    setPaid(); // a license without a contact: .env
+    assert.deepEqual(lic.publicState().contact, { vendor: 'Example Env Vendor', email: '' });
+    writeDataSync(lic.LICENSE_KEY, { text: signLicense({ contact: CONTACT }), uploadedAt: 'x', uploadedBy: 'test' });
+    assert.deepEqual(lic.publicState().contact, CONTACT);
+    assert.equal(lic.publicState().edition, 'paid');
+    writeDataSync(lic.LICENSE_KEY, { lastContact: { vendor: 'Example Old Vendor' } });
+    assert.deepEqual(lic.resolveContact(), { vendor: 'Example Old Vendor', email: '' });
+    setPaid();
+});
+
+test('contact vendor or email with control characters makes the license invalid', () => {
+    assert.equal(lic.verifyLicense(signLicense({ contact: { vendor: 'Example\nVendor' } })).reason, 'invalid contact');
+    for (const email of ['support\u0000@example.test', 'support@example\u001b.test', 'support@example.test\u007f']) {
+        assert.equal(lic.verifyLicense(signLicense({ contact: { email } })).reason, 'invalid contact', JSON.stringify(email));
+    }
+    assert.equal(lic.verifyLicense(signLicense({ contact: { vendor: 'Example Vendor', email: 'support@example.test' } })).valid, true);
+});
+
+test('trial: optional boolean; any other present value makes the license invalid', () => {
+    assert.equal(lic.verifyLicense(signLicense({ trial: true })).valid, true);
+    assert.equal(lic.verifyLicense(signLicense({ trial: false })).valid, true);
+    assert.equal(lic.verifyLicense(PAID_TEXT).valid, true); // absent
+    for (const trial of ['true', 1, 0, null, {}, []]) {
+        const r = lic.verifyLicense(signLicense({ trial }));
+        assert.equal(r.valid, false, JSON.stringify(trial));
+        assert.equal(r.reason, 'invalid trial', JSON.stringify(trial));
+    }
+});
+
+test('state.trial: true for a trial license (valid or expired), false otherwise; publicState carries it', (t) => {
+    t.after(() => { lic._setClockForTest(null); setPaid(); });
+    setPaid();
+    assert.equal(lic.getLicense().trial, false);
+    writeDataSync(lic.LICENSE_KEY, { text: signLicense({ trial: true, expiresAt: '2027-03-10' }), uploadedAt: 'x', uploadedBy: 'test' });
+    assert.equal(lic.getLicense().trial, true);
+    assert.equal(lic.getLicense().edition, 'paid');
+    assert.equal(lic.publicState().trial, true);
+    assert.deepEqual(lic.reminderDaysFor(lic.getLicense()), [7, 3, 1]);
+    lic._setClockForTest(() => new Date(2027, 2, 11, 9, 0, 0));
+    const expired = lic.getLicense();
+    assert.equal(expired.edition, 'free');
+    assert.equal(expired.trial, true);
+    writeDataSync(lic.LICENSE_KEY, { text: signLicense({ trial: false }), uploadedAt: 'x', uploadedBy: 'test' });
+    lic._setClockForTest(null);
+    assert.equal(lic.getLicense().trial, false);
+    assert.deepEqual(lic.reminderDaysFor(lic.getLicense()), [30, 14, 7, 3, 2, 1]);
+    writeDataSync(lic.LICENSE_KEY, {});
+    assert.equal(lic.getLicense().trial, false);
+    assert.equal(lic.publicState().trial, false);
+});

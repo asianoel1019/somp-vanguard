@@ -113,7 +113,9 @@
 *   **移除授權**：同一頁「移除授權」，回到免費版；所有資料保留，重新上傳後立即恢復。
 *   **到期日**：授權帶有到期日（授權格式版本 2），到期日當天整天有效，隔天起自動退回免費版（資料保留、不需重啟）。License 頁與首頁顯示到期日與剩餘天數（30 天內黃色、7 天內紅色）；免費版因到期而退回時，License 頁顯示 `Expired on <日期>`。
 *   **到期提醒**：到期前 30、14、7、3、2、1 天提醒：SuperAdmin 登入後跳出提醒視窗（每個時間點每個瀏覽器只跳一次）、License 頁、首頁，並寄 Email 到 `MAIL_RELAY_RECIPIENT`、送 Telegram 到 `TELEGRAM_CHAT_ID`；到期當下另送一則「已到期」通知。
+*   **試用授權（Trial）**：供應商可簽發試用授權（授權內帶 `trial: true`），功能與付費版相同，到期後同樣退回免費版。首頁顯示 `Trial — Licensed to <客戶>`，License 頁的版本標籤顯示 `Trial`（並多一列 Type: Trial）。試用授權的到期提醒只在到期前 7、3、1 天發出（SuperAdmin 提醒視窗標題為 `Trial license expiring soon`；Email / Telegram 內容為 `SOMP Vanguard trial license <ID> ...`，到期通知亦同）。
 *   **續約**：向供應商取得新的授權檔後，到 System Settings → License 上傳（立即套用），或把 `.lic` 放進資料目錄（服務下次啟動時套用；有多個時採用簽發日最新且有效的那張）。不想重啟服務請在 License 頁上傳。授權簽發由供應商負責。
+*   **供應商聯絡資訊**：付費功能鎖定畫面（`To get a license: ...`）、到期提醒視窗與到期通知 Email / Telegram（`Contact ... to renew.`）顯示的供應商名稱與 Email 來自授權檔（供應商簽發時寫入，License 頁顯示為 `Vendor contact`）；授權已到期或已移除時沿用該授權的聯絡資訊。授權沒有聯絡資訊、且從未套用過帶聯絡資訊的授權時，改用 `.env` 的 `LICENSE_CONTACT_VENDOR` / `LICENSE_CONTACT_EMAIL`（皆為選填）；都沒有時顯示 `contact your software vendor`。
 *   **舊授權失效**：沒有到期日的授權（格式版本 1，此版之前簽發）不再被接受，會顯示 `unsupported format version 1: issue a new license with an expiry date`；請向供應商取得帶到期日的新授權。
 *   **升級前**：把授權檔放到資料目錄（例如 `D:\somp-vanguard\`），檔名不限，副檔名為 `.lic` 即可；有多個 `.lic` 時，只採用簽發日最新且驗證有效的那張，無效的檔案會在 log 列出並略過。服務啟動時自動套用，服務 log 會顯示 `License: Paid (...)`；否則升級後會先以免費版啟動（AD 帳號無法登入），需以 local admin 登入上傳授權。
 *   **鎖住的功能**：免費版時，付費功能在選單上淡化並顯示鎖；點選會顯示功能說明與取得授權的方式。

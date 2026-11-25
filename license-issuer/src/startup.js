@@ -1,9 +1,10 @@
-// Checks before the server listens: settings, password hash, and a private key that the product trusts.
+// Checks before the server listens: settings, password hash, a private key that the product trusts, and the database.
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { parseHash } = require('./auth');
 const { KEYS } = require(path.join(__dirname, '..', '..', 'backend', 'lib', 'licenseKeys'));
+const { openStore } = require('./store');
 
 /**
  * { errors: [], privateKey } — privateKey (a KeyObject, never logged or sent) only when every check passed.
@@ -37,4 +38,33 @@ function checkStartup(config, keys = KEYS) {
     return errors.length ? { errors, privateKey: null } : { errors, privateKey };
 }
 
-module.exports = { checkStartup };
+/**
+ * Opens the database (creating it when missing) and, on first use, imports the existing Markdown registry.
+ * { errors: [], store, imported (importRegistryIfNeeded result) }; on an error the store is closed and null.
+ */
+function prepareStore(config, { now } = {}) {
+    let store;
+    try {
+        store = openStore(config.dbFile, { registryFile: config.registryFile, now });
+    } catch (e) {
+        return { errors: [`DB_FILE cannot be opened: ${config.dbFile} (${e.message})`], store: null, imported: null };
+    }
+    try {
+        return { errors: [], store, imported: store.importRegistryIfNeeded() };
+    } catch (e) {
+        store.close();
+        return { errors: [e.message], store: null, imported: null };
+    }
+}
+
+/** Console lines describing a first-use import (empty when nothing was imported). */
+function importSummary(imported) {
+    if (!imported || imported.status !== 'imported') return [];
+    const lines = [`Imported ${imported.imported} license(s) from ${imported.file} (${imported.customersCreated} customer(s) created; backup: ${imported.backup}).`];
+    for (const u of imported.unreadable) lines.push(`  Not imported, line ${u.line} (unreadable): ${u.text}`);
+    for (const d of imported.duplicates) lines.push(`  Not imported, line ${d.line}: ${d.licenseId} is listed again on line ${d.keptLine} (that row was imported).`);
+    if (imported.registryError) lines.push(`  The registry copy was not regenerated: ${imported.registryError.message}`);
+    return lines;
+}
+
+module.exports = { checkStartup, prepareStore, importSummary };

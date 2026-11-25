@@ -125,3 +125,9 @@ test('setPassword.js from a pipe: too short and mismatched passwords change noth
     assert.match(env, /^PORT=8444\r\nPASSWORD_HASH=scrypt\$32768\$8\$1\$[^\r\n]+\r\n$/);
     assert.doesNotMatch(env + ok.stdout, /Long-Enough-1/);
 });
+
+test('readConfig: the database is license-issuer.db next to the key unless DB_FILE says otherwise', () => {
+    const base = { KEY_FILE: 'C:/keys/k1-private.pem', PASSWORD_HASH: 'x' };
+    assert.equal(readConfig(base).dbFile, path.resolve('C:/keys/license-issuer.db'));
+    assert.equal(readConfig({ ...base, DB_FILE: ' D:/data/issuer.db ' }).dbFile, path.resolve('D:/data/issuer.db'));
+});

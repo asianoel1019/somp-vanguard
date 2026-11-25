@@ -1,10 +1,11 @@
-// Audit log: one JSON line per event in logs/audit.log (login ok/fail/locked, issue, download, logout).
+// Audit log: one JSON line per event in logs/audit.log (sign-in, issue, download, logout and every change made through the
+// API: sales, plans, customers, settings, licenses, mails, backups).
 // Only the fields below are written: never a password, a hash, a token or key material.
 const fs = require('fs');
 const path = require('path');
 
 const clean = (v, max = 300) => String(v === undefined || v === null ? '' : v).replace(/[\x00-\x1f\x7f]+/g, ' ').slice(0, max);
-const FIELDS = ['licenseId', 'customer', 'issuedAt', 'expiresAt', 'file', 'reason'];
+const FIELDS = ['licenseId', 'customer', 'contact', 'issuedAt', 'expiresAt', 'file', 'to', 'target', 'reason', 'detail'];
 
 function createAudit(logDir, { echo = true } = {}) {
     const file = path.join(logDir, 'audit.log');

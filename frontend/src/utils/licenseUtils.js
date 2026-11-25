@@ -45,20 +45,41 @@ export const isFree = (license) => !!(license && license.edition === 'free');
 
 export function licenseLabel(license) {
     if (!license) return '';
-    if (license.edition === 'paid') return license.customer ? `Licensed to ${license.customer}` : 'Licensed';
+    if (license.edition === 'paid') {
+        const base = license.customer ? `Licensed to ${license.customer}` : 'Licensed';
+        return license.trial === true ? (license.customer ? `Trial \u2014 ${base}` : 'Trial') : base;
+    }
     return license.edition === 'free' ? 'Free' : '';
+}
+
+// Vendor contact for renewals: `contact` ({ vendor, email } or null) in the license state, from the license file, the
+// license removed last or the server's .env (backend lib/license.js resolveContact). '' when there is none.
+export function contactText(contact) {
+    if (!contact || typeof contact !== 'object') return '';
+    const vendor = typeof contact.vendor === 'string' ? contact.vendor.trim() : '';
+    const email = typeof contact.email === 'string' ? contact.email.trim() : '';
+    if (vendor && email) return `${vendor} (${email})`;
+    return vendor || email;
 }
 
 export const isLicenseError = (err) => !!(err && err.response && err.response.data && err.response.data.code === 'LICENSE_REQUIRED');
 
-// Expiry reminders: the SuperAdmin dialog shows once per license and threshold (days left <= 30 / 14 / 7 / 3 / 2 / 1).
+// Expiry reminders: the SuperAdmin dialog shows once per license and threshold (days left <= 30 / 14 / 7 / 3 / 2 / 1;
+// trial licenses: 7 / 3 / 1, like the server's reminders).
 export const REMINDER_DAYS = [30, 14, 7, 3, 2, 1];
+export const TRIAL_REMINDER_DAYS = [7, 3, 1];
+export const isTrial = (license) => !!(license && license.trial === true);
+export const reminderDays = (license) => (isTrial(license) ? TRIAL_REMINDER_DAYS : REMINDER_DAYS);
 const isDays = (n) => typeof n === 'number' && Number.isFinite(n);
 
-export function expiryTone(daysLeft) {
+/**
+ * Colour of the days left, in step with the reminders: 'warning' from the first reminder day (paid 30, trial 7),
+ * 'danger' in the last week of a paid license / the last 3 days of a trial.
+ */
+export function expiryTone(daysLeft, trial = false) {
     if (!isDays(daysLeft)) return 'normal';
-    if (daysLeft <= 7) return 'danger';
-    return daysLeft <= 30 ? 'warning' : 'normal';
+    if (daysLeft <= (trial ? 3 : 7)) return 'danger';
+    return daysLeft <= (trial ? TRIAL_REMINDER_DAYS : REMINDER_DAYS)[0] ? 'warning' : 'normal';
 }
 
 export function expiryText(license) {
@@ -72,16 +93,17 @@ export function expiryText(license) {
     return '';
 }
 
-// Smallest threshold that is >= daysLeft (null when more than 30 days are left or daysLeft is unknown).
-export function reminderThreshold(daysLeft) {
+// Smallest threshold that is >= daysLeft (null when more than the largest threshold is left or daysLeft is unknown).
+// `trial` selects the trial thresholds (7 / 3 / 1).
+export function reminderThreshold(daysLeft, trial = false) {
     if (!isDays(daysLeft)) return null;
-    const hit = REMINDER_DAYS.filter(d => d >= daysLeft);
+    const hit = (trial ? TRIAL_REMINDER_DAYS : REMINDER_DAYS).filter(d => d >= daysLeft);
     return hit.length ? Math.min(...hit) : null;
 }
 
 export function reminderKey(license) {
     if (!license || license.edition !== 'paid' || !license.licenseId) return '';
-    const t = reminderThreshold(license.daysLeft);
+    const t = reminderThreshold(license.daysLeft, isTrial(license));
     return t === null ? '' : `somp.licenseReminder:${license.licenseId}:${t}`;
 }
 

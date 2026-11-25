@@ -41,10 +41,70 @@ test.beforeEach((t) => {
     setNow(2026, 11, 17);
 });
 
-test('texts match the templates', () => {
+test('texts match the templates, with and without a vendor contact', () => {
     const st = { licenseId: 'L-1', customer: 'Example Test Co.', expiresAt: '2026-12-17', expiredAt: '2026-12-17' };
-    assert.equal(svc.reminderText(st, 30), 'SOMP Vanguard license L-1 for Example Test Co. expires on 2026-12-17 (30 days left). After that date the system switches to the free edition. Contact SOMP Vanguard (sales@example.test) to renew.');
-    assert.equal(svc.expiredText(st), 'SOMP Vanguard license L-1 for Example Test Co. expired on 2026-12-17. The system now runs as the free edition. Contact SOMP Vanguard (sales@example.test) to renew.');
+    const both = { vendor: 'Example Vendor', email: 'support@example.test' };
+    assert.equal(svc.reminderText(st, 30, both), 'SOMP Vanguard license L-1 for Example Test Co. expires on 2026-12-17 (30 days left). After that date the system switches to the free edition. Contact Example Vendor (support@example.test) to renew.');
+    assert.equal(svc.expiredText(st, both), 'SOMP Vanguard license L-1 for Example Test Co. expired on 2026-12-17. The system now runs as the free edition. Contact Example Vendor (support@example.test) to renew.');
+    assert.equal(svc.reminderText(st, 30, null), 'SOMP Vanguard license L-1 for Example Test Co. expires on 2026-12-17 (30 days left). After that date the system switches to the free edition. Contact your software vendor to renew.');
+    assert.equal(svc.expiredText(st, null), 'SOMP Vanguard license L-1 for Example Test Co. expired on 2026-12-17. The system now runs as the free edition. Contact your software vendor to renew.');
+    assert.ok(svc.reminderText(st, 30, { vendor: 'Example Vendor', email: '' }).endsWith(' free edition. Contact Example Vendor to renew.'));
+    assert.ok(svc.expiredText(st, { email: 'support@example.test' }).endsWith(' free edition. Contact support@example.test to renew.'));
+});
+
+test('trial texts say "trial license" right after SOMP Vanguard', () => {
+    const st = { licenseId: 'L-1', customer: 'Example Test Co.', expiresAt: '2026-12-17', expiredAt: '2026-12-17', trial: true };
+    assert.equal(svc.reminderText(st, 7, null), 'SOMP Vanguard trial license L-1 for Example Test Co. expires on 2026-12-17 (7 days left). After that date the system switches to the free edition. Contact your software vendor to renew.');
+    assert.equal(svc.expiredText(st, null), 'SOMP Vanguard trial license L-1 for Example Test Co. expired on 2026-12-17. The system now runs as the free edition. Contact your software vendor to renew.');
+});
+
+test('trial license: no reminder at 30 days, first at 7 days, then 3 and 1; texts say trial license', async () => {
+    install({ trial: true, expiresAt: '2026-12-17' }); // 30 days left
+    assert.equal((await svc.checkNow()).sent, null);
+    assert.equal(mails.length, 0);
+    setNow(2026, 12, 9); // 8 days left
+    assert.equal((await svc.checkNow()).sent, null);
+    setNow(2026, 12, 10); // 7 days left
+    assert.equal((await svc.checkNow()).sent, 7);
+    assert.match(mails[0].text, /^SOMP Vanguard trial license L-TEST-0001 for Example Test Co\. expires on 2026-12-17 \(7 days left\)\./);
+    assert.deepEqual(readDataSync(DOC).sent, [7]);
+    assert.equal((await svc.checkNow()).sent, null);
+    setNow(2026, 12, 13); // 4 days left: still covered by 7
+    assert.equal((await svc.checkNow()).sent, null);
+    setNow(2026, 12, 14); // 3 days left
+    assert.equal((await svc.checkNow()).sent, 3);
+    setNow(2026, 12, 15); // 2 days left: no 2-day threshold for trials
+    assert.equal((await svc.checkNow()).sent, null);
+    setNow(2026, 12, 16); // 1 day left
+    assert.equal((await svc.checkNow()).sent, 1);
+    assert.equal(mails.length, 3);
+    assert.deepEqual(desc(readDataSync(DOC).sent), [7, 3, 1]);
+});
+
+test('expired trial license: one notice that says trial license', async () => {
+    install({ trial: true, expiresAt: '2026-12-17' });
+    setNow(2026, 12, 18);
+    const r = await svc.checkNow();
+    assert.equal(r.expired, true);
+    assert.equal(mails.length, 1);
+    assert.match(mails[0].text, /^SOMP Vanguard trial license L-TEST-0001 for Example Test Co\. expired on 2026-12-17\. /);
+    assert.equal(mails[0].ignoreLicense, true);
+    await svc.checkNow();
+    assert.equal(mails.length, 1);
+});
+
+test('sent texts use the contact signed into the license, else the generic sentence', async () => {
+    install({ expiresAt: '2026-12-17', contact: { vendor: 'Example Vendor', email: 'support@example.test' } });
+    await svc.checkNow();
+    assert.ok(mails[0].text.endsWith(' free edition. Contact Example Vendor (support@example.test) to renew.'), mails[0].text);
+    assert.equal(tgs[0].text, mails[0].text);
+    svc._resetForTest(); writeDataSync(DOC, {});
+    install({ licenseId: 'L-TEST-0002', expiresAt: '2026-12-17' });
+    await svc.checkNow();
+    assert.ok(mails[1].text.endsWith(' free edition. Contact your software vendor to renew.'), mails[1].text);
+    setNow(2026, 12, 18);
+    await svc.checkNow();
+    assert.ok(mails[2].text.endsWith('expired on 2026-12-17. The system now runs as the free edition. Contact your software vendor to renew.'), mails[2].text);
 });
 
 test('the 30-day reminder is sent once on both channels', async () => {

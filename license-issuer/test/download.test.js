@@ -12,15 +12,17 @@ async function issued(t) {
     const app = await startApp(t);
     const c = await app.login();
     const r = await c.issue(GOOD);
-    assert.equal(r.status, 200, r.text);
+    assert.equal(r.status, 201, r.text);
     return { app, c, file: r.json.file };
 }
 
-/** Appends a hand-made registry row (sha computed from `shaOf` when given). */
+/** Records a hand-made license row in the database (sha computed from `shaOf` when given). */
 function addRow(app, id, file, shaOf) {
     const sha256 = shaOf ? core.sha12(fs.readFileSync(shaOf)) : '000000000000';
-    fs.appendFileSync(app.config.registryFile, core.registryRow({ licenseId: id, customer: 'Trick', issuedAt: '2026-11-25',
-        expiresAt: '2027-11-24', keyId: 'k1', file, sha256, signedAt: '2026-11-25T10:00:00+08:00' }) + '\n');
+    const customerId = app.store.listCustomers()[0].id;
+    app.store.db.prepare(`INSERT INTO licenses (license_id, customer_id, licensed_to, type, format, issued_at, expires_at, file_path, sha12,
+        signed_at, key_id, created_at) VALUES (?, ?, 'Trick', 'paid', 2, '2026-11-25', '2027-11-24', ?, ?, '2026-11-25T10:00:00+08:00', 'k1', '2026-11-25T10:00:00+08:00')`)
+        .run(id, customerId, file, sha256);
 }
 
 test('a listed file with a matching hash downloads as an attachment', async (t) => {
@@ -32,6 +34,7 @@ test('a listed file with a matching hash downloads as an attachment', async (t) 
     assert.equal(r.headers['cache-control'], 'no-store');
     assert.deepEqual(r.raw, fs.readFileSync(file));
     assert.match(app.auditText(), /"event":"download","licenseId":"L-2026-0001"/);
+    assert.deepEqual(app.store.licenseEvents('L-2026-0001').map((e) => e.type), ['issued', 'downloaded']);
 });
 
 test('an ID that is not in the registry is 404', async (t) => {

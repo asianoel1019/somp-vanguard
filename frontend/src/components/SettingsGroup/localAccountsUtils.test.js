@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-    ROLE_LABELS, validatePassword, validateUsername, statusLabel, quotaText, roleFull, defaultFormRole, rowLimits, QUOTA_MESSAGE, PAID_LOCKED_MESSAGE,
+    ROLE_LABELS, validatePassword, validateUsername, statusLabel, quotaText, roleFull, defaultFormRole, rowLimits, QUOTA_MESSAGE, PAID_LOCKED_MESSAGE, formatDateTime,
 } from './localAccountsUtils.js';
 
 const freeList = { edition: 'free', quota: { SuperAdmin: { used: 1, limit: 1 }, Operator: { used: 0, limit: 1 }, Viewer: { used: 1, limit: 1 } } };
@@ -78,4 +78,11 @@ test('rowLimits: free edition refuses paid-created changes and full roles', () =
     assert.equal(activeOperator.enable, '');
     assert.equal(activeOperator.roleOption('SuperAdmin'), QUOTA_MESSAGE);
     assert.equal(activeOperator.roleOption('Operator'), '');
+});
+
+test('formatDateTime is locale independent', () => {
+    const d = new Date(2026, 10, 20, 9, 5, 0);
+    assert.equal(formatDateTime(d.toISOString()), '2026-11-20 09:05');
+    assert.equal(formatDateTime(''), '-');
+    assert.equal(formatDateTime('not a date'), '-');
 });

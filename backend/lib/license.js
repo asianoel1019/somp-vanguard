@@ -9,7 +9,7 @@ const { readDataSync, writeDataSync } = require('./db');
 const { KEYS } = require('./licenseKeys');
 // Format, signature and expiry rules and the date helpers live in licenseFormat.js (no database), shared with the issuing tools.
 const format = require('./licenseFormat');
-const { canonicalJson, verifyLicense, today, isRealDate, daysBetween } = format;
+const { canonicalJson, verifyLicense, today, isRealDate, daysBetween, normalizeContact, contactError } = format;
 
 const LICENSE_KEY = 'system/license.json';
 // adControl covers AD Control and Group Policy; nutanixClone is not an RBAC key, only a license gate for the Nutanix
@@ -22,40 +22,54 @@ const PAID_CHANNELS = Object.freeze(['telegram', 'email', 'webhook']);
 const SKIP_LOG_MS = 60 * 60 * 1000;
 
 const REMINDER_DAYS = Object.freeze([30, 14, 7, 3, 2, 1]);
+const TRIAL_REMINDER_DAYS = Object.freeze([7, 3, 1]);
+/** Reminder thresholds for a license state: trial licenses use a shorter list. */
+const reminderDaysFor = (state) => (state && state.trial ? TRIAL_REMINDER_DAYS : REMINDER_DAYS);
 /** Injectable clock for tests: moves the date used by today() / verifyLicense() and clears the cached state. */
-function _setClockForTest(fn) { format._setClockForTest(fn); cache = { text: null, day: null, state: null }; }
+function _setClockForTest(fn) { format._setClockForTest(fn); cache = { text: null, day: null, last: null, state: null }; }
 
 const freeState = (reason, expiredAt = '') => ({
     edition: 'free', customer: '', licenseId: '', issuedAt: '', expiresAt: '', daysLeft: null, expiredAt, updatesUntil: null, reason,
+    contact: null, trial: false,
 });
-let cache = { text: null, day: null, state: null };
+let cache = { text: null, day: null, last: null, state: null };
 
-function storedText() {
+function storedDoc() {
     try {
         const doc = readDataSync(LICENSE_KEY, null);
-        return doc && typeof doc === 'object' && typeof doc.text === 'string' ? doc.text : '';
-    } catch { return ''; }
+        return doc && typeof doc === 'object' ? doc : {};
+    } catch { return {}; }
 }
+const storedText = (doc) => (typeof doc.text === 'string' ? doc.text : '');
 
 /** Current edition; verified again when the stored text or the local date changes. */
 function getLicense() {
-    const text = storedText();
+    const doc = storedDoc();
+    const text = storedText(doc);
     const day = today();
-    if (cache.state && cache.text === text && cache.day === day) return cache.state;
+    // Without a license, the contact of the license removed last (removeLicense keeps it; the next install drops it).
+    const lastContact = text ? null : normalizeContact(doc.lastContact);
+    const last = JSON.stringify(lastContact);
+    if (cache.state && cache.text === text && cache.day === day && cache.last === last) return cache.state;
     let state;
-    if (!text) state = freeState('no license');
+    if (!text) { state = freeState('no license'); state.contact = lastContact; }
     else {
         const r = verifyLicense(text, KEYS, day);
         if (r.valid) {
             state = { edition: 'paid', customer: r.payload.customer, licenseId: r.payload.licenseId, issuedAt: r.payload.issuedAt,
                 expiresAt: r.payload.expiresAt, daysLeft: daysBetween(day, r.payload.expiresAt), expiredAt: '',
-                updatesUntil: r.payload.updatesUntil === undefined ? null : r.payload.updatesUntil, reason: '' };
+                updatesUntil: r.payload.updatesUntil === undefined ? null : r.payload.updatesUntil, reason: '',
+                contact: normalizeContact(r.payload.contact), trial: r.payload.trial === true };
         } else {
             state = freeState(r.reason, r.expiredAt || '');
-            if (r.expiredAt) { state.customer = r.payload.customer; state.licenseId = r.payload.licenseId; }
+            if (r.expiredAt) {
+                state.customer = r.payload.customer; state.licenseId = r.payload.licenseId;
+                state.contact = normalizeContact(r.payload.contact);
+                state.trial = r.payload.trial === true;
+            }
         }
     }
-    cache = { text, day, state };
+    cache = { text, day, last, state };
     return state;
 }
 
@@ -65,13 +79,39 @@ const channelAllowed = (channel) => !PAID_CHANNELS.includes(channel) || isPaid()
 const lockedFeatures = () => (isPaid() ? [] : [...PAID_FEATURES]);
 const lockedChannels = () => (isPaid() ? [] : [...PAID_CHANNELS]);
 
+/** Contact from .env (LICENSE_CONTACT_VENDOR / LICENSE_CONTACT_EMAIL) for installs that never had a license contact; null when unset or invalid. */
+function envContact() {
+    const c = {};
+    const vendor = String(process.env.LICENSE_CONTACT_VENDOR || '').trim();
+    const email = String(process.env.LICENSE_CONTACT_EMAIL || '').trim();
+    if (vendor) c.vendor = vendor;
+    if (email) c.email = email;
+    if (!vendor && !email) return null;
+    const contact = normalizeContact(c);
+    if (!contact) noteInvalidEnvContact(contactError(c));
+    return contact;
+}
+
+let invalidEnvContactLogged = '';
+/** One warning per distinct problem: invalid LICENSE_CONTACT_* values are ignored, not silently. */
+function noteInvalidEnvContact(problem) {
+    if (problem === invalidEnvContactLogged) return;
+    invalidEnvContactLogged = problem;
+    console.warn(`[License] LICENSE_CONTACT_VENDOR / LICENSE_CONTACT_EMAIL ignored: ${problem}`);
+}
+
+/** Who customers contact to renew: the license's contact (current or expired), else the removed license's, else .env; null when none. */
+function resolveContact() {
+    return getLicense().contact || envContact();
+}
+
 function publicState() {
-    return { ...getLicense(), locked: lockedFeatures(), lockedChannels: lockedChannels() };
+    return { ...getLicense(), contact: resolveContact(), locked: lockedFeatures(), lockedChannels: lockedChannels() };
 }
 
 function statusLine() {
     const l = getLicense();
-    return l.edition === 'paid' ? `License: Paid (${l.customer}, ${l.licenseId}, expires ${l.expiresAt}, ${l.daysLeft} days left)` : `License: Free (${l.reason})`;
+    return l.edition === 'paid' ? `License: ${l.trial ? 'Trial' : 'Paid'} (${l.customer}, ${l.licenseId}, expires ${l.expiresAt}, ${l.daysLeft} days left)` : `License: Free (${l.reason})`;
 }
 
 /** Hash of the last license file that was imported (kept across installs and removals); '' when none. */
@@ -95,8 +135,10 @@ function installLicense(text, by, fileSha256) {
 
 function removeLicense(by) {
     const sha = storedFileSha();
+    const contact = getLicense().contact;
     const doc = { removedAt: new Date().toISOString(), removedBy: String(by || '') };
     if (sha) doc.fileSha256 = sha;
+    if (contact) doc.lastContact = contact;
     writeDataSync(LICENSE_KEY, doc);
 }
 
@@ -156,6 +198,6 @@ function noteSkipped(what) {
 
 module.exports = {
     LICENSE_KEY, PAID_FEATURES, PAID_CHANNELS, canonicalJson, verifyLicense, getLicense, isPaid, licenseAllows,
-    channelAllowed, lockedFeatures, lockedChannels, publicState, statusLine, installLicense, removeLicense,
-    pickLicenseFile, importLicenseFile, noteSkipped, today, daysBetween, isRealDate, REMINDER_DAYS, _setClockForTest,
+    channelAllowed, lockedFeatures, lockedChannels, publicState, resolveContact, statusLine, installLicense, removeLicense,
+    pickLicenseFile, importLicenseFile, noteSkipped, today, daysBetween, isRealDate, REMINDER_DAYS, TRIAL_REMINDER_DAYS, reminderDaysFor, _setClockForTest,
 };

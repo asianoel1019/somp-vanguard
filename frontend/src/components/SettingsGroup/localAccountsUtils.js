@@ -68,3 +68,11 @@ export function rowLimits(list, account) {
         roleOption: (role) => (!account.disabled && role !== account.role && roleFull(list, role) ? QUOTA_MESSAGE : ''),
     };
 }
+
+/** ISO time -> local 'YYYY-MM-DD HH:mm' (same in every browser locale); '-' when missing or invalid. */
+export function formatDateTime(iso) {
+    const d = iso ? new Date(iso) : null;
+    if (!d || Number.isNaN(d.getTime())) return '-';
+    const p = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}

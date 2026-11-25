@@ -1,3 +1,9 @@
 node_modules/
 logs/
 .env
+# the database, its backups and registry backups live next to the private key; never commit a copy
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.bak-*

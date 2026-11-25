@@ -7,6 +7,7 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 const core = require('../../scripts/licenseIssuerCore');
 const { rowStatus, registryView } = require('../src/registry');
+const { openStore } = require('../src/store');
 const D = require('../public/dates');
 
 const HEADER = core.REGISTRY_HEADER;
@@ -63,20 +64,26 @@ test('status: 31 days Active, 30 and 0 Expires soon, -1 Expired, format 1 invali
     assert.deepEqual(rowStatus('— (format 1, no expiry)', today), { status: 'Format 1 (invalid)', daysLeft: null });
 });
 
-test('registry view: sorted by expiry, format-1 rows last; a missing registry is empty', (t) => {
+test('registry view (from the database): sorted by expiry, format-1 rows last; an empty database is empty', (t) => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'license-issuer-reg-'));
-    t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
     const file = path.join(dir, 'reg.md');
-    assert.deepEqual(registryView(file, '2026-11-25'), { exists: false, rows: [], unreadable: [], nextId: 'L-2026-0001' });
+    const store = openStore(path.join(dir, 'license-issuer.db'), { registryFile: file, now: () => new Date(2026, 10, 25, 10) });
+    t.after(() => { store.close(); fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5 }); });
+    assert.deepEqual(registryView(store, '2026-11-25'), { exists: false, rows: [], unreadable: [], nextId: 'L-2026-0001' });
     fs.writeFileSync(file, HEADER
         + row({ licenseId: 'L-2026-0001', expiresAt: '— (format 1, no expiry)' }) + '\n'
         + row({ licenseId: 'L-2026-0002', expiresAt: '2028-01-01' }) + '\n'
         + row({ licenseId: 'L-2026-0003', expiresAt: '2026-11-24' }) + '\n'
         + row({ licenseId: 'L-2026-0004', expiresAt: '2026-12-01' }) + '\n');
-    const v = registryView(file, '2026-11-25');
+    assert.equal(store.importRegistryIfNeeded().imported, 4);
+    const v = registryView(store, '2026-11-25');
+    assert.equal(v.exists, true);
     assert.deepEqual(v.rows.map((r) => r.licenseId), ['L-2026-0003', 'L-2026-0004', 'L-2026-0002', 'L-2026-0001']);
     assert.deepEqual(v.rows.map((r) => r.status), ['Expired', 'Expires soon', 'Active', 'Format 1 (invalid)']);
+    assert.deepEqual(v.rows.map((r) => r.expiresAt), ['2026-11-24', '2026-12-01', '2028-01-01', '— (format 1, no expiry)']);
     assert.equal(v.rows[0].fileName, 'L-2026-0001-example-corp.lic');
+    assert.equal(v.rows[0].customer, 'Example Corp.');
+    assert.equal(v.rows[0].sha256, 'abcdef012345');
     assert.equal(v.nextId, 'L-2026-0005');
 });
 

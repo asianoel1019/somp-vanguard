@@ -1,15 +1,14 @@
-// License expiry reminders: while a paid license has 30 days or less left, one notice per threshold (REMINDER_DAYS)
+// License expiry reminders: while a paid license has 30 days or less left, one notice per threshold (30 / 14 / 7 / 3 / 2 / 1 days; trial licenses 7 / 3 / 1)
 // goes out by email / Telegram; when it expires, one notice says the system is now the free edition. What was sent is
 // kept per license (id + expiry date) in system/license_reminders.json, so a restart does not repeat it and a new or
 // re-signed license starts clean.
-const { getLicense, REMINDER_DAYS, today } = require('../lib/license');
+const { getLicense, resolveContact, reminderDaysFor, today } = require('../lib/license');
+const { contactText } = require('../lib/licenseFormat');
 const { readDataSync, writeDataSync } = require('../lib/db');
 const mailer = require('../lib/mailer');
-const contact = require('../lib/licenseContact');
 
 const DOC_KEY = 'system/license_reminders.json';
 const SUBJECT = 'SOMP Vanguard license expiry';
-const WINDOW_DAYS = Math.max(...REMINDER_DAYS);
 const logger = require('../lib/logger');
 
 // One check may not take longer than this (a stalled channel must not keep the in-flight flag set forever).
@@ -20,14 +19,23 @@ let running = false;
 let auditedExpiry = new Set();
 let lastLogDay = ''; // in memory only: the daily line is also written on the first check after a restart
 
-function reminderText(state, days) {
-    return `SOMP Vanguard license ${state.licenseId} for ${state.customer} expires on ${state.expiresAt} (${days} days left). `
-        + `After that date the system switches to the free edition. Contact ${contact.vendor} (${contact.email}) to renew.`;
+/** "Contact <who> to renew." with the license / .env contact (lib/license resolveContact), or the generic sentence. */
+function renewText(contact) {
+    const who = contactText(contact);
+    return who ? `Contact ${who} to renew.` : 'Contact your software vendor to renew.';
 }
 
-function expiredText(state) {
-    return `SOMP Vanguard license ${state.licenseId} for ${state.customer} expired on ${state.expiredAt}. `
-        + `The system now runs as the free edition. Contact ${contact.vendor} (${contact.email}) to renew.`;
+// Trial licenses read "trial license" in the notices.
+const licenseWord = (state) => (state && state.trial ? 'trial license' : 'license');
+
+function reminderText(state, days, contact = resolveContact()) {
+    return `SOMP Vanguard ${licenseWord(state)} ${state.licenseId} for ${state.customer} expires on ${state.expiresAt} (${days} days left). `
+        + `After that date the system switches to the free edition. ${renewText(contact)}`;
+}
+
+function expiredText(state, contact = resolveContact()) {
+    return `SOMP Vanguard ${licenseWord(state)} ${state.licenseId} for ${state.customer} expired on ${state.expiredAt}. `
+        + `The system now runs as the free edition. ${renewText(contact)}`;
 }
 
 function readDoc() {
@@ -82,20 +90,21 @@ async function checkNow() {
     const before = JSON.stringify(doc);
     if (doc.licenseId !== id || doc.expiresAt !== expiresAt) doc = { licenseId: id, expiresAt, sent: [], expiredNotified: false };
 
-    if (state.edition === 'paid' && state.daysLeft !== null && state.daysLeft <= WINDOW_DAYS) {
+    const thresholds = reminderDaysFor(state);
+    if (state.edition === 'paid' && state.daysLeft !== null && state.daysLeft <= Math.max(...thresholds)) {
         const day = today();
         if (lastLogDay !== day) {
             console.log(`[License] Expires in ${state.daysLeft} days (${state.expiresAt})`);
             lastLogDay = day;
         }
-        const candidates = REMINDER_DAYS.filter(d => d >= state.daysLeft && !doc.sent.includes(d));
+        const candidates = thresholds.filter(d => d >= state.daysLeft && !doc.sent.includes(d));
         if (candidates.length) {
             const target = Math.min(...candidates);
             const r = await send(reminderText(state, state.daysLeft), false);
             // With no channel configured the threshold counts as handled (the in-app reminder still shows), so the
             // "skipped" lines are not repeated every hour.
             if (r.ok.length || !r.configured.length) {
-                doc.sent = [...new Set([...doc.sent, ...REMINDER_DAYS.filter(d => d >= target)])].sort((a, b) => b - a);
+                doc.sent = [...new Set([...doc.sent, ...thresholds.filter(d => d >= target)])].sort((a, b) => b - a);
             }
             if (r.ok.length) {
                 result.sent = state.daysLeft;

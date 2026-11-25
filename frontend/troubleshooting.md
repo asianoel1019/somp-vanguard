@@ -146,6 +146,8 @@
 ### 12-1. 授權已到期或被拒絕（`License: Free (...)`）
 *   `License: Free (expired on <日期>)`：授權已過到期日，系統自動退回免費版（資料保留、不需重啟）。取得新的授權檔後到 System Settings → License 上傳（立即套用），或放進資料目錄（服務下次啟動時才套用；不想重啟請在 License 頁上傳）；License 頁會顯示 `Expired on <日期>`。
 *   `unsupported format version 1: issue a new license with an expiry date`：這是沒有到期日的舊授權（格式版本 1），此版起不再接受。請向供應商取得帶到期日的新授權（格式版本 2）。
+*   畫面或到期通知只顯示 `contact your software vendor`、沒有供應商名稱與 Email：目前的授權（或最後移除 / 已到期的授權）沒有簽入聯絡資訊，`.env` 也沒有設定 `LICENSE_CONTACT_VENDOR` / `LICENSE_CONTACT_EMAIL`。請向供應商取得帶聯絡資訊的授權檔，或在 `.env` 設定這兩項（選填，Email 須為 `name@domain` 格式，格式不符時不顯示）後重啟服務。授權檔內的聯絡資訊優先於 `.env`。
+*   試用授權（首頁顯示 `Trial — Licensed to <客戶>`、License 頁標籤 `Trial`）到期前只在 7、3、1 天提醒，30 天前不會有提醒屬正常；到期通知文字為 `SOMP Vanguard trial license <ID> ... expired on <日期>`。到期後退回免費版，取得正式授權或新的試用授權檔後到 License 頁上傳即可。授權檔的 `trial` 欄位若不是布林值，授權驗證會失敗並顯示 `invalid trial`，請向供應商重新取得授權檔。
 *   收不到到期提醒：確認 Email（mail relay 與 `MAIL_RELAY_RECIPIENT`）與 Telegram（`TELEGRAM_CHAT_ID`）已設定；未設定的管道會略過並寫 log，全部失敗時下次檢查（每小時）會再試。系統內提醒（SuperAdmin 登入視窗、License 頁、首頁）不受影響。
 
 ---

@@ -1,11 +1,12 @@
 import React from 'react';
 import { TbLock, TbKey } from 'react-icons/tb';
-import { PAID_FEATURE_INFO } from '../../utils/licenseUtils.js';
-import { LICENSE_CONTACT } from '../../constants/license.js';
+import { PAID_FEATURE_INFO, readStoredLicense, contactText } from '../../utils/licenseUtils.js';
 
 // Shown instead of a paid screen on the free edition (App.jsx). canManage: SuperAdmin (can upload a license).
 export default function LockedFeature({ item, canManage, onOpenLicense }) {
     const info = PAID_FEATURE_INFO[item && item.flag] || { name: item ? item.label : '', desc: '' };
+    // Vendor contact from the stored license (re-read on every render; the parents re-render on a license change).
+    const who = contactText((readStoredLicense() || {}).contact);
     return (
         <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 16px' }}>
             <div className="glass-panel" style={{ maxWidth: 560, width: '100%', padding: 32, borderRadius: 20, textAlign: 'center' }}>
@@ -24,7 +25,7 @@ export default function LockedFeature({ item, canManage, onOpenLicense }) {
                     <div style={{ color: 'var(--text-secondary)' }}>Please contact your system administrator.</div>
                 )}
                 <div style={{ marginTop: 20, fontSize: 12, color: 'var(--text-muted)' }}>
-                    To get a license: {LICENSE_CONTACT.vendor} ({LICENSE_CONTACT.email})
+                    {who ? `To get a license: ${who}` : 'To get a license, contact your software vendor.'}
                 </div>
             </div>
         </div>

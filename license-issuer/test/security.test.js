@@ -8,7 +8,7 @@ const ISSUE = { customer: 'Example Corp.', licenseId: 'L-2026-0001', issuedAt: '
 test('the API answers 401 without a session; the page itself is public with strict headers', async (t) => {
     const app = await startApp(t);
     for (const [method, p] of [['GET', '/api/session'], ['GET', '/api/registry'], ['GET', '/api/download/L-2026-0001'],
-        ['POST', '/api/issue'], ['POST', '/api/logout']]) {
+        ['POST', '/api/licenses'], ['GET', '/api/licenses'], ['GET', '/api/dashboard'], ['POST', '/api/logout']]) {
         const r = await app.request(method, p, { body: method === 'POST' ? ISSUE : undefined });
         assert.equal(r.status, 401, `${method} ${p}`);
     }
@@ -110,7 +110,9 @@ test('state-changing requests need our Origin and the session CSRF token', async
     assert.equal((await app.request('POST', '/api/login', { body: { password: PASSWORD }, headers: { Origin: 'http://evil.example.test' } })).status, 403);
     assert.equal((await app.request('POST', '/api/login', { body: { password: PASSWORD }, headers: { Origin: `https://127.0.0.1:${port}` } })).status, 403);
     const c = await app.login();
-    const issue = (headers) => c.call('POST', '/api/issue', { body: ISSUE, headers });
+    const salesId = app.store.createSales({ name: 'Example Sales' }).id;
+    const body = { newCustomer: { name: ISSUE.customer }, salesId, licenseId: ISSUE.licenseId, issuedAt: ISSUE.issuedAt, expiresAt: ISSUE.expiresAt };
+    const issue = (headers) => c.call('POST', '/api/licenses', { body, headers });
     assert.equal((await issue({ Origin: undefined })).status, 403);
     assert.equal((await issue({ Origin: 'null' })).status, 403);
     assert.equal((await issue({ Origin: `http://127.0.0.1:${port + 1}` })).status, 403);
@@ -120,7 +122,7 @@ test('state-changing requests need our Origin and the session CSRF token', async
     const other = await app.login();
     assert.equal((await issue({ 'X-CSRF-Token': other.csrf })).status, 403);
     const ok = await issue({ Origin: `http://localhost:${port}`, Host: `localhost:${port}` });
-    assert.equal(ok.status, 200, ok.text);
+    assert.equal(ok.status, 201, ok.text);
     // logout needs the token too
     assert.equal((await c.call('POST', '/api/logout', { headers: { 'X-CSRF-Token': undefined } })).status, 403);
 });
@@ -151,7 +153,7 @@ test('no password, hash, token or key material in responses or in the audit log'
     const c = await app.login();
     await c.call('GET', '/api/session');
     const issued = await c.issue(ISSUE);
-    assert.equal(issued.status, 200);
+    assert.equal(issued.status, 201);
     await c.call('GET', '/api/registry');
     await c.call('GET', `/api/download/${ISSUE.licenseId}`);
     await c.call('POST', '/api/logout');

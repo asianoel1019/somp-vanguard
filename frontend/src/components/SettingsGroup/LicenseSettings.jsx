@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { TbKey, TbLock, TbLockOpen, TbTrash, TbUpload } from 'react-icons/tb';
 import api from '../../api';
 import { useConfirm } from '../../contexts/ConfirmContext';
-import { PAID_FEATURE_INFO, LICENSE_EVENT, expiryTone } from '../../utils/licenseUtils.js';
+import { PAID_FEATURE_INFO, LICENSE_EVENT, expiryTone, contactText } from '../../utils/licenseUtils.js';
 
 const CHANNEL_NAMES = { telegram: 'Telegram notifications', email: 'Email notifications', webhook: 'Outbound webhooks' };
 const TONE_COLOR = { danger: 'var(--danger, #ef4444)', warning: 'var(--warning)', normal: 'inherit' };
@@ -61,6 +61,7 @@ export default function LicenseSettings() {
     };
 
     const paid = state && state.edition === 'paid';
+    const contact = state ? contactText(state.contact) : '';
     const tone = paid ? 'var(--success)' : 'var(--warning)';
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -74,13 +75,14 @@ export default function LicenseSettings() {
             <div className="glass-panel" style={{ padding: 20, borderRadius: 16 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 12px', borderRadius: 999, fontWeight: 800, color: tone, border: `1px solid ${tone}` }}>
-                        <TbKey /> {state ? (paid ? 'Paid' : 'Free') : '…'}
+                        <TbKey /> {state ? (paid ? (state.trial ? 'Trial' : 'Paid') : 'Free') : '…'}
                     </span>
                     {paid && <span style={{ fontWeight: 700 }}>Licensed to {state.customer}</span>}
                 </div>
                 {paid && (
                     <div style={{ marginTop: 12, fontSize: 13, color: 'var(--text-secondary)', display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '4px 16px' }}>
                         <span>License ID</span><span>{state.licenseId}</span>
+                        {state.trial && <><span>Type</span><span>Trial</span></>}
                         <span>Issued</span><span>{state.issuedAt}</span>
                         {state.expiresAt && (
                             <>
@@ -88,13 +90,14 @@ export default function LicenseSettings() {
                                 <span>
                                     {state.expiresAt}
                                     {typeof state.daysLeft === 'number' && (
-                                        <span style={{ marginLeft: 8, fontWeight: 700, color: TONE_COLOR[expiryTone(state.daysLeft)] }}>
+                                        <span style={{ marginLeft: 8, fontWeight: 700, color: TONE_COLOR[expiryTone(state.daysLeft, state.trial === true)] }}>
                                             {state.daysLeft === 0 ? '(expires today)' : state.daysLeft === 1 ? '(1 day left)' : `(${state.daysLeft} days left)`}
                                         </span>
                                     )}
                                 </span>
                             </>
                         )}
+                        {contact && <><span>Vendor contact</span><span>{contact}</span></>}
                     </div>
                 )}
                 {state && !paid && state.expiredAt && (
@@ -102,6 +105,11 @@ export default function LicenseSettings() {
                 )}
                 {state && !paid && !state.expiredAt && state.reason && state.reason !== 'no license' && (
                     <div style={{ marginTop: 12, fontSize: 13, color: 'var(--warning)' }}>The stored license is not valid: {state.reason}</div>
+                )}
+                {state && !paid && contact && (
+                    <div style={{ marginTop: 12, fontSize: 13, color: 'var(--text-secondary)', display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '4px 16px' }}>
+                        <span>Vendor contact</span><span>{contact}</span>
+                    </div>
                 )}
             </div>
 

@@ -1,13 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import api from '../../api';
 import { useConfirm } from '../../contexts/ConfirmContext';
-import { ROLE_LABELS, validatePassword, validateUsername, statusLabel, quotaText, roleFull, defaultFormRole, rowLimits } from './localAccountsUtils.js';
+import { ROLE_LABELS, validatePassword, validateUsername, statusLabel, quotaText, roleFull, defaultFormRole, rowLimits, formatDateTime } from './localAccountsUtils.js';
 
 const ROLES = ['SuperAdmin', 'Operator', 'Viewer'];
 const SELF_TITLE = 'You cannot change your own account here.';
 const SELF_PASSWORD_TITLE = 'Use Change password in the user menu.';
 const TONE_COLOR = { success: 'var(--accent-success, #22c55e)', muted: 'var(--text-muted)', warning: 'var(--accent-warning, #f59e0b)' };
-const fmtDate = (iso) => (iso ? new Date(iso).toLocaleString() : '-');
+const fmtDate = formatDateTime;
 const small = { padding: '6px 14px', fontSize: 12 };
 const labelStyle = { fontSize: 11, fontWeight: 800, color: 'var(--text-muted)' };
 const errStyle = { fontSize: 11, color: 'var(--accent-danger, #ef4444)', marginTop: 4 };

@@ -32,6 +32,19 @@
         return addDays(fmt(new Date(Date.UTC(p[0] + years, p[1] - 1, p[2]))), -1);
     }
 
+    /**
+     * Expiry of a plan term starting on `start` (the license is valid through that day): N days -> start + N - 1 days;
+     * N months -> the day before the same day N months later; when that month has no such day (start on the 29th-31st),
+     * the last day of that month (2026-01-31 + 1 month -> 2026-02-28). 12 * N months = termEnd(start, N).
+     */
+    function planEnd(start, value, unit) {
+        var p = parts(start);
+        if (unit === 'days') return addDays(start, value - 1);
+        var same = new Date(Date.UTC(p[0], p[1] - 1 + value, p[2]));
+        if (same.getUTCDate() !== p[2]) return fmt(new Date(Date.UTC(p[0], p[1] + value, 0))); // overflowed: last day of the target month
+        return addDays(fmt(same), -1);
+    }
+
     function daysBetween(from, to) {
         var a = parts(from);
         var b = parts(to);
@@ -47,7 +60,7 @@
         return { issuedAt: today, expiresAt: expiresAt };
     }
 
-    var api = { isRealDate: isRealDate, addDays: addDays, addYears: addYears, termEnd: termEnd, daysBetween: daysBetween, renewDates: renewDates };
+    var api = { isRealDate: isRealDate, addDays: addDays, addYears: addYears, termEnd: termEnd, planEnd: planEnd, daysBetween: daysBetween, renewDates: renewDates };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     else root.LicenseDates = api;
 })(this);

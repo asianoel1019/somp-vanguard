@@ -81,3 +81,19 @@ test('upload and removal tell the worker to drop its cached license document', a
         global.sendWorkerMessage = saved;
     }
 });
+
+test('the license object carries the vendor contact: from the license, kept after DELETE', async () => {
+    const { signLicense } = require('../helpers/license');
+    const contact = { vendor: 'Example Vendor', email: 'support@example.test' };
+    setFree();
+    let r = await request(app).post('/api/license').set('Authorization', ADMIN).send({ text: signLicense({ contact }) });
+    assert.equal(r.status, 200);
+    assert.deepEqual(r.body.contact, contact);
+    r = await request(app).delete('/api/license').set('Authorization', ADMIN);
+    assert.equal(r.body.edition, 'free');
+    assert.deepEqual(r.body.contact, contact);
+    r = await request(app).get('/api/license').set('Authorization', OPERATOR);
+    assert.deepEqual(r.body.contact, contact);
+    setPaid();
+    assert.equal((await request(app).get('/api/license').set('Authorization', OPERATOR)).body.contact, null);
+});

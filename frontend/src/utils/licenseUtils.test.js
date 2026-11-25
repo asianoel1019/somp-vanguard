@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
     PAID_FEATURE_INFO, readStoredLicense, storeLicense, isLockedFlag, isFree, licenseLabel, isLicenseError,
-    REMINDER_DAYS, expiryTone, expiryText, reminderThreshold, reminderKey,
-    shouldShowReminder, markReminderShown, openLicensePage, SETTINGS_CATEGORY_EVENT,
+    REMINDER_DAYS, TRIAL_REMINDER_DAYS, reminderDays, isTrial, expiryTone, expiryText, reminderThreshold, reminderKey,
+    shouldShowReminder, markReminderShown, openLicensePage, SETTINGS_CATEGORY_EVENT, contactText,
 } from './licenseUtils.js';
 
 const memoryStorage = (init = {}) => {
@@ -36,6 +36,10 @@ test('locks, labels and errors', () => {
     assert.equal(licenseLabel(free), 'Free');
     assert.equal(licenseLabel({ edition: 'paid', customer: 'Example Test Co.' }), 'Licensed to Example Test Co.');
     assert.equal(licenseLabel(null), '');
+    assert.equal(licenseLabel({ edition: 'paid', customer: 'Example Test Co.', trial: true }), 'Trial \u2014 Licensed to Example Test Co.');
+    assert.equal(licenseLabel({ edition: 'paid', customer: 'Example Test Co.', trial: false }), 'Licensed to Example Test Co.');
+    assert.equal(licenseLabel({ edition: 'paid', customer: '', trial: true }), 'Trial');
+    assert.equal(licenseLabel({ edition: 'free', trial: true }), 'Free');
     assert.equal(isLicenseError({ response: { data: { code: 'LICENSE_REQUIRED' } } }), true);
     assert.equal(isLicenseError(new Error('x')), false);
 });
@@ -48,6 +52,14 @@ test('expiry tone, text, reminder threshold and key', () => {
     assert.equal(expiryTone(30), 'warning');
     assert.equal(expiryTone(31), 'normal');
     assert.equal(expiryTone(null), 'normal');
+    // trial: in step with the trial reminders (7 / 3 / 1)
+    assert.equal(expiryTone(20, true), 'normal');
+    assert.equal(expiryTone(8, true), 'normal');
+    assert.equal(expiryTone(7, true), 'warning');
+    assert.equal(expiryTone(4, true), 'warning');
+    assert.equal(expiryTone(3, true), 'danger');
+    assert.equal(expiryTone(0, true), 'danger');
+    assert.equal(expiryTone(null, true), 'normal');
     const paid = (daysLeft) => ({ edition: 'paid', expiresAt: '2027-01-31', daysLeft });
     assert.equal(expiryText(paid(45)), 'Expires 2027-01-31 (45 days left)');
     assert.equal(expiryText(paid(1)), 'Expires 2027-01-31 (1 day left)');
@@ -105,4 +117,45 @@ test('openLicensePage stores the deep link and tells an open Settings screen', (
     assert.deepEqual(seen, ['license']);
     delete globalThis.window; delete globalThis.sessionStorage;
     assert.doesNotThrow(() => openLicensePage());
+});
+
+test('contactText: "vendor (email)", "vendor", "email" or empty', () => {
+    assert.equal(contactText({ vendor: 'Example Vendor', email: 'support@example.test' }), 'Example Vendor (support@example.test)');
+    assert.equal(contactText({ vendor: 'Example Vendor', email: '' }), 'Example Vendor');
+    assert.equal(contactText({ vendor: 'Example Vendor' }), 'Example Vendor');
+    assert.equal(contactText({ vendor: '', email: 'support@example.test' }), 'support@example.test');
+    assert.equal(contactText({ vendor: '  ', email: ' support@example.test ' }), 'support@example.test');
+    assert.equal(contactText({ vendor: '', email: '' }), '');
+    assert.equal(contactText({ vendor: 7, email: null }), '');
+    assert.equal(contactText(null), '');
+    assert.equal(contactText(undefined), '');
+    assert.equal(contactText('support@example.test'), '');
+});
+
+test('trial licenses: thresholds 7 / 3 / 1, reminder key and once-per-threshold dialog', () => {
+    assert.deepEqual(TRIAL_REMINDER_DAYS, [7, 3, 1]);
+    assert.equal(isTrial({ trial: true }), true);
+    assert.equal(isTrial({ trial: false }), false);
+    assert.equal(isTrial(null), false);
+    assert.deepEqual(reminderDays({ trial: true }), [7, 3, 1]);
+    assert.deepEqual(reminderDays({ edition: 'paid' }), REMINDER_DAYS);
+    assert.equal(reminderThreshold(8, true), null);
+    assert.equal(reminderThreshold(7, true), 7);
+    assert.equal(reminderThreshold(5, true), 7);
+    assert.equal(reminderThreshold(2, true), 3);
+    assert.equal(reminderThreshold(0, true), 1);
+    assert.equal(reminderThreshold(8), 14, 'paid thresholds unchanged');
+    const at = (daysLeft, trial = true) => ({ edition: 'paid', trial, licenseId: 'L-2027-0009', daysLeft, expiresAt: '2027-12-31' });
+    assert.equal(reminderKey(at(10)), '');
+    assert.equal(reminderKey(at(7)), 'somp.licenseReminder:L-2027-0009:7');
+    assert.equal(reminderKey(at(10, false)), 'somp.licenseReminder:L-2027-0009:14');
+    const storage = memoryStorage();
+    assert.equal(shouldShowReminder(at(14), storage), false, 'a trial with 14 days left shows nothing');
+    assert.equal(shouldShowReminder(at(7), storage), true);
+    markReminderShown(at(7), storage);
+    assert.equal(shouldShowReminder(at(5), storage), false);
+    assert.equal(shouldShowReminder(at(3), storage), true);
+    assert.equal(shouldShowReminder(at(2), storage), true, '2 days left is the 3-day threshold');
+    markReminderShown(at(3), storage);
+    assert.equal(shouldShowReminder(at(1), storage), true);
 });

@@ -19,6 +19,8 @@ for (const key of [
     'TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID',
     'AD_ADMIN_USER', 'AD_ADMIN_PWD',
     'LINUX_ADMIN_USER', 'LINUX_ADMIN_PWD',
+    // the license vendor-contact fallback (lib/license.js): tests set it themselves
+    'LICENSE_CONTACT_VENDOR', 'LICENSE_CONTACT_EMAIL',
 ]) {
     delete process.env[key];
 }

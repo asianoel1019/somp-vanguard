@@ -17,6 +17,49 @@ function canonicalJson(value) {
 
 const fail = (reason) => ({ valid: false, reason, payload: null });
 
+// Optional vendor contact in the payload (shown to customers for renewals): { vendor?, email? }.
+const CONTACT_VENDOR_MAX = 100;
+const CONTACT_EMAIL_MAX = 200;
+const CONTACT_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+$/;
+const CONTROL_CHARS = /[\u0000-\u001f\u007f]/; // a newline would break the reminder email / Telegram text
+
+/** '' when the contact is acceptable (an object whose vendor / email, when present, are valid), else a message. */
+function contactError(contact) {
+    if (!contact || typeof contact !== 'object' || Array.isArray(contact)) return 'contact must be an object';
+    const has = (k) => Object.prototype.hasOwnProperty.call(contact, k) && contact[k] !== undefined;
+    if (has('vendor')) {
+        const v = contact.vendor;
+        if (typeof v !== 'string' || !v.trim()) return 'contact vendor must be a non-empty string';
+        if (v.length > CONTACT_VENDOR_MAX) return `contact vendor is longer than ${CONTACT_VENDOR_MAX} characters`;
+        if (CONTROL_CHARS.test(v)) return 'contact vendor contains control characters';
+    }
+    if (has('email')) {
+        const e = contact.email;
+        if (typeof e !== 'string' || !e.trim()) return 'contact email must be a non-empty string';
+        if (e.length > CONTACT_EMAIL_MAX) return `contact email is longer than ${CONTACT_EMAIL_MAX} characters`;
+        if (CONTROL_CHARS.test(e)) return 'contact email contains control characters';
+        if (!CONTACT_EMAIL_PATTERN.test(e)) return 'contact email is not a valid email address';
+    }
+    return '';
+}
+
+/** { vendor, email } ('' for a missing value) from a valid contact with at least one value; otherwise null. */
+function normalizeContact(contact) {
+    if (contact === undefined || contact === null || contactError(contact)) return null;
+    const vendor = typeof contact.vendor === 'string' ? contact.vendor : '';
+    const email = typeof contact.email === 'string' ? contact.email : '';
+    return vendor || email ? { vendor, email } : null;
+}
+
+/** The "<who>" of a { vendor, email } contact: "vendor (email)", "vendor", "email", or '' (empty values count as missing). */
+function contactText(contact) {
+    if (!contact || typeof contact !== 'object') return '';
+    const vendor = typeof contact.vendor === 'string' ? contact.vendor.trim() : '';
+    const email = typeof contact.email === 'string' ? contact.email.trim() : '';
+    if (vendor && email) return `${vendor} (${email})`;
+    return vendor || email;
+}
+
 let clock = () => new Date();
 const pad = (n) => String(n).padStart(2, '0');
 /** Local date as YYYY-MM-DD (injectable clock for tests). */
@@ -59,8 +102,13 @@ function verifyLicense(text, keys = KEYS, onDate = today()) {
     if (p.edition !== 'paid') return fail(`edition "${p.edition}" is not paid`);
     if (p.expiresAt === undefined || p.expiresAt === null || p.expiresAt === '') return fail('missing expiresAt');
     if (!isRealDate(p.expiresAt) || (isRealDate(p.issuedAt) && p.expiresAt < p.issuedAt)) return fail('invalid expiresAt');
+    if (p.contact !== undefined && contactError(p.contact)) return fail('invalid contact');
+    if (p.trial !== undefined && typeof p.trial !== 'boolean') return fail('invalid trial');
     if (onDate > p.expiresAt) return { valid: false, reason: `expired on ${p.expiresAt}`, payload: p, expiredAt: p.expiresAt };
     return { valid: true, reason: '', payload: p };
 }
 
-module.exports = { REQUIRED_FIELDS, canonicalJson, verifyLicense, today, isRealDate, daysBetween, _setClockForTest };
+module.exports = {
+    REQUIRED_FIELDS, canonicalJson, verifyLicense, today, isRealDate, daysBetween, _setClockForTest,
+    CONTACT_VENDOR_MAX, CONTACT_EMAIL_MAX, CONTACT_EMAIL_PATTERN, contactError, normalizeContact, contactText,
+};

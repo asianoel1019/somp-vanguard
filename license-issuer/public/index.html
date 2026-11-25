@@ -12,7 +12,7 @@
 <section id="loginView" class="login" hidden>
   <form id="loginForm" class="card login-card" novalidate autocomplete="off">
     <h1>SOMP License Issuer</h1>
-    <p class="muted">Sign in to issue and download licenses.</p>
+    <p class="muted">Sign in to issue and manage licenses.</p>
     <label for="password">Password</label>
     <input id="password" type="password" autocomplete="current-password" required>
     <div id="loginMsg" class="banner err" role="alert" hidden></div>
@@ -23,29 +23,167 @@
 <div id="appView" hidden>
   <header class="topbar">
     <div class="brand">SOMP License Issuer <span id="keyBadge" class="chip"></span></div>
-    <nav class="tabs" role="tablist">
-      <button id="tabIssue" class="tab active" role="tab" aria-selected="true" type="button">Issue</button>
-      <button id="tabRegistry" class="tab" role="tab" aria-selected="false" type="button">Registry</button>
+    <nav class="tabs" role="tablist" aria-label="Sections">
+      <button class="tab" role="tab" type="button" data-tab="dashboard" aria-selected="false">Dashboard</button>
+      <button class="tab" role="tab" type="button" data-tab="issue" aria-selected="false">Issue</button>
+      <button class="tab" role="tab" type="button" data-tab="licenses" aria-selected="false">Licenses</button>
+      <button class="tab" role="tab" type="button" data-tab="customers" aria-selected="false">Customers</button>
+      <button class="tab" role="tab" type="button" data-tab="reports" aria-selected="false">Reports</button>
+      <button class="tab" role="tab" type="button" data-tab="settings" aria-selected="false">Settings</button>
     </nav>
     <button id="logoutBtn" class="ghost" type="button">Log out</button>
   </header>
 
   <main class="content">
+    <div id="registryWarn" class="banner warn" role="status" hidden></div>
     <div id="globalMsg" class="banner err" role="alert" hidden></div>
 
-    <section id="issuePanel">
+    <!-- Dashboard -->
+    <section id="panel-dashboard" class="panel" role="tabpanel" hidden>
+      <div class="stats-grid">
+        <div class="card stat-card">
+          <h2>This month <span id="dbMonthRange" class="muted small-text"></span></h2>
+          <div class="stats" id="dbMonth"></div>
+        </div>
+        <div class="card stat-card">
+          <h2>This quarter <span id="dbQuarterRange" class="muted small-text"></span></h2>
+          <div class="stats" id="dbQuarter"></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="row spread">
+          <h2>Renewals due</h2>
+          <label class="inline">Expiring within
+            <select id="dbDays">
+              <option value="30">30 days</option>
+              <option value="60">60 days</option>
+              <option value="90">90 days</option>
+            </select>
+          </label>
+        </div>
+        <p class="muted small-text">Valid licenses (not revoked) expiring soon that have no later paid license yet.</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>License ID</th><th>Customer</th><th>Type</th><th>Expires</th><th class="num">Days left</th><th>Sales</th><th></th></tr></thead>
+            <tbody id="dbRenewals"></tbody>
+          </table>
+        </div>
+        <p id="dbRenewalsEmpty" class="muted" hidden>Nothing to renew in this period.</p>
+      </div>
+      <div class="card">
+        <h2>Trials</h2>
+        <div class="stats" id="dbTrialStats"></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>License ID</th><th>Customer</th><th>Expires</th><th class="num">Days left</th><th>Sales</th><th>Status</th><th></th></tr></thead>
+            <tbody id="dbTrials"></tbody>
+          </table>
+        </div>
+        <p id="dbTrialsEmpty" class="muted" hidden>No active trial licenses.</p>
+      </div>
+    </section>
+
+    <!-- Issue -->
+    <section id="panel-issue" class="panel" role="tabpanel" hidden>
       <form id="issueForm" class="card" novalidate autocomplete="off">
-        <h2>Issue a license</h2>
-        <div class="grid">
+        <div class="row spread">
+          <h2 id="issueTitle">Issue a license</h2>
+          <button id="issueClearBtn" type="button" class="ghost small">Clear form</button>
+        </div>
+        <div id="renewNote" class="banner info" hidden></div>
+
+        <h3 class="section-title">Customer</h3>
+        <div id="customerPickBox" class="grid">
           <div class="field wide">
-            <label for="customer">Customer</label>
-            <input id="customer" type="text" maxlength="200" spellcheck="false" placeholder="Example Corp.">
-            <div class="hint err-text" id="err-customer" hidden></div>
+            <label for="customerSearch">Find a customer</label>
+            <div class="row nowrap-row">
+              <input id="customerSearch" type="search" placeholder="Name, email, tax ID or phone" spellcheck="false" maxlength="200">
+              <button id="newCustomerBtn" type="button" class="ghost">New customer</button>
+            </div>
+            <select id="customerSelect" class="listbox" size="6" aria-label="Customers"></select>
+            <div id="customerInfo" class="hint muted"></div>
+            <div class="hint err-text" id="err-customerSelect" hidden></div>
+          </div>
+        </div>
+        <div id="newCustomerBox" class="subcard" hidden>
+          <div class="row spread">
+            <strong>New customer</strong>
+            <button id="pickCustomerBtn" type="button" class="ghost small">Pick an existing customer</button>
+          </div>
+          <div class="grid">
+            <div class="field wide">
+              <label for="nc-name">Name</label>
+              <input id="nc-name" type="text" maxlength="200" spellcheck="false" placeholder="Example Corp.">
+              <div class="hint muted">Signed into the license exactly as typed.</div>
+              <div class="hint err-text" id="err-nc-name" hidden></div>
+            </div>
+            <div class="field">
+              <label for="nc-email">Email <span class="muted">(optional)</span></label>
+              <input id="nc-email" type="text" inputmode="email" maxlength="200" spellcheck="false" placeholder="it@example.test">
+              <div class="hint err-text" id="err-nc-email" hidden></div>
+            </div>
+            <div class="field">
+              <label for="nc-contactPerson">Contact person <span class="muted">(optional)</span></label>
+              <input id="nc-contactPerson" type="text" maxlength="100">
+              <div class="hint err-text" id="err-nc-contactPerson" hidden></div>
+            </div>
+            <div class="field">
+              <label for="nc-phone">Phone <span class="muted">(optional)</span></label>
+              <input id="nc-phone" type="text" maxlength="50">
+              <div class="hint err-text" id="err-nc-phone" hidden></div>
+            </div>
+            <div class="field">
+              <label for="nc-taxId">Tax ID <span class="muted">(optional)</span></label>
+              <input id="nc-taxId" type="text" maxlength="50">
+              <div class="hint err-text" id="err-nc-taxId" hidden></div>
+            </div>
+            <div class="field wide">
+              <label for="nc-address">Address <span class="muted">(optional)</span></label>
+              <input id="nc-address" type="text" maxlength="300">
+              <div class="hint err-text" id="err-nc-address" hidden></div>
+            </div>
+          </div>
+        </div>
+
+        <h3 class="section-title">License</h3>
+        <div class="grid">
+          <div class="field">
+            <label for="plan">Plan</label>
+            <select id="plan"></select>
+            <div class="hint muted">Fills the expiry date and the amount; both stay editable.</div>
+            <div class="hint err-text" id="err-plan" hidden></div>
+          </div>
+          <div class="field">
+            <label for="type">Type</label>
+            <select id="type">
+              <option value="paid">Paid</option>
+              <option value="trial">Trial</option>
+            </select>
+            <div id="typeHint" class="hint muted"></div>
+            <div class="hint err-text" id="err-type" hidden></div>
+          </div>
+          <div class="field">
+            <label for="sales">Sales person</label>
+            <select id="sales"></select>
+            <div class="hint err-text" id="err-sales" hidden></div>
+          </div>
+          <div class="field">
+            <label for="orderNo">Order no. <span class="muted">(optional)</span></label>
+            <input id="orderNo" type="text" maxlength="100" spellcheck="false">
+            <div class="hint err-text" id="err-orderNo" hidden></div>
+          </div>
+          <div class="field">
+            <label for="amount">Amount <span class="muted">(optional)</span></label>
+            <div class="row nowrap-row">
+              <input id="amount" type="text" inputmode="decimal" maxlength="16" spellcheck="false" placeholder="e.g. 12000">
+              <select id="currency" aria-label="Currency"></select>
+            </div>
+            <div class="hint err-text" id="err-amount" hidden></div>
+            <div class="hint err-text" id="err-currency" hidden></div>
           </div>
           <div class="field">
             <label for="licenseId">License ID</label>
             <input id="licenseId" type="text" maxlength="11" spellcheck="false" placeholder="L-2026-0001">
-            <div class="hint warn-text" id="dupWarn" hidden></div>
             <div class="hint err-text" id="err-licenseId" hidden></div>
           </div>
           <div class="field">
@@ -53,16 +191,24 @@
             <input id="issuedAt" type="date">
             <div class="hint err-text" id="err-issuedAt" hidden></div>
           </div>
-          <div class="field wide">
+          <div class="field">
             <label for="expiresAt">Expires</label>
-            <div class="row">
-              <input id="expiresAt" type="date">
-              <button type="button" class="ghost small" data-years="1">1 year</button>
-              <button type="button" class="ghost small" data-years="2">2 years</button>
-              <button type="button" class="ghost small" data-years="3">3 years</button>
-              <span id="daysInfo" class="muted"></span>
-            </div>
+            <input id="expiresAt" type="date">
+            <div id="daysInfo" class="hint muted"></div>
             <div class="hint err-text" id="err-expiresAt" hidden></div>
+          </div>
+          <div class="field">
+            <label for="contactVendor">Vendor <span class="muted">(optional)</span></label>
+            <input id="contactVendor" type="text" maxlength="100" spellcheck="false" placeholder="Example Vendor">
+            <div class="hint err-text" id="err-contactVendor" hidden></div>
+          </div>
+          <div class="field">
+            <label for="contactEmail">Contact email <span class="muted">(optional)</span></label>
+            <input id="contactEmail" type="text" inputmode="email" maxlength="200" spellcheck="false" placeholder="support@example.test">
+            <div class="hint err-text" id="err-contactEmail" hidden></div>
+          </div>
+          <div class="field wide">
+            <div class="hint muted">Vendor contact signed into the license: the product shows it to the customer's users for renewals. Defaults come from CONTACT_VENDOR / CONTACT_EMAIL in .env.</div>
           </div>
         </div>
         <div id="issueMsg" class="banner err" role="alert" hidden></div>
@@ -71,13 +217,8 @@
 
       <div id="confirmBox" class="card confirm" hidden>
         <h2>Confirm the license</h2>
-        <dl class="summary">
-          <dt>Customer</dt><dd id="cCustomer"></dd>
-          <dt>License ID</dt><dd id="cId"></dd>
-          <dt>Issued</dt><dd id="cIssued"></dd>
-          <dt>Expires</dt><dd id="cExpires"></dd>
-          <dt>Valid for</dt><dd id="cDays"></dd>
-        </dl>
+        <dl class="summary" id="confirmList"></dl>
+        <div id="confirmMsg" class="banner err" role="alert" hidden></div>
         <div class="actions">
           <button id="cancelBtn" type="button" class="ghost">Back</button>
           <button id="signBtn" type="button" class="primary">Confirm &amp; sign</button>
@@ -86,44 +227,356 @@
 
       <div id="resultBox" class="card result" hidden>
         <h2 id="resultTitle">License issued</h2>
-        <dl class="summary">
-          <dt>Customer</dt><dd id="rCustomer"></dd>
-          <dt>License ID</dt><dd id="rId"></dd>
-          <dt>Expires</dt><dd id="rExpires"></dd>
-          <dt>Saved to</dt><dd id="rFile" class="mono"></dd>
-          <dt>SHA-256</dt><dd id="rSha" class="mono"></dd>
-        </dl>
-        <div id="rRegistryErr" class="banner warn" hidden></div>
-        <pre id="rRow" class="mono rowbox" hidden></pre>
-        <div class="actions"><a id="rDownload" class="button primary" href="#">Download .lic</a></div>
+        <dl class="summary" id="resultList"></dl>
+        <div id="resultWarn" class="banner warn" hidden></div>
+        <div id="resultMsg" class="banner" role="status" hidden></div>
+        <div class="actions">
+          <button id="resultViewBtn" type="button" class="ghost">Open in Licenses</button>
+          <button id="resultSendBtn" type="button" class="ghost">Send to customer</button>
+          <button id="resultDownloadBtn" type="button" class="primary">Download .lic</button>
+        </div>
       </div>
     </section>
 
-    <section id="registryPanel" hidden>
-      <div class="card">
+    <!-- Licenses -->
+    <section id="panel-licenses" class="panel" role="tabpanel" hidden>
+      <div id="licListView" class="card">
         <div class="row spread">
-          <h2>Registry</h2>
-          <input id="search" type="search" placeholder="Search customer or ID" spellcheck="false">
+          <h2>Licenses</h2>
+          <input id="licSearch" type="search" placeholder="Search ID, customer or order no." spellcheck="false" maxlength="200">
         </div>
-        <p class="muted mono small-text" id="registryPath"></p>
+        <div class="filters">
+          <label>Customer <select id="licCustomer"></select></label>
+          <label>Sales <select id="licSales"></select></label>
+          <label>Type
+            <select id="licType"><option value="">All</option><option value="paid">Paid</option><option value="trial">Trial</option></select>
+          </label>
+          <label>Status <select id="licStatus"></select></label>
+          <label>Issued
+            <select id="licPeriod">
+              <option value="all">Any time</option>
+              <option value="month">This month</option>
+              <option value="quarter">This quarter</option>
+              <option value="year">This year</option>
+              <option value="custom">Date range</option>
+            </select>
+          </label>
+          <label class="licRange" hidden>From <input id="licFrom" type="date"></label>
+          <label class="licRange" hidden>To <input id="licTo" type="date"></label>
+          <label class="check"><input id="licRevoked" type="checkbox" checked> Show revoked</label>
+        </div>
         <div class="table-wrap">
-          <table id="registryTable">
-            <thead><tr><th>License ID</th><th>Customer</th><th>Issued</th><th>Expires</th><th>Days left</th><th>Status</th><th>Actions</th></tr></thead>
-            <tbody id="registryBody"></tbody>
+          <table class="clickable">
+            <thead><tr><th>License ID</th><th>Customer</th><th>Type</th><th>Issued</th><th>Expires</th><th class="num">Days left</th><th>Sales</th><th class="num">Amount</th><th>Status</th></tr></thead>
+            <tbody id="licBody"></tbody>
           </table>
         </div>
-        <p id="registryEmpty" class="muted" hidden>No licenses in the registry yet.</p>
-        <div id="unreadableBox" hidden>
-          <h3>Unreadable lines</h3>
-          <p class="muted">These lines in the registry could not be read. Fix them by hand.</p>
-          <ul id="unreadableList" class="mono"></ul>
+        <p id="licEmpty" class="muted" hidden>No licenses match.</p>
+        <p id="licCount" class="muted small-text"></p>
+      </div>
+
+      <div id="licDetailView" hidden>
+        <div class="row back-row"><button id="licBackBtn" type="button" class="ghost small">&larr; All licenses</button></div>
+        <div id="licDetailMsg" class="banner" role="status" hidden></div>
+        <div class="card">
+          <div class="row spread">
+            <h2 id="ldTitle"></h2>
+            <span id="ldBadge" class="badge"></span>
+          </div>
+          <div id="ldRevokedNote" class="banner warn" hidden></div>
+          <dl class="summary" id="ldSummary"></dl>
+          <div class="actions" id="ldActions">
+            <button id="ldRenew" type="button" class="ghost">Renew</button>
+            <button id="ldEdit" type="button" class="ghost">Edit</button>
+            <button id="ldReissue" type="button" class="ghost">Reissue</button>
+            <button id="ldReplace" type="button" class="ghost">Replace</button>
+            <button id="ldRevoke" type="button" class="ghost danger-text">Revoke</button>
+            <button id="ldSend" type="button" class="ghost">Send to customer</button>
+            <button id="ldDownload" type="button" class="primary">Download .lic</button>
+          </div>
         </div>
+        <div class="card">
+          <h2>Timeline</h2>
+          <ol id="ldTimeline" class="timeline"></ol>
+        </div>
+      </div>
+    </section>
+
+    <!-- Customers -->
+    <section id="panel-customers" class="panel" role="tabpanel" hidden>
+      <div id="custListView" class="card">
+        <div class="row spread">
+          <h2>Customers</h2>
+          <div class="row">
+            <input id="custSearch" type="search" placeholder="Search name, email, tax ID" spellcheck="false" maxlength="200">
+            <button id="custNewBtn" type="button" class="primary">New customer</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="clickable">
+            <thead><tr><th>Name</th><th>Contact</th><th>Email</th><th>Default sales</th><th class="num">Licenses</th><th>Next expiry</th></tr></thead>
+            <tbody id="custBody"></tbody>
+          </table>
+        </div>
+        <p id="custEmpty" class="muted" hidden>No customers match.</p>
+      </div>
+
+      <div id="custDetailView" hidden>
+        <div class="row back-row"><button id="custBackBtn" type="button" class="ghost small">&larr; All customers</button></div>
+        <div id="custMsg" class="banner" role="status" hidden></div>
+        <form id="custForm" class="card" novalidate autocomplete="off">
+          <h2 id="custTitle">Customer</h2>
+          <div class="grid">
+            <div class="field wide">
+              <label for="cu-name">Name</label>
+              <input id="cu-name" type="text" maxlength="200" spellcheck="false">
+              <div class="hint muted" id="cu-nameHint">A new name applies to licenses issued from now on; issued licenses keep the name signed into them.</div>
+              <div class="hint err-text" id="err-cu-name" hidden></div>
+            </div>
+            <div class="field">
+              <label for="cu-email">Email</label>
+              <input id="cu-email" type="text" inputmode="email" maxlength="200" spellcheck="false">
+              <div class="hint err-text" id="err-cu-email" hidden></div>
+            </div>
+            <div class="field">
+              <label for="cu-contactPerson">Contact person</label>
+              <input id="cu-contactPerson" type="text" maxlength="100">
+              <div class="hint err-text" id="err-cu-contactPerson" hidden></div>
+            </div>
+            <div class="field">
+              <label for="cu-phone">Phone</label>
+              <input id="cu-phone" type="text" maxlength="50">
+              <div class="hint err-text" id="err-cu-phone" hidden></div>
+            </div>
+            <div class="field">
+              <label for="cu-taxId">Tax ID</label>
+              <input id="cu-taxId" type="text" maxlength="50">
+              <div class="hint err-text" id="err-cu-taxId" hidden></div>
+            </div>
+            <div class="field wide">
+              <label for="cu-address">Address</label>
+              <input id="cu-address" type="text" maxlength="300">
+              <div class="hint err-text" id="err-cu-address" hidden></div>
+            </div>
+            <div class="field">
+              <label for="cu-defaultSalesId">Default sales person</label>
+              <select id="cu-defaultSalesId"></select>
+              <div class="hint err-text" id="err-cu-defaultSalesId" hidden></div>
+            </div>
+            <div class="field wide">
+              <label for="cu-notes">Notes</label>
+              <textarea id="cu-notes" rows="3" maxlength="2000"></textarea>
+              <div class="hint err-text" id="err-cu-notes" hidden></div>
+            </div>
+          </div>
+          <div id="custFormMsg" class="banner err" role="alert" hidden></div>
+          <div class="actions">
+            <button id="custDeleteBtn" type="button" class="ghost danger-text">Delete customer</button>
+            <button id="custIssueBtn" type="button" class="ghost">Issue a license</button>
+            <button id="custSaveBtn" type="submit" class="primary">Save</button>
+          </div>
+          <p id="custDeleteHint" class="hint muted right" hidden>Customers with licenses cannot be deleted.</p>
+        </form>
+        <div id="custLicensesCard" class="card">
+          <h2>License history</h2>
+          <div class="table-wrap">
+            <table class="clickable">
+              <thead><tr><th>License ID</th><th>Type</th><th>Issued</th><th>Expires</th><th>Sales</th><th class="num">Amount</th><th>Status</th></tr></thead>
+              <tbody id="custLicBody"></tbody>
+            </table>
+          </div>
+          <p id="custLicEmpty" class="muted" hidden>No licenses yet.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Reports -->
+    <section id="panel-reports" class="panel" role="tabpanel" hidden>
+      <div class="card">
+        <h2>Reports</h2>
+        <div class="filters">
+          <label>Period
+            <select id="repPeriod">
+              <option value="month">Month</option>
+              <option value="quarter">Quarter</option>
+              <option value="year">Year</option>
+              <option value="custom">Date range</option>
+              <option value="all">All time</option>
+            </select>
+          </label>
+          <label id="repDateBox">Containing <input id="repDate" type="date"></label>
+          <label class="repRange" hidden>From <input id="repFrom" type="date"></label>
+          <label class="repRange" hidden>To <input id="repTo" type="date"></label>
+          <label>Sales <select id="repSales"></select></label>
+          <label>Type
+            <select id="repType"><option value="">All</option><option value="paid">Paid</option><option value="trial">Trial</option></select>
+          </label>
+          <label>New / renewal
+            <select id="repKind"><option value="">All</option><option value="new">New</option><option value="renewal">Renewal</option></select>
+          </label>
+        </div>
+        <p id="repRange" class="muted small-text"></p>
+      </div>
+      <div class="card">
+        <div class="row spread">
+          <h2>Summary per sales person</h2>
+          <button id="repSummaryCsv" type="button" class="ghost small">Export CSV</button>
+        </div>
+        <p class="muted small-text">Revoked licenses are never counted. Amounts are summed per currency (no conversion).</p>
+        <div class="table-wrap">
+          <table>
+            <thead id="repSummaryHead"></thead>
+            <tbody id="repSummaryBody"></tbody>
+            <tfoot id="repSummaryFoot"></tfoot>
+          </table>
+        </div>
+        <p id="repSummaryEmpty" class="muted" hidden>No licenses issued in this period.</p>
+      </div>
+      <div class="card">
+        <div class="row spread">
+          <h2>Detail</h2>
+          <div class="row">
+            <label class="check"><input id="repRevoked" type="checkbox"> Show revoked</label>
+            <button id="repDetailCsv" type="button" class="ghost small">Export CSV</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="clickable">
+            <thead><tr><th>License ID</th><th>Customer</th><th>Kind</th><th>Issued</th><th>Expires</th><th>Sales</th><th class="num">Amount</th><th>Order no.</th><th>Status</th></tr></thead>
+            <tbody id="repDetailBody"></tbody>
+          </table>
+        </div>
+        <p id="repDetailEmpty" class="muted" hidden>No licenses in this period.</p>
+      </div>
+    </section>
+
+    <!-- Settings -->
+    <section id="panel-settings" class="panel" role="tabpanel" hidden>
+      <div class="card">
+        <h2>Sales people</h2>
+        <p class="muted small-text">Required when issuing. Deactivated people stay on their licenses but cannot be picked for new ones.</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Name</th><th>Email</th><th class="num">Licenses</th><th>Status</th><th></th></tr></thead>
+            <tbody id="salesBody"></tbody>
+          </table>
+        </div>
+        <form id="salesAddForm" class="row add-row" novalidate autocomplete="off">
+          <input id="salesAddName" type="text" maxlength="100" placeholder="Name" aria-label="New sales person name">
+          <input id="salesAddEmail" type="text" inputmode="email" maxlength="200" placeholder="Email (optional, for the weekly digest)" aria-label="New sales person email">
+          <button type="submit" class="primary">Add</button>
+        </form>
+        <div id="salesMsg" class="banner err" role="alert" hidden></div>
+      </div>
+
+      <div class="card">
+        <div class="row spread">
+          <h2>Plans</h2>
+          <button id="planAddBtn" type="button" class="ghost small">Add plan</button>
+        </div>
+        <p class="muted small-text">A plan fills the term and the amount on the Issue tab. Trial plans: at most 60 days, price 0.</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Name</th><th>Type</th><th>Term</th><th class="num">Price</th><th>Status</th><th></th></tr></thead>
+            <tbody id="plansBody"></tbody>
+          </table>
+        </div>
+        <div id="plansMsg" class="banner err" role="alert" hidden></div>
+      </div>
+
+      <div class="card">
+        <h2>Email</h2>
+        <div id="mailStatus" class="banner" role="status"></div>
+        <dl class="summary" id="mailInfo"></dl>
+        <h3>Test mail</h3>
+        <form id="testMailForm" class="row add-row" novalidate autocomplete="off">
+          <input id="testMailTo" type="text" inputmode="email" maxlength="200" placeholder="Recipient (default MAIL_ADMIN)" aria-label="Test mail recipient">
+          <button type="submit" class="ghost">Send test mail</button>
+        </form>
+        <div id="testMailMsg" class="banner" role="status" hidden></div>
+
+        <form id="mailSettingsForm" novalidate autocomplete="off">
+          <h3>Delivery mail template</h3>
+          <label for="mailSubject">Subject</label>
+          <input id="mailSubject" type="text" maxlength="300" spellcheck="false">
+          <div class="hint err-text" id="err-mailSubject" hidden></div>
+          <label for="mailBody">Body</label>
+          <textarea id="mailBody" rows="10" maxlength="10000" spellcheck="false"></textarea>
+          <div class="hint err-text" id="err-mailBody" hidden></div>
+          <div class="hint muted">Variables: <span id="mailVars"></span></div>
+
+          <h3>Weekly digest</h3>
+          <p class="muted small-text">While the app runs, each active sales person with an email gets their licenses expiring within 90 days; MAIL_ADMIN gets all of them grouped by sales person.</p>
+          <div class="grid">
+            <div class="field">
+              <label for="digestWeekday">Weekday</label>
+              <select id="digestWeekday">
+                <option value="1">Monday</option><option value="2">Tuesday</option><option value="3">Wednesday</option>
+                <option value="4">Thursday</option><option value="5">Friday</option><option value="6">Saturday</option><option value="7">Sunday</option>
+              </select>
+              <div class="hint err-text" id="err-digestWeekday" hidden></div>
+            </div>
+            <div class="field">
+              <label for="digestTime">Time</label>
+              <input id="digestTime" type="time">
+              <div class="hint err-text" id="err-digestTime" hidden></div>
+            </div>
+            <div class="field">
+              <label for="defaultCurrency">Default currency</label>
+              <select id="defaultCurrency"></select>
+              <div class="hint err-text" id="err-defaultCurrency" hidden></div>
+            </div>
+          </div>
+          <div id="digestInfo" class="hint muted"></div>
+          <div id="mailSettingsMsg" class="banner" role="status" hidden></div>
+          <div class="actions">
+            <button id="digestPreviewBtn" type="button" class="ghost">Preview digest</button>
+            <button type="submit" class="primary">Save email settings</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="card">
+        <div class="row spread">
+          <h2>Backups</h2>
+          <button id="backupBtn" type="button" class="primary">Create backup</button>
+        </div>
+        <p class="muted small-text">A copy of the database is saved next to it: <span id="backupDir" class="mono"></span></p>
+        <div id="backupMsg" class="banner" role="status" hidden></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>File</th><th class="num">Size</th><th>Created</th><th></th></tr></thead>
+            <tbody id="backupBody"></tbody>
+          </table>
+        </div>
+        <p id="backupEmpty" class="muted" hidden>No backups yet.</p>
       </div>
     </section>
   </main>
 </div>
 
+<dialog id="dialog" aria-labelledby="dialogTitle">
+  <form id="dialogForm" method="dialog" novalidate autocomplete="off">
+    <h2 id="dialogTitle"></h2>
+    <div id="dialogBody"></div>
+    <div id="dialogMsg" class="banner err" role="alert" hidden></div>
+    <div class="actions">
+      <button id="dialogCancel" type="button" class="ghost">Cancel</button>
+      <button id="dialogOk" type="submit" class="primary">OK</button>
+    </div>
+  </form>
+</dialog>
+
 <script src="dates.js"></script>
-<script src="page.js"></script>
+<script src="contact.js"></script>
+<script src="format.js"></script>
+<script src="ui.js"></script>
+<script src="tab-dashboard.js"></script>
+<script src="tab-issue.js"></script>
+<script src="tab-licenses.js"></script>
+<script src="tab-customers.js"></script>
+<script src="tab-reports.js"></script>
+<script src="tab-settings.js"></script>
+<script src="main.js"></script>
 </body>
 </html>

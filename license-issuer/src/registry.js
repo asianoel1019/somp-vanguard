@@ -1,17 +1,15 @@
-// Registry view for the page (status per row) and the file checks behind a download.
+// Registry view for the page (status per license, from the database) and the file checks behind a download.
 const fs = require('fs');
 const path = require('path');
 const core = require(path.join(__dirname, '..', '..', 'scripts', 'licenseIssuerCore'));
+const { computeStatus, slugify, SOON_DAYS: SOON } = require('./store/rules');
 
-const SOON_DAYS = 30;
+const SOON_DAYS = SOON.paid;
+const FORMAT1_TEXT = '— (format 1, no expiry)';
 
-/** { status, daysLeft }: Format 1 (invalid) | Expired | Expires soon (0-30 days) | Active. */
+/** { status, daysLeft } of a paid license by its expiry text: Format 1 (invalid) | Expired | Expires soon (0-30 days) | Active. */
 function rowStatus(expiresAt, today) {
-    if (!core.isRealDate(expiresAt)) return { status: 'Format 1 (invalid)', daysLeft: null };
-    const daysLeft = core.daysBetween(today, expiresAt);
-    if (daysLeft < 0) return { status: 'Expired', daysLeft };
-    if (daysLeft <= SOON_DAYS) return { status: 'Expires soon', daysLeft };
-    return { status: 'Active', daysLeft };
+    return computeStatus({ format: core.isRealDate(expiresAt) ? 2 : 1, expiresAt: core.isRealDate(expiresAt) ? expiresAt : null, type: 'paid' }, today);
 }
 
 /** Expiry ascending, format-1 rows last, then by ID. */
@@ -20,56 +18,51 @@ function compareRows(a, b) {
     const db = core.isRealDate(b.expiresAt);
     if (da !== db) return da ? -1 : 1;
     if (da && a.expiresAt !== b.expiresAt) return a.expiresAt < b.expiresAt ? -1 : 1;
-    return a.licenseId < b.licenseId ? -1 : a.licenseId > b.licenseId ? 1 : a.line - b.line;
+    return a.licenseId < b.licenseId ? -1 : a.licenseId > b.licenseId ? 1 : (a.line || 0) - (b.line || 0);
 }
 
-/** The registry for the page: { exists, rows (with status/daysLeft/fileName), unreadable, nextId } or { error }. */
-function registryView(file, today) {
-    const r = core.readRegistry(file);
-    if (r.error) return { error: `Cannot read the registry (${r.error.code || r.error.message})` };
-    const { rows, unreadable } = core.parseRegistry(r.text);
-    const out = rows.map((row) => ({ ...row, fileName: path.win32.basename(row.file), ...rowStatus(row.expiresAt, today) })).sort(compareRows);
-    return { exists: r.text !== null, rows: out, unreadable, nextId: core.nextLicenseId(r.text, today.slice(0, 4)) };
-}
-
-/** File name part from a customer name: lowercase ASCII letters, digits and hyphens, at most 40, else "customer". */
-function slugify(customer) {
-    const s = String(customer || '').normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40).replace(/-+$/, '');
-    return s || 'customer';
+/**
+ * The licenses for the page, from the database: { exists (registry copy written), rows, unreadable: [], nextId }.
+ * Rows keep the shape of the earlier Markdown view (licenseId, customer = the name signed into the license, issuedAt,
+ * expiresAt (text for format 1), keyId, file, sha256, signedAt, fileName, status, daysLeft) plus type, sales, revoked.
+ */
+function registryView(store, today) {
+    const rows = store.listLicenses({ sort: 'id' }).map((l) => ({
+        licenseId: l.licenseId, customer: l.licensedTo, issuedAt: l.issuedAt, expiresAt: l.expiresAt || FORMAT1_TEXT, keyId: l.keyId || '',
+        file: l.filePath || '', sha256: l.sha12 || '', signedAt: l.signedAt || '', fileName: l.fileName || '', type: l.type, sales: l.salesName,
+        revoked: !!l.revokedAt, ...computeStatus(l, today),
+    })).sort(compareRows);
+    return { exists: !!store.registryFile && fs.existsSync(store.registryFile), rows, unreadable: [], nextId: store.nextLicenseId(today.slice(0, 4)) };
 }
 
 const isLic = (p) => /\.lic$/i.test(p);
 
 /**
- * The file to download for a license ID: only a file the registry lists (the last row for the ID), that exists, is a
- * .lic, is not the private key and whose SHA-256 still matches the registry. { file, name } or { status, reason }.
+ * The file to download for a license ID: only the file the database records for it, that exists, is a .lic, is not the
+ * private key and whose SHA-256 still matches the recorded one. { file, name, body, license } or { status, reason }.
  */
-function downloadTarget(registryFile, licenseId, keyFile) {
+function downloadTarget(store, licenseId, keyFile) {
     if (!core.ID_PATTERN.test(String(licenseId || ''))) return { status: 404, reason: 'Not a license ID' };
-    const r = core.readRegistry(registryFile);
-    if (r.error) return { status: 409, reason: `Cannot read the registry (${r.error.code || r.error.message})` };
-    const rows = core.parseRegistry(r.text).rows.filter((row) => row.licenseId === licenseId);
-    if (!rows.length) return { status: 404, reason: `${licenseId} is not in the registry` };
-    const row = rows[rows.length - 1];
-    const file = row.file;
-    if (!path.isAbsolute(file) || !isLic(file)) return { status: 409, reason: 'The registry path is not an absolute .lic file path' };
+    const license = store.getLicense(licenseId);
+    if (!license) return { status: 404, reason: `${licenseId} is not in the registry` };
+    const file = license.filePath || '';
+    if (!path.isAbsolute(file) || !isLic(file)) return { status: 409, reason: 'The recorded path is not an absolute .lic file path' };
     const resolved = path.resolve(file);
-    if (keyFile && core.samePath(resolved, keyFile)) return { status: 409, reason: 'The registry path points at the private key' };
+    if (keyFile && core.samePath(resolved, keyFile)) return { status: 409, reason: 'The recorded path points at the private key' };
     let buf;
     try {
         const st = fs.statSync(resolved);
-        if (!st.isFile()) return { status: 409, reason: 'The registry path is not a file' };
+        if (!st.isFile()) return { status: 409, reason: 'The recorded path is not a file' };
         const real = fs.realpathSync(resolved); // a link must not lead somewhere else
-        if (!isLic(real) || (keyFile && core.samePath(real, keyFile))) return { status: 409, reason: 'The registry path links to a file that is not a license' };
+        if (!isLic(real) || (keyFile && core.samePath(real, keyFile))) return { status: 409, reason: 'The recorded path links to a file that is not a license' };
         buf = fs.readFileSync(real);
     } catch (e) {
         return { status: 404, reason: `The license file is missing (${e.code || 'unreadable'}): ${resolved}` };
     }
-    if (core.sha12(buf) !== String(row.sha256).toLowerCase()) {
+    if (core.sha12(buf) !== String(license.sha12 || '').toLowerCase()) {
         return { status: 409, reason: 'The license file does not match the SHA-256 in the registry (changed or replaced)' };
     }
-    return { file: resolved, name: path.basename(resolved), body: buf };
+    return { file: resolved, name: path.basename(resolved), body: buf, license };
 }
 
-module.exports = { SOON_DAYS, rowStatus, compareRows, registryView, slugify, downloadTarget };
+module.exports = { SOON_DAYS, FORMAT1_TEXT, rowStatus, compareRows, registryView, slugify, downloadTarget };

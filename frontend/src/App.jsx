@@ -40,7 +40,7 @@ import { TbLock } from 'react-icons/tb';
 import LockedFeature from './components/Shared/LockedFeature';
 import LicenseExpiryReminder from './components/Shared/LicenseExpiryReminder';
 import ChangePasswordModal from './components/Shared/ChangePasswordModal';
-import { readStoredLicense, storeLicense, isLockedFlag, licenseLabel, LICENSE_EVENT, expiryText, expiryTone, openLicensePage } from './utils/licenseUtils.js';
+import { readStoredLicense, storeLicense, isLockedFlag, licenseLabel, LICENSE_EVENT, expiryText, expiryTone, isTrial, openLicensePage } from './utils/licenseUtils.js';
 
 import DbInventory from './components/Database/DbInventory';
 import SqlTerminal from './components/Database/SqlTerminal';
@@ -654,7 +654,7 @@ function App() {
                 )}
                 {expiryText(license) && (
                   <div style={{ marginBottom: 40, fontSize: 13, fontWeight: 600,
-                    color: expiryTone(license.daysLeft) === 'danger' || license.edition === 'free' ? 'var(--danger, #ef4444)' : expiryTone(license.daysLeft) === 'warning' ? 'var(--warning)' : 'var(--text-secondary)' }}>
+                    color: expiryTone(license.daysLeft, isTrial(license)) === 'danger' || license.edition === 'free' ? 'var(--danger, #ef4444)' : expiryTone(license.daysLeft, isTrial(license)) === 'warning' ? 'var(--warning)' : 'var(--text-secondary)' }}>
                     {license.edition === 'free' ? `License expired on ${license.expiredAt}` : expiryText(license)}
                   </div>
                 )}

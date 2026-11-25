@@ -52,10 +52,10 @@ async function sendMail({ subject, html, text, to }) {
 
 /**
  * One mail whose outcome matters (e.g. a notice to a user): throws MailError when Mail Relay is not configured, there
- * is no recipient or the SMTP server refuses it. Resolves to the server's message id.
+ * is no recipient or the SMTP server refuses it. ignoreLicense skips only the license check (the expiry notice itself). Resolves to the server's message id.
  */
-async function deliverMail({ subject, html, text, to }) {
-    if (!license.channelAllowed('email')) throw new MailError('Email notifications require a paid license');
+async function deliverMail({ subject, html, text, to, ignoreLicense = false }) {
+    if (!ignoreLicense && !license.channelAllowed('email')) throw new MailError('Email notifications require a paid license');
     const r = relay();
     if (!r) throw new MailError('Mail Relay is not configured (MAIL_RELAY_SERVER and MAIL_RELAY_SENDER)');
     if (!to) throw new MailError('No recipient');

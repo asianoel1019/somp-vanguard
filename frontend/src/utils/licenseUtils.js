@@ -50,3 +50,60 @@ export function licenseLabel(license) {
 }
 
 export const isLicenseError = (err) => !!(err && err.response && err.response.data && err.response.data.code === 'LICENSE_REQUIRED');
+
+// Expiry reminders: the SuperAdmin dialog shows once per license and threshold (days left <= 30 / 14 / 7 / 3 / 2 / 1).
+export const REMINDER_DAYS = [30, 14, 7, 3, 2, 1];
+const isDays = (n) => typeof n === 'number' && Number.isFinite(n);
+
+export function expiryTone(daysLeft) {
+    if (!isDays(daysLeft)) return 'normal';
+    if (daysLeft <= 7) return 'danger';
+    return daysLeft <= 30 ? 'warning' : 'normal';
+}
+
+export function expiryText(license) {
+    if (!license) return '';
+    if (license.edition === 'paid' && license.expiresAt) {
+        const n = license.daysLeft;
+        const left = !isDays(n) ? '' : n === 0 ? ' (expires today)' : n === 1 ? ' (1 day left)' : ` (${n} days left)`;
+        return `Expires ${license.expiresAt}${left}`;
+    }
+    if (license.edition === 'free' && license.expiredAt) return `Expired on ${license.expiredAt}`;
+    return '';
+}
+
+// Smallest threshold that is >= daysLeft (null when more than 30 days are left or daysLeft is unknown).
+export function reminderThreshold(daysLeft) {
+    if (!isDays(daysLeft)) return null;
+    const hit = REMINDER_DAYS.filter(d => d >= daysLeft);
+    return hit.length ? Math.min(...hit) : null;
+}
+
+export function reminderKey(license) {
+    if (!license || license.edition !== 'paid' || !license.licenseId) return '';
+    const t = reminderThreshold(license.daysLeft);
+    return t === null ? '' : `somp.licenseReminder:${license.licenseId}:${t}`;
+}
+
+// The SuperAdmin dialog is shown once per browser, license and threshold: the key is kept in localStorage.
+// `storage` is anything with getItem / setItem (localStorage in the app, a stub in tests); errors count as "not shown".
+export function shouldShowReminder(license, storage) {
+    const key = reminderKey(license);
+    if (!key) return false;
+    try { return !storage.getItem(key); } catch { return true; }
+}
+
+export function markReminderShown(license, storage) {
+    const key = reminderKey(license);
+    if (!key) return;
+    try { storage.setItem(key, String(Date.now())); } catch { /* storage unavailable */ }
+}
+
+// "Go to License page": the Settings screen reads the category from sessionStorage when it mounts, and listens for
+// this event when it is already open.
+export const SETTINGS_CATEGORY_EVENT = 'somp:settings-category';
+
+export function openLicensePage() {
+    try { sessionStorage.setItem('somp.settings.category', 'license'); } catch { /* storage unavailable */ }
+    try { window.dispatchEvent(new CustomEvent(SETTINGS_CATEGORY_EVENT, { detail: { category: 'license' } })); } catch { /* no window (tests) */ }
+}

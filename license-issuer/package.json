@@ -1,0 +1,17 @@
+{
+  "name": "license-issuer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local web page for issuing SOMP Vanguard licenses on the signing computer (vendor only, never deployed).",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test \"test/**/*.test.js\""
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "express": "^5.2.1"
+  }
+}

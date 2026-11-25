@@ -42,7 +42,10 @@ $ExcludeList = @(
     ".last_scp_sync",
     "*SCP_to_Prod.ps1*",
     "*Deploy_to_Prod.ps1*",
-    "*Update_Version.ps1*"
+    "*Update_Version.ps1*",
+    "*license_issue*",             # License signing tools stay with the vendor
+    "*license-issuer*",
+    "*license_keygen*"
     # Add any additional files or folders to exclude here, for example:
     # "*.env*",
     # "*database.sqlite*"

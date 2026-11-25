@@ -10,9 +10,10 @@ KEYS[TEST_KEY_ID] = publicKey.export({ type: 'spki', format: 'pem' });
 
 function signLicense(overrides = {}, key = privateKey) {
     const payload = {
-        formatVersion: 1, keyId: TEST_KEY_ID, licenseId: 'L-TEST-0001', customer: 'Example Test Co.',
-        edition: 'paid', issuedAt: '2026-11-16', updatesUntil: null, ...overrides,
+        formatVersion: 2, keyId: TEST_KEY_ID, licenseId: 'L-TEST-0001', customer: 'Example Test Co.',
+        edition: 'paid', issuedAt: '2026-11-16', expiresAt: '2099-12-31', updatesUntil: null, ...overrides,
     };
+    for (const k of Object.keys(payload)) if (payload[k] === undefined) delete payload[k];
     const signature = crypto.sign(null, Buffer.from(canonicalJson(payload)), key).toString('base64');
     return JSON.stringify({ payload, signature }, null, 2);
 }

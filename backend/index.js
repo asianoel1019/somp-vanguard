@@ -507,6 +507,13 @@ initDB().then(async () => {
         console.error('[Startup] License check skipped:', e.message);
     }
 
+    // License expiry reminders (web process only; the worker never starts it)
+    try {
+        require('./services/licenseReminder').start();
+    } catch (e) {
+        console.error('[Startup] License reminder skipped:', e.message);
+    }
+
     // Local accounts: LOCAL_OPERATOR_* / LOCAL_VIEWER_* from .env move into system/local_accounts.json once
     try {
         const localAccounts = require('./lib/localAccounts');

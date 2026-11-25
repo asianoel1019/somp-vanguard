@@ -11,7 +11,7 @@ import { FILE_SERVICES_CATEGORY, resolveCategoryLink } from './fileServicesUtils
 import LicenseSettings from './LicenseSettings';
 import LocalAccounts from './LocalAccounts';
 import LicenseNotice from '../Shared/LicenseNotice';
-import { readStoredLicense, isFree, LICENSE_EVENT } from '../../utils/licenseUtils.js';
+import { readStoredLicense, isFree, LICENSE_EVENT, SETTINGS_CATEGORY_EVENT } from '../../utils/licenseUtils.js';
 import {
     BUILTIN_NOTE, LOCKED_FEATURE_TOOLTIP, isBuiltinMapping, getEditorCategories, isFeatureLocked,
     normalizeEditorFeatures, toggleCategory, listMappings, listAssignableMappings, mappingActions,
@@ -236,6 +236,22 @@ const Settings = ({ mode = 'system' }) => {
         if (valid && pending.tab) setFileServicesTab(pending.tab);
         setError(null);
         setSuccess(null);
+    }, [mode]);
+
+    useEffect(() => {
+        // A deep link while this screen is already open (e.g. "Go to License page"): switch now, and drop the
+        // sessionStorage copy so it does not apply again on the next visit
+        if (mode === 'rbac') return undefined;
+        const onCategory = (e) => {
+            const cat = e.detail && e.detail.category;
+            if (typeof cat !== 'string' || !cat) return; // only sent by openLicensePage (licenseUtils.js)
+            try { sessionStorage.removeItem('somp.settings.category'); } catch { /* storage unavailable */ }
+            setActiveCategory(cat);
+            setError(null);
+            setSuccess(null);
+        };
+        window.addEventListener(SETTINGS_CATEGORY_EVENT, onCategory);
+        return () => window.removeEventListener(SETTINGS_CATEGORY_EVENT, onCategory);
     }, [mode]);
 
     const fetchData = async () => {

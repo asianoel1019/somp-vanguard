@@ -143,6 +143,13 @@
 
 ---
 
+### 12-1. 授權已到期或被拒絕（`License: Free (...)`）
+*   `License: Free (expired on <日期>)`：授權已過到期日，系統自動退回免費版（資料保留、不需重啟）。取得新的授權檔後到 System Settings → License 上傳（立即套用），或放進資料目錄（服務下次啟動時才套用；不想重啟請在 License 頁上傳）；License 頁會顯示 `Expired on <日期>`。
+*   `unsupported format version 1: issue a new license with an expiry date`：這是沒有到期日的舊授權（格式版本 1），此版起不再接受。請向供應商取得帶到期日的新授權（格式版本 2）。
+*   收不到到期提醒：確認 Email（mail relay 與 `MAIL_RELAY_RECIPIENT`）與 Telegram（`TELEGRAM_CHAT_ID`）已設定；未設定的管道會略過並寫 log，全部失敗時下次檢查（每小時）會再試。系統內提醒（SuperAdmin 登入視窗、License 頁、首頁）不受影響。
+
+---
+
 ### 13. 本機帳號無法登入
 *   `Account disabled.`：帳號被停用。請 SuperAdmin 到 RBAC → Local Accounts 按 Enable。
 *   `This account is inactive on the free edition.`：這個帳號是在付費版建立的，系統目前是免費版。套用授權後立即恢復；或以 SuperAdmin 在免費版另建帳號（每個角色限一個）。

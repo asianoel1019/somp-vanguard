@@ -47,6 +47,9 @@ $ExcludeList = @(
     "*SCP_to_Prod.ps1*",
     "*Deploy_to_Prod.ps1*",
     "*Update_Version.ps1*",
+    "*license_issue*",             # License signing tools stay with the vendor
+    "*license-issuer*",
+    "*license_keygen*",
     "*\test\*",                 # Automated tests (backend\test) are not needed in production
     "dist_backup*",             # Local frontend\dist backups
     "docs\superpowers\*"        # Development plans

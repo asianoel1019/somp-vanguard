@@ -33,7 +33,7 @@ test('verifyLicense rejects tampering, unknown keys, bad versions, non-paid edit
     assert.match(lic.verifyLicense(JSON.stringify(sig)).reason, /signature/);
 
     assert.match(lic.verifyLicense(signLicense({ keyId: 'nope' })).reason, /unknown key/);
-    assert.match(lic.verifyLicense(signLicense({ formatVersion: 2 })).reason, /format version/);
+    assert.match(lic.verifyLicense(signLicense({ formatVersion: 3 })).reason, /format version/);
     assert.match(lic.verifyLicense(signLicense({ edition: 'free' })).reason, /not paid/);
     assert.match(lic.verifyLicense(signLicense({ customer: '' })).reason, /missing customer/);
     assert.match(lic.verifyLicense('not json').reason, /JSON/);
@@ -79,7 +79,7 @@ test('installLicense stores only valid licenses; removeLicense returns to free',
     const doc = readDataSync(lic.LICENSE_KEY);
     assert.equal(doc.text, PAID_TEXT);
     assert.equal(doc.uploadedBy, 'boss');
-    assert.match(lic.statusLine(), /^License: Paid \(Example Test Co\., L-TEST-0001\)$/);
+    assert.match(lic.statusLine(), /^License: Paid \(Example Test Co\., L-TEST-0001, expires 2099-12-31, \d+ days left\)$/);
 
     lic.removeLicense('boss');
     assert.equal(lic.isPaid(), false);
@@ -188,6 +188,66 @@ test('importLicenseFile does not replace a newer stored license with an older fi
     assert.equal(r.imported, false);
     assert.match(r.reason, /older than the current license L-TEST-0031/);
     assert.equal(lic.getLicense().licenseId, 'L-TEST-0031');
+});
+
+test('format: only version 2 with a valid expiresAt', () => {
+    assert.equal(lic.verifyLicense(signLicense()).valid, true);
+    assert.equal(lic.verifyLicense(signLicense({ formatVersion: 1 })).reason, 'unsupported format version 1: issue a new license with an expiry date');
+    assert.equal(lic.verifyLicense(signLicense({ formatVersion: 3 })).reason, 'unsupported format version 3');
+    assert.equal(lic.verifyLicense(signLicense({ expiresAt: undefined })).reason, 'missing expiresAt');
+    assert.equal(lic.verifyLicense(signLicense({ expiresAt: '2027-02-30' })).reason, 'invalid expiresAt');
+    assert.equal(lic.verifyLicense(signLicense({ expiresAt: '27-1-1' })).reason, 'invalid expiresAt');
+    assert.equal(lic.verifyLicense(signLicense({ issuedAt: '2027-05-01', expiresAt: '2027-04-30' })).reason, 'invalid expiresAt');
+    // A signed non-string expiresAt must not throw (String(['2027-12-31']) would pass the date pattern).
+    assert.equal(lic.verifyLicense(signLicense({ expiresAt: ['2099-12-31'] })).reason, 'invalid expiresAt');
+    assert.equal(lic.verifyLicense(signLicense({ expiresAt: 20991231 })).reason, 'invalid expiresAt');
+});
+
+test('expiry: valid through the expiry day, free the next day, no reload needed', (t) => {
+    t.after(() => lic._setClockForTest(null));
+    const text = signLicense({ issuedAt: '2027-01-01', expiresAt: '2027-03-10' });
+    writeDataSync(lic.LICENSE_KEY, { text, uploadedAt: 'x', uploadedBy: 'test' });
+    lic._setClockForTest(() => new Date(2027, 2, 9, 12, 0, 0));
+    assert.equal(lic.isPaid(), true);
+    assert.equal(lic.getLicense().daysLeft, 1);
+    assert.equal(lic.getLicense().expiredAt, '', 'paid and free states have the same keys');
+    const paidKeys = Object.keys(lic.getLicense()).sort();
+    assert.match(lic.statusLine(), /^License: Paid \(Example Test Co\., L-TEST-0001, expires 2027-03-10, 1 days left\)$/);
+    lic._setClockForTest(() => new Date(2027, 2, 10, 23, 59, 0));
+    assert.equal(lic.isPaid(), true);
+    assert.equal(lic.getLicense().daysLeft, 0);
+    lic._setClockForTest(() => new Date(2027, 2, 11, 0, 0, 1));
+    assert.equal(lic.isPaid(), false);
+    const s = lic.getLicense();
+    assert.equal(s.reason, 'expired on 2027-03-10');
+    assert.equal(s.expiredAt, '2027-03-10');
+    assert.equal(s.daysLeft, null);
+    assert.deepEqual(Object.keys(s).sort(), paidKeys, 'paid and expired states have the same keys');
+    assert.equal(s.licenseId, 'L-TEST-0001', 'an expired state keeps the id and customer for the notice');
+    assert.ok(lic.lockedFeatures().length > 0);
+});
+
+test('install and folder import refuse version 1 and expired licenses', (t) => {
+    t.after(() => lic._setClockForTest(null));
+    setPaid();
+    assert.equal(lic.installLicense(signLicense({ formatVersion: 1 }), 'boss').ok, false);
+    lic._setClockForTest(() => new Date(2030, 0, 1));
+    assert.equal(lic.installLicense(signLicense({ expiresAt: '2029-12-31' }), 'boss').ok, false);
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'somp-lic-'));
+    setFree();
+    fs.writeFileSync(path.join(dir, 'v1.lic'), signLicense({ formatVersion: 1, licenseId: 'L-TEST-0101', issuedAt: '2029-06-01' }));
+    fs.writeFileSync(path.join(dir, 'v2.lic'), signLicense({ licenseId: 'L-TEST-0102', issuedAt: '2029-01-01', expiresAt: '2031-01-01' }));
+    const r = lic.importLicenseFile(dir);
+    assert.equal(r.licenseId, 'L-TEST-0102');
+    assert.deepEqual(r.invalid.map(f => f.file), ['v1.lic']);
+});
+
+test('daysBetween and today', (t) => {
+    t.after(() => lic._setClockForTest(null));
+    lic._setClockForTest(() => new Date(2027, 11, 31, 8, 0, 0));
+    assert.equal(lic.today(), '2027-12-31');
+    assert.equal(lic.daysBetween('2027-12-31', '2028-01-30'), 30);
+    assert.equal(lic.daysBetween('2028-03-01', '2028-02-28'), -2); // leap year
 });
 
 test('noteSkipped logs once per hour per subject', (t) => {

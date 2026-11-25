@@ -38,8 +38,9 @@ import SFTPManager from './components/ServicePlatform/SFTPManager';
 import ErrorBoundary from './components/ErrorBoundary';
 import { TbLock } from 'react-icons/tb';
 import LockedFeature from './components/Shared/LockedFeature';
+import LicenseExpiryReminder from './components/Shared/LicenseExpiryReminder';
 import ChangePasswordModal from './components/Shared/ChangePasswordModal';
-import { readStoredLicense, storeLicense, isLockedFlag, licenseLabel, LICENSE_EVENT } from './utils/licenseUtils.js';
+import { readStoredLicense, storeLicense, isLockedFlag, licenseLabel, LICENSE_EVENT, expiryText, expiryTone, openLicensePage } from './utils/licenseUtils.js';
 
 import DbInventory from './components/Database/DbInventory';
 import SqlTerminal from './components/Database/SqlTerminal';
@@ -646,10 +647,16 @@ function App() {
                 </p>
                 {licenseLabel(license) && (
                   <div title={license.edition === 'free' ? 'Free edition: paid features are locked' : undefined} style={{
-                    display: 'inline-block', marginBottom: 40, padding: '3px 14px', borderRadius: 999, fontSize: 14, fontWeight: 700,
+                    display: 'inline-block', marginBottom: expiryText(license) ? 12 : 40, padding: '3px 14px', borderRadius: 999, fontSize: 14, fontWeight: 700,
                     color: license.edition === 'free' ? 'var(--warning)' : 'var(--success)',
                     border: `1px solid ${license.edition === 'free' ? 'rgba(245,158,11,0.4)' : 'rgba(16,185,129,0.4)'}`,
                   }}>{license.edition === 'free' ? 'Free edition' : licenseLabel(license)}</div>
+                )}
+                {expiryText(license) && (
+                  <div style={{ marginBottom: 40, fontSize: 13, fontWeight: 600,
+                    color: expiryTone(license.daysLeft) === 'danger' || license.edition === 'free' ? 'var(--danger, #ef4444)' : expiryTone(license.daysLeft) === 'warning' ? 'var(--warning)' : 'var(--text-secondary)' }}>
+                    {license.edition === 'free' ? `License expired on ${license.expiredAt}` : expiryText(license)}
+                  </div>
                 )}
               </div>
             </div>
@@ -657,7 +664,7 @@ function App() {
             <ErrorBoundary key={currentItem?.id}>
               {currentItem && (isLockedFlag(currentItem.flag, license)
                 ? <LockedFeature item={currentItem} canManage={user.role === 'SuperAdmin'} onOpenLicense={() => {
-                    try { sessionStorage.setItem('somp.settings.category', 'license'); } catch { /* storage unavailable */ }
+                    openLicensePage();
                     setActiveView('SYS_SETTINGS');
                   }} />
                 : currentItem.component)}
@@ -784,6 +791,12 @@ function App() {
       {showUserGuideModal && <ReadmeModal onClose={() => setShowUserGuideModal(false)} type="userguide" />}
       {showTroubleshootModal && <ReadmeModal onClose={() => setShowTroubleshootModal(false)} type="troubleshoot" />}
 
+      {user && user.role === 'SuperAdmin' && (
+        <LicenseExpiryReminder license={license} onOpenLicense={() => {
+          openLicensePage();
+          setActiveView('SYS_SETTINGS');
+        }} />
+      )}
       {showChangePwd && <ChangePasswordModal onClose={() => setShowChangePwd(false)} onSignOut={() => { setShowChangePwd(false); handleLogout(); }} />}
 
       {showSettingsDropdown && (

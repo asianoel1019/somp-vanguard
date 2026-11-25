@@ -7,6 +7,9 @@ const fs = require('fs');
 const path = require('path');
 const { readDataSync, writeDataSync } = require('./db');
 const { KEYS } = require('./licenseKeys');
+// Format, signature and expiry rules and the date helpers live in licenseFormat.js (no database), shared with the issuing tools.
+const format = require('./licenseFormat');
+const { canonicalJson, verifyLicense, today, isRealDate, daysBetween } = format;
 
 const LICENSE_KEY = 'system/license.json';
 // adControl covers AD Control and Group Policy; nutanixClone is not an RBAC key, only a license gate for the Nutanix
@@ -16,44 +19,16 @@ const PAID_FEATURES = Object.freeze(['aiAgent', 'workflow', 'scheduler', 'remote
     'networkDevice', 'ipam', 'netSearch', 'dataCenter', 'adControl', 'nutanixClone',
     'monitorScout', 'monitorAlerts', 'monitorWinEvent', 'monitorLinuxLog', 'monitorAgents']);
 const PAID_CHANNELS = Object.freeze(['telegram', 'email', 'webhook']);
-const REQUIRED_FIELDS = ['keyId', 'licenseId', 'customer', 'edition', 'issuedAt'];
 const SKIP_LOG_MS = 60 * 60 * 1000;
 
-/** JSON with object keys sorted at every level: the exact bytes that are signed. */
-function canonicalJson(value) {
-    if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
-    if (value && typeof value === 'object') {
-        return `{${Object.keys(value).sort().map(k => `${JSON.stringify(k)}:${canonicalJson(value[k])}`).join(',')}}`;
-    }
-    return JSON.stringify(value === undefined ? null : value);
-}
+const REMINDER_DAYS = Object.freeze([30, 14, 7, 3, 2, 1]);
+/** Injectable clock for tests: moves the date used by today() / verifyLicense() and clears the cached state. */
+function _setClockForTest(fn) { format._setClockForTest(fn); cache = { text: null, day: null, state: null }; }
 
-const fail = (reason) => ({ valid: false, reason, payload: null });
-
-function verifyLicense(text, keys = KEYS) {
-    let doc;
-    try { doc = JSON.parse(String(text || '')); } catch { return fail('not valid JSON'); }
-    if (!doc || typeof doc !== 'object' || !doc.payload || typeof doc.payload !== 'object' || typeof doc.signature !== 'string') {
-        return fail('missing payload or signature');
-    }
-    const p = doc.payload;
-    if (p.formatVersion !== 1) return fail(`unsupported format version ${p.formatVersion}`);
-    for (const f of REQUIRED_FIELDS) {
-        if (typeof p[f] !== 'string' || !p[f].trim()) return fail(`missing ${f}`);
-    }
-    const pem = Object.prototype.hasOwnProperty.call(keys, p.keyId) ? keys[p.keyId] : null;
-    if (!pem) return fail(`unknown key ${p.keyId}`);
-    let ok = false;
-    try {
-        ok = crypto.verify(null, Buffer.from(canonicalJson(p)), crypto.createPublicKey(pem), Buffer.from(doc.signature, 'base64'));
-    } catch { ok = false; }
-    if (!ok) return fail('signature does not match');
-    if (p.edition !== 'paid') return fail(`edition "${p.edition}" is not paid`);
-    return { valid: true, reason: '', payload: p };
-}
-
-const freeState = (reason) => ({ edition: 'free', customer: '', licenseId: '', issuedAt: '', updatesUntil: null, reason });
-let cache = { text: null, state: null };
+const freeState = (reason, expiredAt = '') => ({
+    edition: 'free', customer: '', licenseId: '', issuedAt: '', expiresAt: '', daysLeft: null, expiredAt, updatesUntil: null, reason,
+});
+let cache = { text: null, day: null, state: null };
 
 function storedText() {
     try {
@@ -62,20 +37,25 @@ function storedText() {
     } catch { return ''; }
 }
 
-/** Current edition; verified again only when the stored text changes. */
+/** Current edition; verified again when the stored text or the local date changes. */
 function getLicense() {
     const text = storedText();
-    if (cache.state && cache.text === text) return cache.state;
+    const day = today();
+    if (cache.state && cache.text === text && cache.day === day) return cache.state;
     let state;
     if (!text) state = freeState('no license');
     else {
-        const r = verifyLicense(text);
-        state = r.valid
-            ? { edition: 'paid', customer: r.payload.customer, licenseId: r.payload.licenseId, issuedAt: r.payload.issuedAt,
-                updatesUntil: r.payload.updatesUntil === undefined ? null : r.payload.updatesUntil, reason: '' }
-            : freeState(r.reason);
+        const r = verifyLicense(text, KEYS, day);
+        if (r.valid) {
+            state = { edition: 'paid', customer: r.payload.customer, licenseId: r.payload.licenseId, issuedAt: r.payload.issuedAt,
+                expiresAt: r.payload.expiresAt, daysLeft: daysBetween(day, r.payload.expiresAt), expiredAt: '',
+                updatesUntil: r.payload.updatesUntil === undefined ? null : r.payload.updatesUntil, reason: '' };
+        } else {
+            state = freeState(r.reason, r.expiredAt || '');
+            if (r.expiredAt) { state.customer = r.payload.customer; state.licenseId = r.payload.licenseId; }
+        }
     }
-    cache = { text, state };
+    cache = { text, day, state };
     return state;
 }
 
@@ -91,7 +71,7 @@ function publicState() {
 
 function statusLine() {
     const l = getLicense();
-    return l.edition === 'paid' ? `License: Paid (${l.customer}, ${l.licenseId})` : `License: Free (${l.reason})`;
+    return l.edition === 'paid' ? `License: Paid (${l.customer}, ${l.licenseId}, expires ${l.expiresAt}, ${l.daysLeft} days left)` : `License: Free (${l.reason})`;
 }
 
 /** Hash of the last license file that was imported (kept across installs and removals); '' when none. */
@@ -177,5 +157,5 @@ function noteSkipped(what) {
 module.exports = {
     LICENSE_KEY, PAID_FEATURES, PAID_CHANNELS, canonicalJson, verifyLicense, getLicense, isPaid, licenseAllows,
     channelAllowed, lockedFeatures, lockedChannels, publicState, statusLine, installLicense, removeLicense,
-    pickLicenseFile, importLicenseFile, noteSkipped,
+    pickLicenseFile, importLicenseFile, noteSkipped, today, daysBetween, isRealDate, REMINDER_DAYS, _setClockForTest,
 };

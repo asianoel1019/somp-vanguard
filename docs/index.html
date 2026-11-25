@@ -355,7 +355,8 @@
             <span style="font-size: 0.75rem; background: #a78bfa26; color: #a78bfa; padding: 2px 8px; border-radius: 10px;">NEW</span>
           </div>
           <ul style="margin: 0; padding-left: 18px; font-size: 0.85rem; color: var(--text-muted); line-height: 1.6;">
-            <li><strong>離線簽章授權檔</strong>：付費授權為供應商以私鑰簽章的 <code>.lic</code> 檔，系統以內建公鑰離線驗證（不需連網），檔案寫明客戶名稱、永久有效。沒有授權、授權被竄改或驗證失敗時一律以免費版運作，資料全部保留，套用授權後立即恢復、不需重啟。</li>
+            <li><strong>離線簽章授權檔</strong>：付費授權為供應商以私鑰簽章的 <code>.lic</code> 檔，系統以內建公鑰離線驗證（不需連網），檔案寫明客戶名稱與到期日。沒有授權、授權被竄改或驗證失敗時一律以免費版運作，資料全部保留，套用授權後立即恢復、不需重啟。</li>
+            <li><strong>授權到期與提醒</strong>：授權帶有到期日（格式版本 2），到期日當天整天有效，隔天起自動退回免費版（資料保留、不需重啟）。到期前 30、14、7、3、2、1 天提醒（SuperAdmin 登入視窗、License 頁、首頁、Email、Telegram），到期當下另發一則通知；續約只要套用新授權。沒有到期日的舊授權（格式版本 1）此版起無效。</li>
             <li><strong>付費功能</strong>：AI Ops Agent、Workflow、Task Scheduler、Remote Command、Server Provision、自動自癒、Network Device、IPAM、NetSearch、Data Center 整組、Monitor 整組（Scout Monitor、Alerts &amp; Rules、Live Event Viewer、Log Settings、Agents，以及 Scout Open API）、AD Control（含 Group Policy）、Nutanix Clone VM，以及往外送通知（Telegram、Email、Webhook）與 AD 帳號登入 / RBAC 對應。免費版的 Scout agent 照常回報資料，套用授權後即可查看歷史。</li>
             <li><strong>本機帳號（RBAC → Local Accounts）</strong>：SuperAdmin 在 RBAC 頁面新增本機 SuperAdmin / Operator / Viewer 帳號；付費版不限數量，免費版每個角色限一個。<code>.env</code> 的 <code>LOCAL_ADMIN_USER</code> / <code>LOCAL_ADMIN_PWD</code> 保留為緊急救援 admin（兩個版本都能登入，不佔額度）；<code>.env</code> 的 operator / viewer 設定會在升級後第一次啟動時自動搬進帳號清單。</li>
             <li><strong>介面</strong>：免費版時付費功能在選單上加鎖並顯示說明頁；System Settings 新增 License 頁（上傳 / 移除授權、檢視付費功能狀態）；首頁「Welcome back」下方顯示 Free edition 或授權標示（Licensed to 客戶名稱）。</li>
@@ -434,6 +435,7 @@
           </div>
           <ul style="margin: 0; padding-left: 18px; font-size: 0.85rem; color: var(--text-muted); line-height: 1.6;">
             <li><strong>升級前先放授權檔</strong>：沒有授權時，升級後會以免費版啟動（AD 帳號無法登入、付費功能與通知關閉）。請在部署前把授權檔放到資料目錄（例如 <code>D:\somp-vanguard\</code>，檔名不限、副檔名 <code>.lic</code>；有多個時採用簽發日最新且有效的那張），服務啟動時自動套用，log 會顯示 <code>License: Paid (...)</code>。忘了放時以 local admin 登入，到 System Settings → License 上傳即可。</li>
+            <li><strong>升級前必須先簽發並放好新授權</strong>：升級到此版前，必須先簽發並放好帶到期日的新授權（格式 2）；舊的授權（格式 1）在此版起無效，未放新授權會以免費版啟動。另外，簽發腳本（<code>license_issue</code>、<code>license_keygen</code>）不會被 Deploy_to_Prod / SCP_to_Prod 推上 Prod；Prod 上若已有這些檔案，需手動刪除（安裝目錄下）：<code>scripts\license_issue.js</code>、<code>scripts\license_keygen.js</code>、<code>scripts\License_Issue.bat</code>、<code>scripts\License_Keygen.bat</code>。</li>
             <li><strong>Deploy_to_Prod</strong>：只複製有變動的檔案（只改前端時不再因 <code>somp-vanguard.exe</code> 被佔用而失敗）；變更含執行檔時會停止服務並等待完全停止；新增 <code>-Backup</code>（部署前備份）與 <code>-Recover</code>（選擇備份還原）。</li>
             <li><strong>維運工具</strong>：<code>Rack_Stats.bat</code>（機櫃規模統計，唯讀）、<code>Cleanup_Orphan_Racks.bat</code>（清理已刪除機房留下的機櫃資料，預設只產生報告）。</li>
           </ul>
@@ -2496,7 +2498,7 @@ node backend/scripts/migrate_all_sqlite_to_db.js --sqlite-dir="D:\somp-vanguard"
         <div id="chapter-11-license" class="doc-section">
           <h3 class="doc-section-title">🔑 11.6 License 授權：免費版 / 付費版（v1.8.0）</h3>
           <p>
-            沒有授權即為免費版。付費授權是供應商簽章的 <code>.lic</code> 檔，系統以內建公鑰離線驗證（不需連網），檔案寫明客戶名稱、永久有效。授權被竄改或驗證失敗時一律以免費版運作；所有資料都會保留，套用授權後立即恢復，不需重啟。
+            沒有授權即為免費版。付費授權是供應商簽章的 <code>.lic</code> 檔，系統以內建公鑰離線驗證（不需連網），檔案寫明客戶名稱與到期日。授權被竄改或驗證失敗時一律以免費版運作；所有資料都會保留，套用授權後立即恢復，不需重啟。
           </p>
           <ul>
             <li><strong>付費功能</strong>：AI Ops Agent、自動化維運（Workflow、Task Scheduler、Remote Command、Server Provision、自動自癒）、Network Device、IPAM、NetSearch、Data Center 整組（機房、機櫃、拓撲、報修、備品、合約）、Monitor 整組（Scout Monitor、Alerts &amp; Rules、Live Event Viewer、Log Settings、Agents，以及 Scout Open API）、AD Control（含 Group Policy）、Nutanix Clone VM，以及往外送通知（Telegram、Email、Webhook）、AD 帳號登入與 RBAC 對應。</li>
@@ -2504,6 +2506,8 @@ node backend/scripts/migrate_all_sqlite_to_db.js --sqlite-dir="D:\somp-vanguard"
             <li><strong>免費版的帳號</strong>：只能以本機帳號登入：緊急救援 admin（<code>LOCAL_ADMIN_USER</code> / <code>LOCAL_ADMIN_PWD</code>）與在 RBAC → Local Accounts 建立的本機帳號，每個角色（SuperAdmin、Operator、Viewer）限一個。付費版建立的帳號在免費版保留但不能登入，也不佔額度，重新套用授權後立即恢復；<code>.env</code> 的 <code>LOCAL_OPERATOR_*</code> / <code>LOCAL_VIEWER_*</code> 會在第一次啟動時自動搬進帳號清單，之後改在 RBAC 頁面管理。</li>
             <li><strong>上傳與移除</strong>：SuperAdmin 到 Settings → License，選擇或貼上授權檔後按「套用授權」；驗證不通過會顯示原因且不會存入。「移除授權」會回到免費版。</li>
             <li><strong>升級前</strong>：把授權檔放到資料目錄（例如 <code>D:\somp-vanguard\</code>），檔名不限、副檔名 <code>.lic</code>；有多個時只採用簽發日最新且驗證有效的那張，無效的會在 log 列出並略過。服務啟動時自動套用（同一份檔案只匯入一次，也不會用較舊的授權蓋掉目前的授權），log 顯示 <code>License: Paid (...)</code>；否則會先以免費版啟動，需以 local admin 登入上傳授權。</li>
+            <li><strong>到期與續約</strong>：授權帶有到期日（格式版本 2），到期日當天整天有效，隔天起自動退回免費版，不需重啟。到期前 30、14、7、3、2、1 天會在 SuperAdmin 登入視窗、License 頁、首頁提醒，並寄 Email（<code>MAIL_RELAY_RECIPIENT</code>）與送 Telegram（<code>TELEGRAM_CHAT_ID</code>），到期當下另發一則通知。續約時由供應商簽發新的授權檔：在 License 頁上傳立即套用；放進資料目錄則在服務下次啟動時套用（不想重啟請在 License 頁上傳）。</li>
+            <li><strong>舊授權失效</strong>：沒有到期日的授權（格式版本 1）此版起不再接受，會顯示 <code>unsupported format version 1: issue a new license with an expiry date</code>。升級到此版前，必須先簽發並放好帶到期日的新授權（格式 2）；舊的授權（格式 1）在此版起無效，未放新授權會以免費版啟動。授權由供應商簽發。</li>
           </ul>
         </div>
       </section>

@@ -160,6 +160,35 @@ async function sendTelegramAlert(message, moduleName = 'System', options = {}) {
         return;
     }
 
+    const { token, chatId } = telegramTarget(options.chatId);
+    if (!token || !chatId) {
+        appendLog(`[${moduleName}] Telegram alert skipped: missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID`);
+        return;
+    }
+
+    // fire and forget, as before: the outcome is only logged
+    telegramPost(message, token, chatId, moduleName);
+}
+
+/**
+ * One Telegram message whose outcome matters: resolves true when Telegram accepted it, false when the channel is not
+ * allowed (unless ignoreLicense), not configured or the send failed. Same token / chat id / transport as sendTelegramAlert.
+ */
+async function sendTelegramChecked(message, { ignoreLicense = false, chatId: chatOverride } = {}) {
+    if (!ignoreLicense) {
+        const license = require('./license');
+        if (!license.channelAllowed('telegram')) { license.noteSkipped('Telegram notification'); return false; }
+    }
+    const { token, chatId } = telegramTarget(chatOverride);
+    if (!token || !chatId) {
+        appendLog('[System] Telegram message skipped: missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID');
+        return false;
+    }
+    return telegramPost(message, token, chatId, 'System');
+}
+
+/** Bot token (decrypted, without the 'bot' prefix) and chat id from the environment (or an explicit chat id). */
+function telegramTarget(chatIdOverride) {
     let token = (process.env.TELEGRAM_BOT_TOKEN || '').trim();
     if (token.startsWith('enc:')) {
         try {
@@ -170,76 +199,119 @@ async function sendTelegramAlert(message, moduleName = 'System', options = {}) {
     if (token.toLowerCase().startsWith('bot')) {
         token = token.substring(3).trim();
     }
-    const chatId = String(options.chatId || process.env.TELEGRAM_CHAT_ID || '').trim();
-    if (!token || !chatId) {
-        appendLog(`[${moduleName}] Telegram alert skipped: missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID`);
-        return;
-    }
+    const chatId = String(chatIdOverride || process.env.TELEGRAM_CHAT_ID || '').trim();
+    return { token, chatId };
+}
 
-    try {
-        // The text travels in a GET query string; cap it so CJK URL-encoding (~9x) stays within URL length limits
-        const tgText = String(message);
-        const tgMessage = tgText.length > TELEGRAM_MAX_CHARS ? safeSlice(tgText, TELEGRAM_MAX_CHARS) + '…（訊息過長已截斷）' : tgText;
-        const urlStr = `https://api.telegram.org/bot${token}/sendMessage?chat_id=${encodeURIComponent(chatId)}&text=${encodeURIComponent(tgMessage)}`;
-        const enabledModules = (process.env.PROXY_ENABLED_MODULES || '').split(',').map(s => s.trim());
-        const proxyUrl = enabledModules.includes('Telegram') ? (global.SYSTEM_PROXY || '').trim() : '';
+/** Hard limit for one Telegram call (proxy CONNECT + TLS + response); the request is destroyed when it runs out. */
+const telegramTiming = { timeoutMs: 15000 };
 
-        if (proxyUrl) {
-            const urlObj = new URL(urlStr);
-            const pObj = new URL(proxyUrl);
-            const req = http.request({
-                host: pObj.hostname,
-                port: pObj.port || 80,
-                method: 'CONNECT',
-                path: `${urlObj.hostname}:443`
-            });
-            req.on('connect', (proxyRes, socket) => {
-                if (proxyRes.statusCode !== 200) {
-                    return appendLog(`[${moduleName}] Telegram proxy failed: HTTP ${proxyRes.statusCode}`);
-                }
-                const tlsSocket = tls.connect({ socket, servername: urlObj.hostname }, () => {
-                    tlsSocket.write(`GET ${urlObj.pathname}${urlObj.search} HTTP/1.1\r\nHost: ${urlObj.hostname}\r\nConnection: close\r\n\r\n`);
+/** The HTTP call (directly or through the proxy); logs the outcome and resolves true only on success. Always settles. */
+function telegramPost(message, token, chatId, moduleName) {
+    return new Promise((resolve) => {
+        let settled = false;
+        const open = []; // requests / sockets to destroy when the call times out
+        let timer = null;
+        const finish = (ok) => {
+            if (settled) return;
+            settled = true;
+            if (timer) clearTimeout(timer);
+            resolve(ok);
+        };
+        timer = setTimeout(() => {
+            if (settled) return;
+            appendLog(`[${moduleName}] Telegram alert timed out after ${telegramTiming.timeoutMs} ms`);
+            finish(false);
+            for (const r of open) { try { if (r && typeof r.destroy === 'function') r.destroy(); } catch (e) {} }
+        }, telegramTiming.timeoutMs);
+        if (timer.unref) timer.unref();
+        const closedEarly = (what) => () => {
+            if (settled) return;
+            appendLog(`[${moduleName}] Telegram alert failed: ${what} closed before a reply`);
+            finish(false);
+        };
+        try {
+            // The text travels in a GET query string; cap it so CJK URL-encoding (~9x) stays within URL length limits
+            const tgText = String(message);
+            const tgMessage = tgText.length > TELEGRAM_MAX_CHARS ? safeSlice(tgText, TELEGRAM_MAX_CHARS) + '…（訊息過長已截斷）' : tgText;
+            const urlStr = `https://api.telegram.org/bot${token}/sendMessage?chat_id=${encodeURIComponent(chatId)}&text=${encodeURIComponent(tgMessage)}`;
+            const enabledModules = (process.env.PROXY_ENABLED_MODULES || '').split(',').map(s => s.trim());
+            const proxyUrl = enabledModules.includes('Telegram') ? (global.SYSTEM_PROXY || '').trim() : '';
+
+            if (proxyUrl) {
+                const urlObj = new URL(urlStr);
+                const pObj = new URL(proxyUrl);
+                const req = http.request({
+                    host: pObj.hostname,
+                    port: pObj.port || 80,
+                    method: 'CONNECT',
+                    path: `${urlObj.hostname}:443`
                 });
-                let data = '';
-                tlsSocket.on('data', chunk => data += chunk.toString());
-                tlsSocket.on('end', () => {
-                    const statusLine = data.split('\r\n')[0] || '';
-                    const is200 = statusLine.includes(' 200 ');
-                    const bodyIndex = data.indexOf('\r\n\r\n');
-                    const bodyStr = bodyIndex !== -1 ? data.slice(bodyIndex + 4) : data;
-                    let parsedOk = false;
-                    try {
-                        const json = JSON.parse(bodyStr);
-                        if (json && json.ok === true) parsedOk = true;
-                    } catch(e) {}
-
-                    if (is200 && parsedOk) {
-                        appendLog(`[${moduleName}] Telegram alert sent (via Proxy)`);
-                    } else {
-                        appendLog(`[${moduleName}] Telegram alert failed (via Proxy): ${statusLine} - ${bodyStr.trim()}`);
+                open.push(req);
+                req.on('connect', (proxyRes, socket) => {
+                    open.push(socket);
+                    if (proxyRes.statusCode !== 200) {
+                        appendLog(`[${moduleName}] Telegram proxy failed: HTTP ${proxyRes.statusCode}`);
+                        socket.destroy();
+                        return finish(false);
                     }
+                    const tlsSocket = tls.connect({ socket, servername: urlObj.hostname }, () => {
+                        tlsSocket.write(`GET ${urlObj.pathname}${urlObj.search} HTTP/1.1\r\nHost: ${urlObj.hostname}\r\nConnection: close\r\n\r\n`);
+                    });
+                    open.push(tlsSocket);
+                    let data = '';
+                    tlsSocket.on('data', chunk => data += chunk.toString());
+                    tlsSocket.on('end', () => {
+                        const statusLine = data.split('\r\n')[0] || '';
+                        const is200 = statusLine.includes(' 200 ');
+                        const bodyIndex = data.indexOf('\r\n\r\n');
+                        const bodyStr = bodyIndex !== -1 ? data.slice(bodyIndex + 4) : data;
+                        let parsedOk = false;
+                        try {
+                            const json = JSON.parse(bodyStr);
+                            if (json && json.ok === true) parsedOk = true;
+                        } catch(e) {}
+
+                        if (is200 && parsedOk) {
+                            appendLog(`[${moduleName}] Telegram alert sent (via Proxy)`);
+                            finish(true);
+                        } else {
+                            appendLog(`[${moduleName}] Telegram alert failed (via Proxy): ${statusLine} - ${bodyStr.trim()}`);
+                            finish(false);
+                        }
+                    });
+                    tlsSocket.on('error', e => { appendLog(`[${moduleName}] Telegram TLS error: ${e.message}`); finish(false); });
+                    tlsSocket.on('close', closedEarly('proxy TLS connection'));
+                }).on('error', e => { appendLog(`[${moduleName}] Telegram proxy network error: ${e.message}`); finish(false); });
+                req.end();
+            } else {
+                const req = https.get(urlStr, (res) => {
+                    open.push(res);
+                    let data = '';
+                    res.on('data', chunk => data += chunk);
+                    res.on('end', () => {
+                        if (res.statusCode >= 200 && res.statusCode < 300) {
+                            appendLog(`[${moduleName}] Telegram alert sent`);
+                            finish(true);
+                        } else {
+                            appendLog(`[${moduleName}] Telegram alert failed: HTTP ${res.statusCode} - ${data}`);
+                            finish(false);
+                        }
+                    });
+                    res.on('error', (e) => { appendLog(`[${moduleName}] Telegram alert network error: ${e.message}`); finish(false); });
+                    res.on('close', closedEarly('response'));
                 });
-                tlsSocket.on('error', e => appendLog(`[${moduleName}] Telegram TLS error: ${e.message}`));
-            }).on('error', e => appendLog(`[${moduleName}] Telegram proxy network error: ${e.message}`));
-            req.end();
-        } else {
-            https.get(urlStr, (res) => {
-                let data = '';
-                res.on('data', chunk => data += chunk);
-                res.on('end', () => {
-                    if (res.statusCode >= 200 && res.statusCode < 300) {
-                        appendLog(`[${moduleName}] Telegram alert sent`);
-                    } else {
-                        appendLog(`[${moduleName}] Telegram alert failed: HTTP ${res.statusCode} - ${data}`);
-                    }
+                open.push(req);
+                req.on('error', (e) => {
+                    appendLog(`[${moduleName}] Telegram alert network error: ${e.message}`);
+                    finish(false);
                 });
-            }).on('error', (e) => {
-                appendLog(`[${moduleName}] Telegram alert network error: ${e.message}`);
-            });
+            }
+        } catch (e) {
+            appendLog(`[${moduleName}] Telegram alert exception: ${e.message}`);
+            finish(false);
         }
-    } catch (e) {
-        appendLog(`[${moduleName}] Telegram alert exception: ${e.message}`);
-    }
+    });
 }
 
 const MODULE_TO_FLAG = {
@@ -556,6 +628,7 @@ module.exports = {
     isLoggingEnabledForModule,
     auditRetentionDays,
     sendTelegramAlert,
+    sendTelegramChecked,
     sendTelegramToChat,
     auditLog,
     batchAuditLog,
@@ -564,6 +637,7 @@ module.exports = {
     summarizeLines,
     flushAllNotifyBatches,
     notifyBatchTiming,
+    telegramTiming,
     startLogRotation,
     getTodayLogFile,
     getLocaleTimestamp,
